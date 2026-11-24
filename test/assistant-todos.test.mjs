@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ASSISTANT_FREE_SECTION, ASSISTANT_TODOS_PATH, ASSISTANT_TOOLS, STATUS_SECTION, TODO_LIMITS, TODO_NUDGE, TODO_SECTION, TODO_TOOLS, TODO_WORK_TOOLS, assistantFreeTool, installAssistant, installAssistantTodos, todoContext, todoList, todoStore } from '../index.js';
+import { ASSISTANT_FREE_SECTION, ASSISTANT_TODOS_PATH, ASSISTANT_TOOLS, STATUS_SECTION, TODO_LIMITS, TODO_NUDGE, TODO_SECTION, TODO_TOOLS, TODO_USER_SOFT_LIMIT, TODO_WORK_TOOLS, assistantFreeTool, installAssistant, installAssistantTodos, todoContext, todoList, todoStore } from '../index.js';
 
 // The list logic.
 let r = todoList.add([], { text: '  Prosolocal\'i   internete açmak ' }, { id: 'aaaaaaaa', now: 5 });
@@ -176,7 +176,16 @@ assert.equal(ctxEntry.text({ agent: assistantAgent }), '', 'no context for an em
 // The to-do nudge: a turn of the assistant that started work (subagent, subagent_fork, chat_new, schedule_create) and did
 // not change the list puts one line into the next runtime context, once; a turn with a list change does not.
 assert.match(TODO_SECTION, /Each time that you start work for the user \(subagent, subagent_fork, chat_new, schedule_create\), add an item of owner "agent"/);
-assert.match(TODO_SECTION, /Each step that the user must do \(an approval sentence, a manual action, a restart/);
+assert.match(TODO_SECTION, /Each step that the user must do gets an item of owner "user": an approval that waits starts with "Onay:"[^\n]*another step \(a manual action, a restart\) with "Senden:"/);
+// Damon card stack: the marks of the cards, a live error is a "Sorun:" item, a finished task goes to the Done today card
+// (not the chat), and news is only `[quiet]` unless it brings a new approval or a new live error.
+assert.match(TODO_SECTION, /An error or a risk on a live system gets an item of owner "agent" that starts with "Sorun:"/);
+assert.match(TODO_SECTION, /a task that ended shows in the Done today card, so do not write it in the chat/);
+assert.doesNotMatch(TODO_SECTION, /tell the user in one line/, 'no chat line for a finished task');
+assert.match(STATUS_SECTION, /News rule[^\n]*do not write it in the chat\. Update the to-do list[^\n]*reply with only `\[quiet\]`[^\n]*Write one line in the chat only when the news brings a new approval[^\n]*or a new error or risk on a live system/);
+assert.match(STATUS_SECTION, /its Approve button is in this card, not under your answer/);
+// Phase 2: the decision queue's choice is Option picks' list (a bold "Seçenekler:" line and a numbered list).
+assert.match(STATUS_SECTION, /decision queue[^\n]*bold line "Seçenekler:" \(English: "Options:"\) and a numbered list of 2 to 9 short items/);
 {
   const event = (session, e) => { for (const fn of listeners.get('session/event') ?? []) fn(session, e); };
   const turn = (session, names) => { event(session, { type: 'turn/start' }); for (const name of names) event(session, { type: 'tool/call', data: { name, callId: name } }); event(session, { type: 'turn/end', data: { reason: { kind: 'completed' } } }); };
@@ -266,6 +275,34 @@ await assert.rejects(tool('todo_list_remove').execute({ id: 'ffffffff', reason: 
 await assert.rejects(tool('todo_list_remove').execute({ id: items[2].id, reason: '' }, { agent: assistantAgent }), (e) => e.status === 400, 'a reason is needed');
 assert.match(await tool('todo_list_remove').execute({ id: items[2].id, reason: 'completed' }, { agent: assistantAgent }), /^Removed [0-9a-f]{8} \(completed\): "Rapor yaz"/);
 assert.equal((await call('GET', undefined, '?sessionId=s-a')).body.items.length, 2);
+
+// Notes in the result of todo_list_add (a note only, the add is never refused): a long list of the user, items with the
+// same quoted name. The text before the note stays the same.
+{
+  const add = (args) => tool('todo_list_add').execute(args, { agent: assistantAgent });
+  const before = todos.store.of('s-a').map((i) => i.id); // 2 items of the user
+  await todos.store.change('s-a', (list) => ({ list: [...list, ...Array.from({ length: TODO_USER_SOFT_LIMIT - 3 }, (_, n) => ({ id: `0000000${n.toString(16)}`.slice(-8), text: `dolgu ${n}`, owner: 'user', created: n }))] })); // 19 items of the user
+  const twenty = await add({ text: 'Yirminci madde' });
+  assert.match(twenty, /^Added [0-9a-f]{8} \(owner user\): "Yirminci madde"$/, '20 items of the user: no note');
+  const twentyOne = await add({ text: 'Yirmi birinci madde' });
+  assert.match(twentyOne, /^Added [0-9a-f]{8} \(owner user\): "Yirmi birinci madde" Note: the user's part of the list has 21 items \(soft limit 20\)\. The user cannot follow a long list: merge items about the same subject and remove done or old items\.$/, '21 items of the user: the note');
+  assert.equal(todos.store.of('s-a').length, 21, 'the add was not refused');
+  assert.doesNotMatch(await add({ text: 'Ajan işi', owner: 'agent' }), /Note:/, 'an item of the agent: no length note');
+  assert.doesNotMatch(await add({ text: 'Yirmi birinci madde' }), /Note:/, 'the same text again is not a new item: no length note');
+  // The same quoted name (any owner, case-insensitive, Turkish locale): the ids, at most 5.
+  const first = await add({ text: 'Otomasyon "Asistanı İyileştir" planı', owner: 'agent' });
+  assert.doesNotMatch(first, /Items with the same subject/, 'no other item has the name');
+  const firstId = first.match(/^Added ([0-9a-f]{8})/)[1];
+  assert.match(await add({ text: 'Test: “ASİSTANI iyileştir” bitti mi' , owner: 'agent' }), new RegExp(`\\(owner agent\\): .* Items with the same subject: ${firstId}\\. Merge them into one item\\.$`), 'a typographic quote matches a straight quote');
+  assert.doesNotMatch(await add({ text: 'Konu "abc" kısa', owner: 'agent' }), /same subject/, 'a quote under 4 characters is not a name');
+  assert.doesNotMatch(await add({ text: 'Konu "abc" kısa 2', owner: 'agent' }), /same subject/);
+  assert.doesNotMatch(await add({ text: 'Asistanı iyileştir', owner: 'agent' }), /same subject/, 'no quote: no similar note');
+  for (let n = 0; n < 6; n++) await add({ text: `Ek ${n} "Çok Tekrar"`, owner: 'agent' });
+  const many = (await add({ text: 'Son "çok tekrar"', owner: 'agent' })).match(/same subject: ([^.]*)\./)[1].split(', ');
+  assert.equal(many.length, 5, 'at most 5 ids');
+  await todos.store.change('s-a', (list) => ({ list: list.filter((i) => before.includes(i.id)) }));
+  assert.equal(todos.store.of('s-a').length, 2, 'the list is back');
+}
 
 // The route has no hand over: → only writes in the composer (client), so the Host sends nothing and changes no owner.
 items = (await call('GET', undefined, '?sessionId=s-a')).body.items;

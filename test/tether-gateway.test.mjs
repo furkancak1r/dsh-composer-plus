@@ -60,10 +60,14 @@ async function mockDsh() {
   return m
 }
 
+// The test gateway listens on 127.0.0.1, where its clients connect. Without `bind` it listens on [::]:0, and macOS can then
+// give it a port that another server (the mock dsh, any local app) already holds on 127.0.0.1: the more specific socket wins,
+// so a TLS client gets a plain HTTP answer (ERR_SSL_WRONG_VERSION_NUMBER). A network change test sets its own `bind`.
+const loopback = netInfo => () => { const n = netInfo(); return n && { bind: '127.0.0.1', ...n } }
 async function setup(extra = {}) {
   const dsh = await mockDsh()
   const dir = extra.dir ?? mkdtempSync(join(tmpdir(), 'dshm-'))
-  const gw = createGateway({ dir, upstreamUrl: () => dsh.url, port: 0, qr: false, bonjour: false, notify: false, tailscale: { installed: false, online: false, ip: null, name: null }, netInfo: () => ({ address: '127.0.0.1', netmask: '255.0.0.0' }), ...extra })
+  const gw = createGateway({ dir, upstreamUrl: () => dsh.url, port: 0, qr: false, bonjour: false, notify: false, tailscale: { installed: false, online: false, ip: null, name: null }, ...extra, netInfo: loopback(extra.netInfo ?? (() => ({ address: '127.0.0.1', netmask: '255.0.0.0' }))) })
   await gw.start()
   return { gw, dsh, dir, done: async () => { await gw.close(); dsh.close() } }
 }
@@ -164,6 +168,16 @@ test('the Mac name goes into the QR, /pair and /me, so the phone can tell Macs a
     assert.equal((await call(t.gw, 'GET', '/me', undefined, { authorization: 'Bearer ' + d.token })).json.mac, 'Office Mac')
     assert.equal(t.gw.state().mac, 'Office Mac')
   } finally { await t.done() }
+})
+
+test('/me gives the Composer Plus language that the Host knows, only as a locale id', async () => {
+  for (const [lang, want] of [[() => 'tr', 'tr'], [() => 'pt-BR', 'pt-BR'], [() => undefined, undefined], [() => 'x; rm -rf', undefined], [() => { throw new Error('x') }, undefined], [undefined, undefined]]) {
+    const t = await setup({ lang })
+    try {
+      const d = await pairDevice(t.gw)
+      assert.equal((await call(t.gw, 'GET', '/me', undefined, { authorization: 'Bearer ' + d.token })).json.lang, want)
+    } finally { await t.done() }
+  }
 })
 
 test('pairing gives a token; only its hash is stored; auth works', async () => {
@@ -382,6 +396,17 @@ test('composer-plus routes: allowlisted methods pass with the query or body; swi
     assert.deepEqual(t.dsh.plus.at(-1), { method: 'POST', url: '/api/composer-plus.side-chat', body: JSON.stringify({ sessionId: 's', text: 'Why?' }), type: 'application/json' })
     await call(t.gw, 'GET', '/plus/side-chat?sessionId=side1', undefined, auth)
     assert.deepEqual(t.dsh.plus.at(-1), { method: 'GET', url: '/api/composer-plus.side-chat?sessionId=side1', body: '', type: null })
+    // Damon's status panel: the phone reads the same answer as the web panel (the query, with lang, goes as it is). It is
+    // read only: no remove, no Get summary and no switch from the phone.
+    await call(t.gw, 'GET', '/plus/assistant-todos?sessionId=s&lang=tr', undefined, auth)
+    assert.deepEqual(t.dsh.plus.at(-1), { method: 'GET', url: '/api/composer-plus.assistant-todos?sessionId=s&lang=tr', body: '', type: null })
+    await call(t.gw, 'GET', '/plus/assistant-todos?sessionId=s&project=w1', undefined, auth)
+    assert.equal(t.dsh.plus.at(-1).url, '/api/composer-plus.assistant-todos?sessionId=s&project=w1', 'one project\'s git details')
+    const todoSeen = t.dsh.plus.length
+    for (const b of [{ sessionId: 's', id: 'abcd1234', action: 'remove' }, { sessionId: 's', action: 'summary' }, { on: false }]) {
+      assert.equal((await call(t.gw, 'POST', '/plus/assistant-todos', b, auth)).status, 403, JSON.stringify(b))
+    }
+    assert.equal(t.dsh.plus.length, todoSeen, 'a POST never reaches dsh')
     // An older plugin without the route: its 404 reaches the phone, which hides the feature.
     assert.equal((await call(t.gw, 'GET', '/plus/changes?sessionId=s', undefined, auth)).status, 404)
     const seen = t.dsh.plus.length
@@ -757,7 +782,7 @@ test('brute force: repeated bad auth blocks the IP', async () => {
 
 test('token: renews when half-expired, rejects when expired', async () => {
   const t = await setup()
-  const opts = { dir: t.dir, upstreamUrl: () => t.dsh.url, port: 0, qr: false, bonjour: false, notify: false, tailscale: { installed: false, online: false, ip: null, name: null }, netInfo: () => ({ address: '127.0.0.1', netmask: '255.0.0.0' }) }
+  const opts = { dir: t.dir, upstreamUrl: () => t.dsh.url, port: 0, qr: false, bonjour: false, notify: false, tailscale: { installed: false, online: false, ip: null, name: null }, netInfo: loopback(() => ({ address: '127.0.0.1', netmask: '255.0.0.0' })) }
   const { token, deviceId } = await pairDevice(t.gw)
   await t.gw.close()
   const file = join(t.dir, 'devices.json')

@@ -14,16 +14,17 @@
 //   in the chat's next step (the owner, 2026-11-13: blocks of 1092 to 1439 characters showed no button).
 import assert from 'node:assert/strict'; import { readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises'; import { tmpdir } from 'node:os'; import { join } from 'node:path';
-import { APPROVE_PATH, APPROVE_SECTION, APPROVAL_DUR as HOST_DUR, APPROVAL_HOLD as HOST_HOLD, APPROVAL_LIVE_WORD as HOST_LIVE, APPROVAL_MAX as HOST_MAX, APPROVAL_SCOPE_OFF as HOST_SCOPE, DEPLOY_ASK as HOST_ASK, DEPLOY_LINE as HOST_LINE, approveLongNote, approveRuleNote, installApproveButton } from '../index.js';
+import { APPROVE_PATH, APPROVE_SECTION, apply as hostApply, APPROVAL_DUR as HOST_DUR, APPROVAL_HOLD as HOST_HOLD, APPROVAL_LIVE_WORD as HOST_LIVE, APPROVAL_MAX as HOST_MAX, APPROVAL_REVOKE as HOST_REVOKE, APPROVAL_REVOKE_LIVE as HOST_REVOKE_LIVE, APPROVAL_SCOPE_OFF as HOST_SCOPE, DEPLOY_ASK as HOST_ASK, DEPLOY_LINE as HOST_LINE, approveLongNote, approveRuleNote, approveSection, deployProductsOf, installApproveButton, isDeployLine } from '../index.js';
 const src = readFileSync(new URL('../client.js', import.meta.url), 'utf8');
 const mem = new Map(); globalThis.localStorage = { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, String(v)) };
 let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } } };
 const ANCHOR = '/** Feature switches, in Settings order.';
 assert.ok(src.includes(ANCHOR));
-eval(src.replace(ANCHOR, `globalThis.__ap = { parseApprovals, parseOptions, ApproveButtons, OptionPicks, createOptionPicks, createRollbackCheck, chatOffer, APPROVAL_MAX, onayMarks, markOnayBlocks, ONAY_CSS, OnayCodeBlocks, APPROVAL_HOLD, APPROVAL_DUR, APPROVAL_SCOPE_OFF, APPROVAL_LIVE_WORD, DEPLOY_ASK, DEPLOY_LINE };\n    ${ANCHOR}`));
+eval(src.replace(ANCHOR, `globalThis.__ap = { parseApprovals, parseOptions, ApproveButtons, OptionPicks, createOptionPicks, createRollbackCheck, chatOffer, APPROVAL_MAX, onayMarks, markOnayBlocks, ONAY_CSS, OnayCodeBlocks, createCardOffers, CardChoices, StatusPanel, createTodos, APPROVAL_HOLD, APPROVAL_DUR, APPROVAL_REVOKE, APPROVAL_REVOKE_LIVE, APPROVAL_SCOPE_OFF, APPROVAL_LIVE_WORD, DEPLOY_ASK, DEPLOY_LINE, setDeployProducts };\n    ${ANCHOR}`));
 let cur;
 const React = { Fragment: 'F', createElement: (t, p, ...c) => ({ t, p: p ?? {}, c }),
-  useState: (v) => { const i = cur.si++; const s = cur.state; if (!(i in s)) s[i] = v; return [s[i], (x) => { s[i] = typeof x === 'function' ? x(s[i]) : x; }]; },
+  useState: (v) => { const i = cur.si++; const s = cur.state; if (!(i in s)) s[i] = typeof v === 'function' ? v() : v; // React's lazy initial state
+    return [s[i], (x) => { s[i] = typeof x === 'function' ? x(s[i]) : x; }]; },
   useRef: (v) => { const i = cur.ri++; return cur.refs[i] ??= { current: v }; },
   useSyncExternalStore: (sub, get) => get(), useLayoutEffect: () => {},
   useEffect: (f, deps) => {
@@ -36,7 +37,7 @@ const mount = (C, props) => {
   return { render: () => { cur = inst; inst.si = 0; inst.ri = 0; inst.ei = 0; return C(props); }, unmount: () => { for (const c of inst.cleanups) c?.(); } };
 };
 const plugin = mod.factory((n) => (n === 'react' ? React : n === 'react-dom' ? { createPortal: (el, host) => ({ portal: el, host }) } : {}));
-const { parseApprovals, parseOptions, ApproveButtons, OptionPicks, createOptionPicks, createRollbackCheck, chatOffer, APPROVAL_MAX, onayMarks, markOnayBlocks, ONAY_CSS, OnayCodeBlocks } = globalThis.__ap;
+const { parseApprovals, parseOptions, ApproveButtons, OptionPicks, createOptionPicks, createRollbackCheck, chatOffer, APPROVAL_MAX, onayMarks, markOnayBlocks, ONAY_CSS, OnayCodeBlocks, createCardOffers, StatusPanel, createTodos } = globalThis.__ap;
 
 // --- parseApprovals ---
 const sentences = (text) => parseApprovals(text).map((a) => a.message);
@@ -149,7 +150,56 @@ const HELD = [
   ["Onaylıyorum: ayar değişsin (canlı değil, kod deploy'u yok).", "deploy'u yok"],
   ['Onaylıyorum: kur, hata açıksa dur.', 'açıksa dur'], ['Onaylıyorum: kur, dosya eksikse dur.', 'eksikse dur'], ['Onaylıyorum: test bozuksa dur.', 'bozuksa dur'],
   ['Onaylıyorum: sorun çıkmışsa durdur.', 'çıkmışsa durdur'], ['Onaylıyorum: sağlık kontrolü başarısızsa durdur.', 'başarısızsa durdur'],
+  // 2026-11-18 12:15: Auto review's STOP list read "denemesin" in a clicked block without a live word as a possible revoke
+  // and denied a push. Its clear negative forms count in every block (also "onayı geri al", and "etme" or "yapma" at the
+  // end of a clause); a word of the fixed APPROVAL_REVOKE_LIVE list at the end of a clause only in a live block.
+  ['Onaylıyorum: acme-sync dalı push edilsin, reddedilen adımları yeniden denemesin.', 'denemesin'],
+  ['Onaylıyorum: testler çalışsın, ajan merge yapmasın.', 'yapmasın'], ['Onaylıyorum: canlı ayar değişsin, mail gönderme.', 'gönderme'],
+  ['Onaylıyorum: testler çalışsın, önceki onayımı geri alıyorum.', 'onayımı geri alıyorum'], ['Onaylıyorum: canlı ayar değişsin, veri kaybı yok.', 'yok'],
+  ['Onaylıyorum: canlı sunucu ayarı eski haliyle kalsın.', 'kalsın'], ['Onaylıyorum: canlı ayar değişsin, eski servisi bırak.', 'bırak'],
+  // Review of 41228c7: a clear stop at the end of a sentence in a not-live block, a -mA stop before a comma or a
+  // semicolon in a live block, and the revoke forms of "onay".
+  ["Onaylıyorum (canlı değil): main'e alınsın, push etme.", 'etme'], ['Onaylıyorum: PR açılsın, merge etme.', 'etme'],
+  ['Onaylıyorum (canlı değil): testler çalışsın, merge yapma.', 'yapma'],
+  ['Onaylıyorum: canlı servis güncellensin, eski servisi silme, yedek al.', 'silme'], ['Onaylıyorum: canlı ayar değişsin; eski servisi silme; yedek al.', 'silme'],
+  ['Onaylıyorum: testler çalışsın, onayımı geri çektim.', 'onayımı geri çektim'], ['Onaylıyorum: testler çalışsın, onayı geri al.', 'onayı geri al'],
+  // Review of c4a1d89: ")" and "…" end a clause; "etme" or "yapma" before "," or ";" in any block; the fixed live list
+  // has durdurma, "geri alma" and "geri çekme".
+  ["Onaylıyorum (canlı değil): main'e alınsın (push etme).", 'etme'], ['Onaylıyorum: canlı servis güncellensin (eski servisi silme).', 'silme'],
+  ['Onaylıyorum: canlı servis güncellensin, eski servisi silme…', 'silme'], ['Onaylıyorum: PR açılsın, merge etme, testleri çalıştır.', 'etme'],
+  ['Onaylıyorum (canlı değil): testler çalışsın; merge yapma; rapor yazılsın.', 'yapma'],
+  ['Onaylıyorum: canlı servis güncellensin, eski servisi durdurma.', 'durdurma'], ['Onaylıyorum: canlı servis güncellensin, sorun çıkarsa geri alma.', 'geri alma'],
+  ['Onaylıyorum: canlı servis güncellensin, eski sürümü geri çekme.', 'geri çekme'],
+  // Review of 85fe27f: "—" and "–" end a clause too.
+  ["Onaylıyorum (canlı değil): main'e alınsın, push etme — yalnız yerel test.", 'etme'], ['Onaylıyorum: canlı servis güncellensin, eski servisi silme — yedek al.', 'silme'],
+  ["Onaylıyorum (canlı değil): main'e alınsın, push etme…", 'etme'],
 ];
+// A -mA noun, a list item, "geri al" as a task, "-masın diye", and "kalsın" or "yok" in a block without a live word keep
+// the button (they had it before the revoke list; reviews of 2026-11-19).
+const NOUNS = ["Onaylıyorum (canlı değil): Tur geri alma düzeltmesi main'e alınsın.", "Onaylıyorum (canlı değil): yeniden başlatma uyarısı düzeltmesi main'e alınsın.",
+  "Onaylıyorum (canlı değil): eski yedek silme betiği main'e alınsın.", "Onaylıyorum (canlı değil): mail gönderme düzeltmesi main'e alınsın.",
+  'Onaylıyorum (canlı değil): sürüm etiketi atma adımı eklensin.', 'Onaylıyorum (canlı değil): hatalı commit geri alınsın ve push edilsin.',
+  'Onaylıyorum (canlı değil): dal silinsin, geçici klasör kalsın.', 'Onaylıyorum: dal push edilsin, açık iş yok.',
+  'Onaylıyorum (canlı değil): hatalı commit geri alınsın.', 'Onaylıyorum (canlı değil): son commit geri alınsın, dal push edilsin.',
+  "Onaylıyorum (canlı değil): Tur geri alma, yeniden başlatma uyarısı ve mail gönderme düzeltmeleri main'e alınsın.",
+  "Onaylıyorum (canlı değil): şu düzeltmeler main'e alınsın: yedek silme, mail gönderme.", 'Onaylıyorum (canlı değil): PR taslak olarak bırak.',
+  'Onaylıyorum (canlı değil): veri kaybı olmasın diye önce yedek alınsın.',
+  // "geri al" after "Onaylıyorum" or "onay"/"onaylar" is a task, not a revoke (review of 41228c7).
+  "Onaylıyorum geri alma düzeltmesi main'e alınsın.", "Onaylıyorum (canlı değil): onay geri alma düzeltmesi main'e alınsın.",
+  'Onaylıyorum (canlı değil): onaylar geri alınınca liste yenilensin.',
+  // The noun "geri alma" after "onayı"/"onayımı" is a feature, not a revoke (review of c4a1d89).
+  "Onaylıyorum (canlı değil): onayı geri alma düzeltmesi main'e alınsın.", 'Onaylıyorum (canlı değil): onayımı geri alma özelliği eklensin.'];
+for (const s of NOUNS) { assert.deepEqual(sentences(block(s)), [s], `a noun or a task keeps the button: ${s}`); assert.equal(approveRuleNote(s), undefined, `no note: ${s}`); }
+// "canlı … yok" is in the gate's HOLD list (APPROVAL_HOLD), also before the revoke list: no button.
+assert.deepEqual(sentences(block("Onaylıyorum (canlı değil): README düzeltmesi main'e alınsın, canlı etkisi yok.")), [], 'the HOLD list as before');
+// Known limit (ponytail note at APPROVAL_REVOKE): a noun list with "etme" before a comma loses the button.
+assert.equal(sentences(block("Onaylıyorum (canlı değil): commit etme, push etme düzeltmeleri main'e alınsın.")).length, 0, 'the documented trade-off');
+// Known limit (ponytail note at APPROVAL_REVOKE_LIVE): in a live block a feature name or a fact before "," or ")" loses
+// the button. ":", "?" and quote marks are not clause ends.
+for (const s of ['Onaylıyorum: Tur geri alma, Onayla düğmesi düzeltmeleri Composer Plus canlı kopyasına kopyalansın.', 'Onaylıyorum: canlı servis güncellensin (veri kaybı yok).'])
+  assert.equal(sentences(block(s)).length, 0, `the documented live trade-off: ${s}`);
+for (const s of ['Onaylıyorum: canlı ayar değişsin, merge etme: ayrı onayla.', 'Onaylıyorum: canlı ayar değişsin, merge etme?', 'Onaylıyorum: canlı ayarda "silme" adımı eklensin.'])
+  assert.deepEqual(sentences(block(s)), [s], `not a clause end: ${s}`);
 for (const [s, word] of HELD) {
   assert.deepEqual(sentences(block(s)), [], `a hold word gets no button: ${s}`);
   assert.match(approveRuleNote(s), new RegExp(`has "${word}", which Auto review reads as a hold or stop word.*keep its scope \\(for example "canlı değil"\\) and remove only the hold word, or write the scope with positive words, for example "canlı değil", "yalnız yerel", "yalnız main", "deploy ayrı onayla"\\.$`), `the note names the word: ${s}`);
@@ -165,7 +215,37 @@ for (const s of GOOD) assert.equal(approveRuleNote(s), undefined, `no note: ${s}
 // The client's expressions are the Host's (one source: the Auto review plugin).
 // The prompt rule and the notes name no product or person of the owner (a public package).
 for (const text of [APPROVE_SECTION, approveRuleNote('Onaylıyorum: canlı görevi iptal et.'), approveRuleNote('CANLI DEPLOY X 15c101d7')]) assert.doesNotMatch(text, /Furkan|\/Users\/|aiproxy|review-guard|Promes|Proso/i);
-for (const [name, host] of Object.entries({ APPROVAL_HOLD: HOST_HOLD, APPROVAL_DUR: HOST_DUR, APPROVAL_SCOPE_OFF: HOST_SCOPE, APPROVAL_LIVE_WORD: HOST_LIVE, DEPLOY_ASK: HOST_ASK, DEPLOY_LINE: HOST_LINE })) assert.equal(String(globalThis.__ap[name]), String(host), `${name}: the client and the Host agree`);
+for (const [name, host] of Object.entries({ APPROVAL_HOLD: HOST_HOLD, APPROVAL_DUR: HOST_DUR, APPROVAL_REVOKE: HOST_REVOKE, APPROVAL_REVOKE_LIVE: HOST_REVOKE_LIVE, APPROVAL_SCOPE_OFF: HOST_SCOPE, APPROVAL_LIVE_WORD: HOST_LIVE, DEPLOY_ASK: HOST_ASK, DEPLOY_LINE: HOST_LINE })) assert.equal(String(globalThis.__ap[name]), String(host), `${name}: the client and the Host agree`);
+// The revoke forms are the Auto review plugin's STOP list without dur, bekle, iptal, ertele, vazgeç, hayır, stop and
+// cancel (those count only in a live block): the documented exceptions keep the button ("Stop butonu", "erteleme
+// raporu", "vazgeçildi" are in GOOD above).
+assert.equal(approveRuleNote("Onaylıyorum: Stop butonu düzeltmesi main'e alınsın."), undefined, 'an exception: no note');
+
+// --- deployProducts (2026-11-18: a strict line with a product that the gate does not know got a button twice; the gate
+// knows only its own products). Empty: any product word. Set: only those names, in the note and in the prompt rule. Made-up names only. ---
+assert.deepEqual(deployProductsOf(undefined), []); assert.deepEqual(deployProductsOf({ deployProducts: 'shop' }), [], 'not a list: empty');
+assert.deepEqual(deployProductsOf({ deployProducts: ['Acme-Web', 'SHOP', 'shop', 'two words', 7, 'a'] }), ['acme-web', 'shop'], 'folded, once, only names that the line can hold');
+const PRODUCTS = ['acme-web', 'shop'];
+assert.equal(isDeployLine('canli deploy anything 15c101d7 simdi'), true, 'empty: any product word');
+assert.equal(isDeployLine('canli deploy anything 15c101d7 simdi', PRODUCTS), false);
+assert.equal(isDeployLine('canli deploy shop 15c101d7 simdi', PRODUCTS), true);
+assert.equal(isDeployLine('canli deploy shop-x 15c101d7 simdi', PRODUCTS), false, 'the whole word, not a prefix');
+for (const s of ['CANLI DEPLOY SHOP 15c101d7 ŞİMDİ', 'Onaylıyorum: canli deploy Acme-Web 15c101d7 saat 21.10']) {
+  assert.equal(approveRuleNote(s, PRODUCTS), undefined, `a known product: ${s}`);
+}
+const other = 'CANLI DEPLOY OTHERAPP 15c101d7 ŞİMDİ';
+assert.equal(approveRuleNote(other), undefined, 'no list: any product word');
+assert.match(approveRuleNote(other, PRODUCTS), /not the strict deploy line.*"CANLI DEPLOY <ACME-WEB\|SHOP> <commit SHA> ŞİMDİ" or "CANLI DEPLOY <ACME-WEB\|SHOP> <commit SHA> SAAT HH:MM"/, 'a product that the gate does not know: the note names the valid names');
+assert.equal(approveSection(), APPROVE_SECTION);
+assert.match(approveSection(PRODUCTS), /strict line "CANLI DEPLOY <ACME-WEB\|SHOP> <commit SHA> ŞİMDİ" or "CANLI DEPLOY <ACME-WEB\|SHOP> <commit SHA> SAAT HH:MM"/, 'the prompt rule names the valid names');
+assert.doesNotMatch(approveSection(PRODUCTS), /<PRODUCT>/);
+// The client: the route's `products` set the same line; an empty list gives any product word back.
+globalThis.__ap.setDeployProducts(PRODUCTS);
+assert.deepEqual(sentences(block(other)), [], 'client: a product that the gate does not know gets no button');
+assert.deepEqual(sentences(block('CANLI DEPLOY SHOP 15c101d7 ŞİMDİ')), ['CANLI DEPLOY SHOP 15c101d7 ŞİMDİ'], 'client: a known product');
+globalThis.__ap.setDeployProducts(['bad name']);
+assert.deepEqual(sentences(block(other)), [other], 'client: no valid name, any product word');
+globalThis.__ap.setDeployProducts([]);
 
 // --- ApproveButtons in dsh's turn-tail slot ---
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -348,13 +428,278 @@ newest.unmount(); older.unmount(); third.unmount(); live.unmount();
   } finally { React.useLayoutEffect = keep; }
 }
 
+// --- Damon card stack (2026-11-19): the Onayla button moves from the reply into the Onay card ---
+// The card's Onayla calls the same store (Option picks: one send per chat at a time, never the same answer twice) with
+// the same send function as the button under a reply: the exact sentence goes as your message once. While a card stack
+// shows in the chat, no Approve button is under the reply and the sentence stays as gray text.
+{
+  const CARD = "Onaylıyorum (canlı değil): montaj testi dalı main'e alınsın.";
+  const LIVE = 'Onaylıyorum: canlı sunucuya deploy et.';
+  view = chat(user(200, 'x'), tail(20, 210, `Ready.\n\n${block(CARD)}`)); input = { phase: 'plain', draft: '', attachmentIds: [] }; session = { blank: false, running: false, subagent: null, removed: false };
+  const cardSent = [];
+  const cardPicks = createOptionPicks(async (id, text) => { cardSent.push([id, text]); });
+  const offers = createCardOffers();
+  const props = { sessionId: 'D', ...hooks, picks: cardPicks, check: createRollbackCheck(async () => true), rollback, t, offers };
+  // OnayCodeBlocks publishes the chat's offer (also while the composer has text) for the Onay card.
+  const dock = mount(OnayCodeBlocks, props); dock.render(); await flush(); dock.render();
+  assert.deepEqual(offers.of('D').offer.options.map((o) => o.message), [CARD], 'the offer is published for the card');
+  assert.equal(offers.of('D').empty, true);
+  // Without a card stack (another chat): the button stays under the reply.
+  const tailCell = mount(ApproveButtons, { ...props, turn: {}, seq: 210 });
+  assert.equal(buttonsOf(tailCell.render()).length, 1, 'no stack: the button under the reply');
+  // The stack in this chat: no button under the reply, the sentence is gray text (no 'button' mark).
+  const unstack = offers.stack('D');
+  assert.equal(tailCell.render(), null, 'a stack: no Approve button under the reply');
+  const layout = []; const keep = React.useLayoutEffect; React.useLayoutEffect = (f, deps) => { if (deps?.length === 1 && typeof deps[0] === 'string' && deps[0].startsWith('[')) layout.push(JSON.parse(deps[0])); };
+  try { dock.render(); } finally { React.useLayoutEffect = keep; }
+  assert.ok(layout.at(-1).every((m) => m[2] === 'text'), 'a stack: the sentence stays in the reply as gray text');
+  // The card: a fake store with one "Onay:" item; the card shows the sentence in full and one Onayla.
+  const store = { of: () => Object.freeze({ items: [{ id: 'a1', text: 'Onay: montaj testi main', owner: 'user', created: Date.now() - 14 * 60000 }], tasks: [], projects: [], summary: null, outage: null, at: Date.now(), busy: false, error: null, errorKind: null, refreshing: false, ask: null, shown: false }),
+    subscribe: () => () => {}, load() {}, schedule() {} };
+  const cardProps = { sessionId: 'D', host: {}, store, openSession: () => {}, locale: () => 'en', t, composer: () => true, notify: () => {}, offers, picks: cardPicks };
+  const stack = mount(StatusPanel, cardProps);
+  const onayCard = (tree) => { const all = []; const walk = (n) => { if (Array.isArray(n)) return n.forEach(walk); if (n === null || typeof n !== 'object') return; if (n.p?.['data-card'] === 'onay' && n.p.role === 'region') all.push(n); (n.c ?? []).forEach(walk); }; walk(tree); return all[0]; };
+  const btns = (n) => { const out = []; const walk = (x) => { if (Array.isArray(x)) return x.forEach(walk); if (x === null || typeof x !== 'object') return; if (x.t === 'button') out.push(x); (x.c ?? []).forEach(walk); }; walk(n); return out; };
+  let card = onayCard(stack.render());
+  assert.ok(card, 'the Onay card shows');
+  assert.ok(texts(card).includes(CARD), 'the whole sentence, not cut');
+  assert.ok(texts(card).some((x) => /cards\.onay/.test(x)) && !texts(card).includes('cards.live'), 'Onay bekliyor, no CANLI label for a not-live sentence');
+  const approve = btns(card).filter((b) => b.p['data-composer-plus-approve'] === 'card');
+  assert.equal(approve.length, 1, 'one Onayla in the card'); assert.deepEqual(texts(approve[0]), ['approve.button']);
+  approve[0].p.onClick(); approve[0].p.onClick(); await flush();
+  assert.deepEqual(cardSent, [['D', CARD]], 'one click sends the exact sentence once, on the same path as the reply button');
+  assert.equal(await cardPicks.pick('D', offers.of('D').offer, 1), false, 'the same answer again: refused');
+  // Typing hides the card's Onayla (today's rule); the card and the sentence stay.
+  dock.render(); await flush(); input = { ...input, draft: 'hm' }; dock.render(); await flush();
+  card = onayCard(stack.render()); assert.ok(card, 'the card stays while you type');
+  assert.equal(btns(card).filter((b) => b.p['data-composer-plus-approve'] === 'card').length, 0, 'no Onayla while the composer has text');
+  input = { ...input, draft: '' };
+  // A live sentence gets the CANLI label.
+  view = chat(user(300, 'y'), tail(30, 310, block(LIVE))); dock.render(); await flush(); dock.render(); await flush();
+  assert.ok(texts(onayCard(stack.render())).includes('cards.live'), 'a live sentence: CANLI');
+  // Without a block, the "Onay:" items keep the card and say that the button comes back.
+  view = chat(user(400, 'z'), tail(40, 410, 'Ok.')); dock.render(); await flush(); dock.render(); await flush();
+  card = onayCard(stack.render()); assert.ok(card, 'the items keep the card');
+  assert.ok(texts(card).some((x) => /^cards\.approveAgain/.test(x)), 'the note: the button comes back with the sentence');
+  // --- One list (Furkan, 2026-11-23): no Kartlar/Kuyruk/Brifing switch; the first item that waits for you is active ---
+  // The Onay card is the active item (a thin line at its left): one Onayla on screen; the keys act on the active item in
+  // the panel; A sends the exact sentence once through the same store, only after the item was active for 800 ms.
+  view = chat(user(500, 'w'), tail(50, 510, `Ready.\n\n${block(CARD)}`)); dock.render(); await flush(); dock.render(); await flush();
+  const qPicks = cardPicks; const before = cardSent.length;
+  const find = (tree, pred) => { const all = []; const walk = (n) => { if (Array.isArray(n)) return n.forEach(walk); if (n === null || typeof n !== 'object') return; if (pred(n)) all.push(n); (n.c ?? []).forEach(walk); }; walk(tree); return all; };
+  const panelOf = (tree) => find(tree, (n) => n.t === 'section' && n.p['data-composer-plus-todos'] === '')[0];
+  const active = (tree) => find(tree, (n) => n.p?.['data-active'] === '').map((n) => n.p['data-card'] + (n.p['data-key'] ? `|${n.p['data-key']}` : ''));
+  let tree = stack.render();
+  assert.equal(find(tree, (n) => n.p?.['data-view-button'] !== undefined || n.p?.['data-view'] !== undefined).length, 0, 'one list: no view buttons, no view sections');
+  assert.equal(mem.get('dsh-composer-plus.status-view'), undefined, 'no view is kept');
+  assert.equal(find(tree, (n) => n.p?.['data-composer-plus-approve'] === 'card').length, 1, 'one Onayla on screen');
+  assert.deepEqual(active(tree), ['onay'], 'the Onay card is the active item');
+  assert.equal(typeof panelOf(tree).p.onKeyDown, 'function', 'the keys are on the panel');
+  // A key at once does nothing (the 800 ms guard); later it sends the sentence once.
+  panelOf(tree).p.onKeyDown({ key: 'a', preventDefault() {}, target: { closest: () => null } }); await flush();
+  assert.equal(cardSent.length, before, 'A right after the item is active: nothing');
+  const realNow = Date.now; Date.now = () => realNow() + 1000;
+  try {
+    tree = stack.render(); const sec2 = panelOf(tree);
+    sec2.p.onKeyDown({ key: 'a', preventDefault() {}, target: { closest: () => null } }); sec2.p.onKeyDown({ key: 'a', preventDefault() {}, target: { closest: () => null } }); await flush();
+    assert.deepEqual(cardSent.slice(before), [['D', CARD]], 'A sends the exact sentence once (the same store as the button)');
+    // Each key guard on its own (after the 800 ms): S (Sonra) is not taken, so no preventDefault.
+    const sent2 = cardSent.length;
+    const guarded = (why, extra) => {
+      let prevented = false;
+      panelOf(stack.render()).p.onKeyDown({ key: 's', preventDefault: () => { prevented = true; }, target: { closest: () => null }, ...extra });
+      assert.equal(prevented, false, `${why}: not taken`);
+    };
+    guarded('a text field', { target: { closest: (sel) => (/input/.test(sel) ? {} : null) } });
+    guarded('a select', { target: { closest: (sel) => (/\bselect\b/.test(sel) ? {} : null) } });
+    guarded('IME (keyCode 229)', { keyCode: 229 });
+    guarded('IME (isComposing)', { isComposing: true });
+    guarded('a handled key (defaultPrevented)', { defaultPrevented: true });
+    guarded('a repeated key', { repeat: true });
+    guarded('Ctrl', { ctrlKey: true });
+    assert.equal(cardSent.length, sent2, 'no guarded key sends');
+  } finally { Date.now = realNow; }
+  assert.equal(await qPicks.pick('D', offers.of('D').offer, 1), false, 'the same answer again: refused');
+  // Review 1 (P2): a sentence with a live word outside its "canlı değil" phrase gets no CANLI label (the owner's rule), but
+  // A does not approve it: a click does.
+  {
+    const MIXED = 'Onaylıyorum: canlı sunucuda servis yeniden başlatılsın (test sunucusu canlı değil).';
+    const realNow5 = Date.now; let clock = realNow5() + 20000; Date.now = () => clock;
+    try {
+      view = chat(user(512, 'm'), tail(51, 514, `Ready.\n\n${block(MIXED)}`)); dock.render(); await flush(); dock.render(); await flush();
+      const mixedFrom = cardSent.length;
+      assert.ok(!texts(onayCard(stack.render())).includes('cards.live'), 'no CANLI label ("canlı değil")');
+      stack.render(); clock += 1000;
+      panelOf(stack.render()).p.onKeyDown({ key: 'a', preventDefault() {}, target: { closest: () => null } }); await flush();
+      assert.equal(cardSent.length, mixedFrom, 'A does not approve a sentence that names a live target');
+    } finally { Date.now = realNow5; }
+  }
+  // Review 2 (P2): the same for an Onay item of the card: a plain sentence, but the item names a live target outside its
+  // "canlı değil" phrase. On main the entry was live; A does not approve it.
+  {
+    const ITEM = 'Onay: canlı sunucuda servis yeniden başlatılsın (test sunucusu canlı değil)';
+    const PLAIN = 'Onaylıyorum: servis yeniden başlatılsın.';
+    const storeLive = { ...store, of: () => Object.freeze({ ...store.of(), items: [{ id: 'a9', text: ITEM, owner: 'user', created: Date.now() - 60000 }] }) };
+    const stack9 = mount(StatusPanel, { ...cardProps, store: storeLive });
+    const realNow9 = Date.now; let clock = realNow9() + 40000; Date.now = () => clock;
+    try {
+      view = chat(user(516, 'n'), tail(51, 518, `Ready.\n\n${block(PLAIN)}`)); dock.render(); await flush(); dock.render(); await flush();
+      const from9 = cardSent.length;
+      assert.deepEqual(active(stack9.render()), ['onay'], 'the Onay card is active');
+      clock += 1000; panelOf(stack9.render()).p.onKeyDown({ key: 'a', preventDefault() {}, target: { closest: () => null } }); await flush();
+      assert.equal(cardSent.length, from9, 'A does not approve when an Onay item names a live target');
+    } finally { Date.now = realNow9; stack9.unmount(); }
+  }
+  // The screen reader hears only the active item ("1 / 1: <item>"), in one polite status region.
+  {
+    const said = find(stack.render(), (n) => n.p?.['data-composer-plus-active'] === '');
+    assert.equal(said.length, 1, 'one region for the active item'); assert.equal(said[0].p.role, 'status'); assert.equal(said[0].p['aria-live'], 'polite');
+    assert.deepEqual(texts(said[0]), ['1 / 1: cards.onay'], 'it says the position and the item, no age text');
+  }
+  // A new sentence starts the 800 ms clock again; Shift+A does nothing; the clock starts only in the open panel.
+  {
+    const NEW = "Onaylıyorum (canlı değil): rapor dalı main'e alınsın.";
+    const realNow2 = Date.now; let clock = realNow2() + 5000; Date.now = () => clock;
+    try {
+      view = chat(user(520, 'w2'), tail(52, 530, `Ready.\n\n${block(NEW)}`)); dock.render(); await flush(); dock.render(); await flush();
+      const fresh = cardSent.length;
+      const press = (k, extra = {}) => panelOf(stack.render()).p.onKeyDown({ key: k, preventDefault() {}, target: { closest: () => null }, ...extra });
+      stack.render(); clock += 10; press('a'); await flush();
+      assert.equal(cardSent.length, fresh, 'A 10 ms after a new sentence: nothing (the clock starts again)');
+      clock += 1000; press('a', { shiftKey: true }); await flush();
+      assert.equal(cardSent.length, fresh, 'Shift+A: nothing');
+      // Folded, then open again: the clock starts when the panel opens.
+      const head = () => find(stack.render(), (n) => n.t === 'button' && n.p.className === 'cp-td-head')[0];
+      head().p.onClick(); stack.render(); clock += 5000;
+      head().p.onClick(); clock += 10; press('a'); await flush();
+      assert.equal(cardSent.length, fresh, 'A at once after the panel opens: nothing');
+      clock += 1000; press('a'); await flush();
+      assert.deepEqual(cardSent.slice(fresh), [['D', NEW]], 'A after 800 ms in the open panel: the new sentence once');
+    } finally { Date.now = realNow2; }
+  }
+  // Sonra (S, or "…" → Sonra) moves the active item to the end; J/K move the active item; a key acts only on the active
+  // item (A on a For you card writes "Done: …" into the composer, never the approval); a new sentence is a new item and
+  // goes back to its rank.
+  {
+    const store2 = { ...store, of: () => Object.freeze({ ...store.of(), items: [...store.of().items, { id: 's1', text: 'Senden: test sunucusunu aç', owner: 'user', created: Date.now() - 60000 }] }) };
+    const written = [];
+    const stack2 = mount(StatusPanel, { ...cardProps, store: store2, composer: (id, text) => { written.push(text); return true; } });
+    view = chat(user(540, 'w3'), tail(54, 550, `Ready.\n\n${block(CARD)}`)); dock.render(); await flush(); dock.render(); await flush();
+    let tree2 = stack2.render();
+    assert.deepEqual(active(tree2), ['onay'], 'the approval first');
+    assert.equal(find(tree2, (n) => n.p?.['data-active'] === '')[0].p['aria-current'], 'true', 'the active item has aria-current');
+    assert.equal(find(tree2, (n) => n.p?.['aria-current'] !== undefined).length, 1, 'only the active item');
+    assert.equal(panelOf(tree2).p['aria-description'], 'queue.keys', 'the keys are named for a screen reader');
+    // This test has no dsh Menu (an older dsh): "…" is a disclosure with text buttons.
+    const more = find(onayCard(tree2), (n) => n.p?.className === 'cp-cs-more')[0];
+    const later = { p: { onSelect: () => find(more, (n) => n.t === 'button')[0].p.onClick() } };
+    assert.deepEqual(find(more, (n) => n.t === 'button').map((n) => texts(n).join('')), ['queue.later'], 'the Onay card has Sonra in its "…"');
+    // A key from the open "…" menu (a portal, still a React child of the panel) is not a panel key.
+    let fromMenu = false;
+    panelOf(tree2).p.onKeyDown({ key: 's', preventDefault: () => { fromMenu = true; }, target: { closest: (sel) => (/role="menu"/.test(sel) ? {} : null) } });
+    assert.equal(fromMenu, false, 'a key in the menu: not taken'); assert.deepEqual(active(stack2.render()), ['onay']);
+    later.p.onSelect('later');
+    tree2 = stack2.render();
+    assert.deepEqual(active(tree2), ['senden|s1'], '"…" → Sonra: the For you card is active');
+    const sentNow = cardSent.length; const realNow3 = Date.now; Date.now = () => realNow3() + 2000;
+    try {
+      stack2.render(); Date.now = () => realNow3() + 4000;
+      panelOf(stack2.render()).p.onKeyDown({ key: 'a', preventDefault() {}, target: { closest: () => null } }); await flush();
+      assert.equal(cardSent.length, sentNow, 'A on the active For you card does not approve');
+      assert.deepEqual(written, ['cards.doneMessage:{"item":"test sunucusunu aç"}'], 'A acts on the active item: "Done: <step>" into the composer, nothing sent');
+    } finally { Date.now = realNow3; }
+    panelOf(stack2.render()).p.onKeyDown({ key: 'k', preventDefault() {}, target: { closest: () => null } });
+    assert.deepEqual(active(stack2.render()), ['senden|s1'], 'K at the first item stays');
+    panelOf(stack2.render()).p.onKeyDown({ key: 'j', preventDefault() {}, target: { closest: () => null } });
+    assert.deepEqual(active(stack2.render()), ['onay'], 'J: the next item (the approval, moved to the end)');
+    panelOf(stack2.render()).p.onKeyDown({ key: 'k', preventDefault() {}, target: { closest: () => null } });
+    // A [quiet] news turn moves the offer's seq, not its sentence: Sonra holds.
+    const seqBefore = offers.of('D').offer.seq;
+    const aStep = (turn, seq, text) => ({ kind: 'assistant-step', anchorSeq: seq, data: { status: 'settled', turn, step: 1, blocks: [{ kind: 'text', text }], finalNode: { seq } } });
+    view = chat(user(540, 'w3'), aStep(54, 550, `Ready.\n\n${block(CARD)}`), tail(54, 550, `Ready.\n\n${block(CARD)}`), aStep(55, 558, '[quiet]'), tail(55, 558, '[quiet]'));
+    dock.render(); await flush(); dock.render(); await flush();
+    assert.notEqual(offers.of('D').offer.seq, seqBefore, 'the news turn moved the offer');
+    assert.deepEqual(active(stack2.render()), ['senden|s1'], 'a [quiet] turn: Sonra holds');
+    view = chat(user(560, 'w4'), tail(56, 570, `Ready.\n\n${block("Onaylıyorum (canlı değil): yeni dal main'e alınsın.")}`)); dock.render(); await flush(); dock.render(); await flush();
+    assert.deepEqual(active(stack2.render()), ['onay'], 'a new sentence: the approval goes back first');
+    panelOf(stack2.render()).p.onKeyDown({ key: 's', preventDefault() {}, target: { closest: () => null } });
+    assert.deepEqual(active(stack2.render()), ['senden|s1'], 'S (Sonra): the For you card is active');
+    // Review 2 (P3): you fold For you: its active card is out of view, so A does nothing; open again, the clock starts again.
+    {
+      const realNow6 = Date.now; let clock = realNow6() + 60000; Date.now = () => clock;
+      try {
+        const sendenHead = () => find(stack2.render(), (n) => n.t === 'button' && n.p['data-group'] === 'senden')[0];
+        const pressA = () => panelOf(stack2.render()).p.onKeyDown({ key: 'a', preventDefault() {}, target: { closest: () => null } });
+        const wrote = written.length;
+        sendenHead().p.onClick(); stack2.render(); clock += 1000; pressA(); await flush();
+        assert.equal(written.length, wrote, 'For you folded: A does nothing on its hidden card');
+        panelOf(stack2.render()).p.onKeyDown({ key: 'r', preventDefault() {}, target: { closest: () => null } }); await flush();
+        assert.equal(written.length, wrote, 'For you folded: R does nothing on its hidden card (review 3, P4)');
+        sendenHead().p.onClick(); stack2.render(); clock += 10; pressA(); await flush();
+        assert.equal(written.length, wrote, 'opened again: A at once does nothing');
+        clock += 1000; pressA(); await flush();
+        assert.equal(written.length, wrote + 1, 'opened again, after 800 ms: A acts');
+      } finally { Date.now = realNow6; }
+    }
+    stack2.unmount();
+  }
+  // A choice (karar): the option list of the newest answer, published by CardChoices. It is the first For you card; its
+  // buttons are under the answer only (one set on screen); 1–9 pick while it is the active item.
+  const choiceFrom = cardSent.length; // one store for the buttons, the card and the keys (as in the app)
+  view = chat(user(600, 'v'), tail(60, 610, 'Which one?\n\n**Seçenekler:**\n1. Kendisi alsın\n2. Bana sorsun'));
+  const choices = mount(globalThis.__ap.CardChoices, props); choices.render(); await flush(); choices.render();
+  assert.deepEqual(offers.choiceOf('D').offer.options.map((o) => o.label), ['Kendisi alsın', 'Bana sorsun'], 'the choice is published');
+  dock.render(); await flush(); dock.render(); await flush();
+  tree = stack.render();
+  assert.deepEqual(active(tree), ['onay'], 'the Onay item still waits: it stays active');
+  const karar = find(tree, (n) => n.p?.['data-card'] === 'karar')[0];
+  assert.ok(karar, 'the choice is a card in For you');
+  assert.match(texts(find(tree, (n) => n.p?.['data-composer-plus-counts'] === '')[0]).join(''), /cards\.count\.senden:\{"count":1\}/, 'the count bar counts the choice');
+  assert.equal(find(karar, (n) => n.p?.['data-act'] === 'main').length, 1, '→ while its buttons show');
+  input = { ...input, draft: 'x' }; choices.render(); await flush(); choices.render();
+  assert.equal(find(find(stack.render(), (n) => n.p?.['data-card'] === 'karar')[0], (n) => n.p?.['data-act'] === 'main').length, 0, 'a draft hides the buttons: no → that does nothing');
+  input = { ...input, draft: '' }; choices.render(); await flush(); choices.render();
+  assert.equal(find(karar, (n) => n.t === 'button' && n.p['data-composer-plus-choice'] !== undefined).length, 0, 'no second set of option buttons in the panel');
+  {
+    const realNow4 = Date.now; let clock = realNow4(); Date.now = () => clock;
+    try {
+      panelOf(stack.render()).p.onKeyDown({ key: '2', preventDefault() {}, target: { closest: () => null } }); clock += 1000;
+      panelOf(stack.render()).p.onKeyDown({ key: '2', preventDefault() {}, target: { closest: () => null } }); await flush();
+      assert.equal(cardSent.length, choiceFrom, '2 while the approval is active: nothing');
+      panelOf(stack.render()).p.onKeyDown({ key: 'j', preventDefault() {}, target: { closest: () => null } });
+      assert.deepEqual(active(stack.render()), ['karar|karar'], 'J: the choice is active');
+      clock += 10; panelOf(stack.render()).p.onKeyDown({ key: '2', preventDefault() {}, target: { closest: () => null } }); await flush();
+      assert.equal(cardSent.length, choiceFrom, '2 at once: nothing (the 800 ms guard)');
+      clock += 1000; panelOf(stack.render()).p.onKeyDown({ key: '2', preventDefault() {}, target: { closest: () => null } });
+      panelOf(stack.render()).p.onKeyDown({ key: '2', preventDefault() {}, target: { closest: () => null } }); await flush();
+      assert.deepEqual(cardSent.slice(choiceFrom), [['D', 'Option 2: Bana sorsun']], '2 picks option 2 once (Option picks\' path)');
+    } finally { Date.now = realNow4; }
+  }
+  choices.unmount(); assert.equal(offers.choiceOf('D'), undefined, 'unmount: the choice goes');
+  view = chat(user(700, 'u'), tail(70, 710, `Ready.\n\n${block(CARD)}`)); dock.render(); await flush(); dock.render(); await flush();
+  tree = stack.render();
+  // The briefing's parts are in the one list: the count bar (its tooltip is today's date) and the groups.
+  assert.ok(find(tree, (n) => n.p?.['data-composer-plus-counts'] === '' && typeof n.p.title === 'string' && n.p.title !== '').length === 1, 'the count bar has the date as its tooltip');
+  unstack(); assert.equal(offers.hasStack('D'), false);
+  dock.unmount(); tailCell.unmount(); stack.unmount();
+}
+
 // --- The feature through plugin.apply ---
 {
   const slots = new Map(); let setFeature;
-  plugin.apply({
-    slots: { inject: (n, f) => f(), register: (o, C) => { if (o.id === 'composer-plus') setFeature = o.inject().setFeature; const key = Symbol(o.id); slots.set(key, [o, C]); return () => slots.delete(key); } },
-    configForms: { get: () => ({}) }, locale: { register: () => () => {}, bind: () => (k) => k }, effect: (f) => f(),
-  });
+  // The Approve button route gives the `deployProducts` list: the client's strict deploy line takes it.
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => (String(url) === APPROVE_PATH ? Response.json({ on: true, products: ['shop'] }) : new Response('', { status: 404 }));
+  try {
+    plugin.apply({
+      slots: { inject: (n, f) => f(), register: (o, C) => { if (o.id === 'composer-plus') setFeature = o.inject().setFeature; const key = Symbol(o.id); slots.set(key, [o, C]); return () => slots.delete(key); } },
+      configForms: { get: () => ({}) }, locale: { register: () => () => {}, bind: () => (k) => k }, effect: (f) => f(),
+    });
+    for (let i = 0; i < 5; i++) await flush();
+  } finally { globalThis.fetch = realFetch; }
+  assert.deepEqual(sentences(block(other)), [], 'the route\'s products: a product that the gate does not know gets no button');
+  assert.deepEqual(sentences(block('CANLI DEPLOY SHOP 15c101d7 ŞİMDİ')), ['CANLI DEPLOY SHOP 15c101d7 ŞİMDİ'], 'the route\'s products: a known product');
+  globalThis.__ap.setDeployProducts([]);
   const slot = () => [...slots.values()].find(([o]) => o.id === 'approve-button');
   const found = slot(); assert.ok(found, 'on by default: the turn-tail slot');
   assert.equal(found[0].name, 'conversation.chat.turnTail'); assert.equal(found[0].locale, 'dsh-composer-plus'); assert.equal(found[1], ApproveButtons);
@@ -405,7 +750,7 @@ try {
   assert.doesNotMatch(APPROVE_SECTION, /put all of them in one sentence/, 'no rule that makes the block longer than the limit');
   assert.doesNotMatch(APPROVE_SECTION, /Show the `onay` block once|do not repeat the block/, 'no rule that hides a pending approval');
   assert.match(APPROVE_SECTION, /name the targets and the live or not-live scope, without file lines or script names/, 'a short sentence');
-  assert.match(APPROVE_SECTION, /Do not put a word in the block that Auto review reads as a hold or stop \(for example dur, bekle, iptal, hayır, "deploy yok"\): such a block shows only as code, so name the scope with positive words \("canlı değil", "yalnız yerel", "deploy ayrı onayla"\)\./, 'the hold-word rule');
+  assert.match(APPROVE_SECTION, /Do not put a word in the block that Auto review reads as a hold or stop \(for example dur, bekle, iptal, hayır, "deploy yok", a -masın\/-mesin form such as "denemesin", "onayı geri al", "etme" or "yapma" at the end of a clause such as "merge etme\." or "\(push etme\)", or in a live block "silme", "durdurma", "geri alma", "bırak", "kalsın" or "yok" at the end of a clause\): such a block shows only as code, so name the scope with positive words \("canlı değil", "yalnız yerel", "deploy ayrı onayla"\)\./, 'the hold-word rule');
   assert.match(APPROVE_SECTION, /A block that starts with "CANLI DEPLOY" holds only the strict line "CANLI DEPLOY <PRODUCT> <commit SHA> ŞİMDİ" or "CANLI DEPLOY <PRODUCT> <commit SHA> SAAT HH:MM", optionally after "Onaylıyorum: ", and nothing after it: another form shows only as code\./, 'the strict deploy line rule');
   // A too long block: one note in the chat's next step that has a message (the owner, 2026-11-13: no button, the owner
   // typed a 1439-character sentence by hand). The note never starts a step itself.
@@ -457,6 +802,22 @@ try {
   await req({ on: false });
   const again = installApproveButton({ ...ctx, connection: { fetch: { register: () => {} } } }, home); await again.ready;
   assert.equal(sections.size, 0, 'a saved "off" stays off after a restart');
+  // deployProducts: the route gives the list to the client; the section and the note name it.
+  { const r2 = new Map(); const s2 = new Map(); const l2 = new Map();
+    const withList = installApproveButton({ ...ctx, connection: { fetch: { register: (r) => r2.set(r.path, r) } }, on: (n, fn) => l2.set(n, fn),
+      inject: (names, setup) => { setup({ systemPrompt: { section: (s) => s2.set(s.name, s) } }); return { dispose() {} }; } }, join(root, 'home2'), undefined, ['acme-web']);
+    await withList.ready;
+    assert.deepEqual(await (await r2.get(APPROVE_PATH).fetch(new Request(`http://h${APPROVE_PATH}`))).json(), { on: true, products: ['acme-web'] }, 'the route gives the list');
+    assert.equal(s2.get('composer-plus:approve-button').text(), approveSection(['acme-web']), 'the section names the products');
+    l2.get('session/event')({ id: 'p1' }, { type: 'assistant/message', seq: 5, data: { message: { content: [{ type: 'text', text: block('CANLI DEPLOY SHOP 15c101d7 ŞİMDİ') }] } } });
+    const d = await l2.get('agent/pre-step')({ agent: { id: 'p1', session: { id: 'p1' } }, messages: [typed] }, async () => ({ kind: 'enter', messages: [typed] }));
+    assert.match(noteOf(d)[0], /"CANLI DEPLOY <ACME-WEB> <commit SHA> ŞİMDİ"/, 'the note names the products'); }
+  // The Host's apply gives the row's `config` (deployProducts) to the route (review of c4a1d89).
+  { const saved = process.env.DSH_HOME; process.env.DSH_HOME = join(root, 'home3'); const r3 = new Map();
+    try {
+      hostApply({ on() {}, sessionQuery: {}, sessionController: {}, subprocess: undefined, connection: { fetch: { register: (r) => r3.set(r.path, r) } }, get: () => undefined }, { deployProducts: ['shop'] });
+      assert.deepEqual(await (await r3.get(APPROVE_PATH).fetch(new Request(`http://h${APPROVE_PATH}`))).json(), { on: true, products: ['shop'] }, 'apply gives deployProducts to the route');
+    } finally { if (saved === undefined) delete process.env.DSH_HOME; else process.env.DSH_HOME = saved; } }
   await req({ on: true }); const before = disposed; effects.forEach((f) => typeof f === 'function' && f()); assert.ok(disposed > before, 'unload disposes');
 } finally { await rm(root, { recursive: true, force: true }); }
 console.log('approve-button checks passed');

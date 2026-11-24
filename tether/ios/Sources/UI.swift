@@ -24,12 +24,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     @Environment(\.scenePhase) private var phase
     var body: some Scene {
         WindowGroup {
-            Root().environmentObject(client).environmentObject(lock)
+            // Tether's words in the Mac's Composer Plus language (Localizable.xcstrings: en, tr).
+            Root().environmentObject(client).environmentObject(lock).environment(\.locale, client.uiLocale)
                 .onAppear {
                     delegate.onToken = { [weak client] t in client?.pushToken(t) }
                     delegate.onTokenError = { [weak client] e in client?.pushFailed(e) }
                 }
-                .background(LockWindow(lock: lock))
+                .background(LockWindow(lock: lock, locale: client.uiLocale))
                 .onChange(of: phase, initial: true) { _, p in
                     lock.phase(p == .active ? .active : p == .inactive ? .inactive : .background)
                     if p == .active { client.browse(); client.wake() }
@@ -48,7 +49,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 /// the keyboard. A SwiftUI overlay on Root would sit below an open sheet.
 struct LockWindow: UIViewRepresentable {
     @ObservedObject var lock: AppLock
-    final class Holder { var window: UIWindow? }
+    let locale: Locale
+    final class Holder { var window: UIWindow?; var host: UIHostingController<AnyView>?; var locale: Locale? }
     func makeCoordinator() -> Holder { Holder() }
     func makeUIView(context: Context) -> UIView { UIView(frame: .zero) }
     func updateUIView(_ view: UIView, context: Context) {
@@ -59,12 +61,12 @@ struct LockWindow: UIViewRepresentable {
                 let w = UIWindow(windowScene: scene)
                 w.windowLevel = .alert + 1
                 w.backgroundColor = .clear
-                let host = UIHostingController(rootView: LockView(lock: lock))
+                let host = UIHostingController(rootView: AnyView(LockView(lock: lock).environment(\.locale, locale)))
                 host.view.backgroundColor = .clear
                 host.view.accessibilityViewIsModal = true // VoiceOver reads only the lock screen, not the chats below
                 w.rootViewController = host
-                h.window = w
-            }
+                h.window = w; h.host = host; h.locale = locale
+            } else if h.locale != locale { h.locale = locale; h.host?.rootView = AnyView(LockView(lock: lock).environment(\.locale, locale)) } // only a new language draws it again
             // The lock screen takes the keys (VoiceOver, keyboard) only while it shows.
             if covered { h.window?.isHidden = false; h.window?.makeKeyAndVisible() }
             else if h.window?.isHidden == false { h.window?.isHidden = true; view.window?.makeKey() }
@@ -100,7 +102,7 @@ struct Root: View {
                 let bot = c.assistantApart ? assistantMark(c.botId, sessions: c.sessions, busy: [], waiting: c.waitingChats, finished: c.finished) : nil
                 TabView(selection: $c.tab) {
                     SessionsView().tabItem { Label("Sessions", systemImage: "bubble.left.and.bubble.right") }.badge(c.finished.count).tag(Client.Tab.sessions)
-                    AssistantTab().tabItem { Label("Assistant", systemImage: "sparkles") }.badge(bot == nil ? 0 : 1).tag(Client.Tab.assistant)
+                    AssistantTab().tabItem { Label(assistantName, systemImage: "sparkles") }.badge(bot == nil ? 0 : 1).tag(Client.Tab.assistant)
                     SettingsView().tabItem { Label("Settings", systemImage: "gear") }.tag(Client.Tab.settings)
                 }
                 // a new view tree per Mac: no scroll position, search text or sheet of one Mac stays on screen for another
@@ -239,6 +241,8 @@ struct ConnBadge: View {
 /// the press and hold opens the rename box. Upgrade if SwiftUI gives Menu its own long-press action.
 struct MacPicker: View {
     @EnvironmentObject var c: Client
+    /// In Damon's chat: a switch opens that Mac's Damon chat (`openDamon`), and the label names both Macs.
+    var damon = false
     @State private var menu = false
     var body: some View {
         // The release after a press and hold can also fire this action, or not: the open rename box (which Save and
@@ -246,20 +250,21 @@ struct MacPicker: View {
         let other = otherMac(c.pairings, active: c.activeFp)
         Button {
             guard c.renamingMac == nil else { return }
-            if let other { UISelectionFeedbackGenerator().selectionChanged(); c.switchMac(other.fp) } else { menu = true }
+            if let other { UISelectionFeedbackGenerator().selectionChanged(); pick(other.fp) } else { menu = true }
         } label: {
             HStack(spacing: 6) {
                 ConnBadge()
-                Text(c.pairing?.title ?? "").font(.subheadline.weight(.semibold)).lineLimit(1).frame(maxWidth: 150, alignment: .leading)
+                Text(c.pairing?.title ?? "").font(.subheadline.weight(.semibold)).lineLimit(1).frame(maxWidth: damon ? 90 : 150, alignment: .leading)
                 // Two Macs: the arrows say that a tap swaps them; more (or one): the menu.
                 Image(systemName: other == nil ? "chevron.down" : "arrow.left.arrow.right").font(.caption2.weight(.bold)).foregroundStyle(.secondary)
+                if damon, let other { Text(other.title).font(.subheadline).foregroundStyle(.secondary).lineLimit(1).frame(maxWidth: 90, alignment: .leading) }
             }
             .foregroundStyle(.primary)
         }
         .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in rename() })
         .confirmationDialog("Mac", isPresented: $menu) {
             ForEach(c.pairings) { p in
-                Button(p.fp == c.activeFp ? "✓ \(p.title)" : p.title) { c.switchMac(p.fp) }
+                Button(p.fp == c.activeFp ? "✓ \(p.title)" : p.title) { pick(p.fp) }
             }
             Button("Add a Mac…") { c.addingMac = true }
         }
@@ -269,6 +274,7 @@ struct MacPicker: View {
         // VoiceOver has no press and hold here: the rename stays one action away.
         .accessibilityAction(named: Text("Rename")) { rename() }
     }
+    private func pick(_ fp: String) { if damon { c.openDamon(on: fp) } else { c.switchMac(fp) } }
     private func rename() {
         guard let p = c.pairing else { return }
         menu = false
@@ -619,10 +625,14 @@ struct ConversationView: View {
     @State private var improving: (id: UUID, task: Task<Void, Never>)?
     @State private var improved: (before: String, after: String)?
     @FocusState private var focused: Bool
-    /// Messages sent from this composer: each send makes a new text field (`.id`), so the field shows no sent text.
-    @State private var sent = 0
+    /// Each text that the app writes into the message field makes a new field (`.id`, see `put`).
+    @State private var field = 0
     /// With more than one Mac, the chat says which Mac it runs on.
     private var macSubtitle: String { c.pairings.count > 1 ? c.pairing?.title ?? "" : "" }
+    /// Damon's chat: the Mac switch takes the place of Back.
+    private var damon: Bool { c.current != nil && c.current == c.assistantId }
+    /// Damon's chat with the card deck (it has the Approve button; other chats keep it under the reply).
+    private var damonChat: Bool { damon && c.plus.contains("assistant-todos") && !c.cardsOff }
     var body: some View {
         // no stale chat while unreachable: the Mac is the source of truth and every action would fail anyway
         Group { if c.state == .connected || c.state == .connecting { transcript } else { OfflineView() } }
@@ -631,13 +641,23 @@ struct ConversationView: View {
                     if c.state == .connecting { ConnBanner() }
                     // Branch per chat: the chat's git branch, its changes and push state; a tap opens Changes.
                     if let b = c.branch { BranchBar(state: b) { if c.plus.contains("changes") { showChanges = true } } }
+                    // Damon's card stack (the Mac's Durum panel as cards): the Status sheet opens from its count bar.
+                    if damon, c.plus.contains("assistant-todos"), c.state == .connected, let id = c.current { CardDeck(sessionId: id, typing: !(text.isEmpty && images.isEmpty && files.isEmpty)) }
                 }
             }
             .navigationTitle(c.currentSess?.title ?? String(localized: "Conversation"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.hidden, for: .tabBar)
+            .navigationBarBackButtonHidden(damon)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) { ConnBadge() }
+                // Damon: Main menu (Sessions, the other chats, Settings) and the Mac switch in place of Back. With two Macs,
+                // one tap opens the other Mac's Damon chat; the Damon tab says when that Mac is not connected.
+                if damon {
+                    ToolbarItemGroup(placement: .topBarLeading) {
+                        Button { c.path = [] } label: { Image(systemName: "line.3.horizontal") }.accessibilityLabel("Main menu")
+                        MacPicker(damon: true)
+                    }
+                } else { ToolbarItem(placement: .topBarTrailing) { ConnBadge() } }
                 ToolbarItem(placement: .topBarTrailing) { Button { creating = true } label: { Image(systemName: "square.and.pencil") }.accessibilityLabel("New session") }
                 // desktop's session menu: tap the title for rename / fork / pin / archive
                 ToolbarTitleMenu {
@@ -692,7 +712,7 @@ struct ConversationView: View {
             .sheet(isPresented: $showBoard) { BoardSheet(project: boardProjectOf(c.current ?? "", workspaces: c.workspaces)) }
             // Task board → +: the new chat opened here; its first message went, so the board opens again.
             .onChange(of: c.boardBack) { _, back in if back { c.boardBack = false; showBoard = true } }
-            .sheet(item: $rollingBack) { l in RollbackSheet(line: l) { t in if text.isEmpty { text = t; focused = true } } }
+            .sheet(item: $rollingBack) { l in RollbackSheet(line: l) { t in if text.isEmpty { put(t, focus: true) } } }
             .sheet(isPresented: Binding(get: { redoMarker != nil }, set: { if !$0 { redoMarker = nil } })) { if let m = redoMarker { RedoSheet(marker: m) } }
             .confirmationDialog("Delete this chat?", isPresented: $deleting, titleVisibility: .visible) {
                 Button("Delete", role: .destructive) { if let id = c.current { c.run { try await c.deleteChat(id) } } }
@@ -715,8 +735,8 @@ struct ConversationView: View {
             } message: { Text("The agent keeps working toward this until it is complete.") }
             // per-session draft: going back or switching sessions never loses typed text
             .onAppear { text = c.draft(c.current) }
-            .onChange(of: c.draftPushed) { text = c.draft(c.current); focused = true }
-            .onChange(of: c.current) { text = c.draft(c.current); guess = nil; improving?.task.cancel(); improving = nil; improved = nil }
+            .onChange(of: c.draftPushed) { put(c.draft(c.current), focus: true) }
+            .onChange(of: c.current) { put(c.draft(c.current)); guess = nil; improving?.task.cancel(); improving = nil; improved = nil }
             .onChange(of: text) { c.setDraft(text, c.current) }
             // Complete while typing: ask after a pause; a newer keystroke cancels this task. Typing along the guess needs no ask.
             .task(id: text) {
@@ -746,6 +766,14 @@ struct ConversationView: View {
                 let rows = chatRows(bot ? botLines(c.transcript) : c.transcript, open: openTurns, running: c.running)
                 let hits = finding.map { findRows(rows, query: $0) } ?? []
                 let findIndex = Dictionary(hits.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { a, _ in a })
+                // Approve button: the answer with the block, or (a folded turn hides it) the next answer on screen. Only
+                // with an empty composer (the buttons hide while you type), so a keystroke does not read the log again.
+                let approval = !(text.isEmpty && images.isEmpty && files.isEmpty) ? nil : c.approvalOffer.flatMap { o in
+                    rows.lazy.compactMap { r -> Int? in
+                        guard case .line(let l) = r, l.kind == .assistant, let s = l.seq, s >= o.from else { return nil }
+                        return s
+                    }.first.map { (offer: o, at: $0) }
+                }
                 ScrollView {
                     // Pinned section headers: an open step group (StepsView) keeps its header at the top of the screen.
                     LazyVStack(alignment: .leading, spacing: 14, pinnedViews: .sectionHeaders) {
@@ -766,7 +794,8 @@ struct ConversationView: View {
                             switch row {
                             // A Section with its own header id: no modifier here, or each part of the Section gets it.
                             case .steps(let ls, let live): StepsView(lines: ls, live: live && !c.answering) { keepHeader(proxy, $0) }
-                            default: lineRow(row, findIndex, hits.count)
+                            // Damon's chat: the card deck holds the Approve button, so no button here and the sentence stays plain gray text.
+                            default: lineRow(row, findIndex, hits.count, approval: damonChat ? nil : approval)
                             }
                         }
                         // A message on its way to the Mac: shown at once, faded, until the Mac's copy replaces it.
@@ -857,13 +886,16 @@ struct ConversationView: View {
     }
 
     /// A message row or a turn summary row, with its scroll id and its tint (Open message, Find in chat).
-    @ViewBuilder private func lineRow(_ row: ChatRow, _ findIndex: [UUID: Int], _ hitCount: Int) -> some View {
+    @ViewBuilder private func lineRow(_ row: ChatRow, _ findIndex: [UUID: Int], _ hitCount: Int, approval: (offer: ApprovalOffer, at: Int)? = nil) -> some View {
         Group {
             switch row {
             case .line(let l):
-                LineView(line: l, onEdit: { text = $0; focused = true }, onQuote: { text = quoteDraft(text, $0); focused = true }, onRollback: canRollBack(l) ? { rollingBack = l } : nil)
+                LineView(line: l, onEdit: { put($0, focus: true) }, onQuote: { put(quoteDraft(text, $0), focus: true) }, onRollback: canRollBack(l) ? { rollingBack = l } : nil,
+                         onayButtons: approval.flatMap { o in o.offer.from == l.seq && o.at == l.seq ? Set(o.offer.sentences) : nil } ?? [])
                 // Option buttons (Composer Plus): under the answer that ends with an option list.
                 if l.kind == .assistant, let o = c.optionOffer, o.seq == l.seq, text.isEmpty, images.isEmpty, files.isEmpty { OptionButtons(offer: o) }
+                // Approve button (Composer Plus): under the answer with the newest `onay` block.
+                if let o = approval, l.kind == .assistant, l.seq == o.at { ApproveButtons(offer: o.offer) }
             case .turn(let l, let foldable):
                 TurnRow(line: l, foldable: foldable, open: openTurns.contains(l.id)) {
                     withAnimation(.snappy) { if openTurns.contains(l.id) { openTurns.remove(l.id) } else { openTurns.insert(l.id) } }
@@ -965,7 +997,7 @@ struct ConversationView: View {
             }.allowsHitTesting(false)
             VStack(spacing: 6) {
                 ForEach([String(localized: "Remind me to drink water in 2 minutes"), String(localized: "Find flights to Rome for next week"), String(localized: "Which chats wait for me?")], id: \.self) { s in
-                    Button { text = s; focused = true } label: { Text(s).font(.footnote) }
+                    Button { put(s, focus: true) } label: { Text(s).font(.footnote) }
                         .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
                 }
             }.padding(.top, 8)
@@ -983,7 +1015,7 @@ struct ConversationView: View {
             // starter prompts fill the composer (not send) so they can be edited first
             VStack(spacing: 6) {
                 ForEach([String(localized: "Explain this project"), String(localized: "Find and fix a bug"), String(localized: "Write tests for recent changes")], id: \.self) { s in
-                    Button { text = s; focused = true } label: { Text(s).font(.footnote) }
+                    Button { put(s, focus: true) } label: { Text(s).font(.footnote) }
                         .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
                 }
             }.padding(.top, 8)
@@ -998,7 +1030,7 @@ struct ConversationView: View {
         let hot = contextHot(share)
         let canCompact = c.commands.contains { $0.name == "compact" } && !c.running
         // project folder first, like the desktop status bar, so the cwd stays visible once the transcript fills up
-        let folder = c.currentSess.map { ($0.cwd as NSString).lastPathComponent }
+        let folder = damon ? assistantName : c.currentSess.map { ($0.cwd as NSString).lastPathComponent } // Damon's folder is ~/Assistant
         let parts = [folder, c.shownModel, ctx, c.usage.map(usageText)].compactMap { $0 }.filter { !$0.isEmpty }
         return Text(parts.joined(separator: " · ")).font(.caption2.monospacedDigit()).foregroundStyle(hot ? AnyShapeStyle(.orange) : AnyShapeStyle(.tertiary)).lineLimit(1).padding(.horizontal).padding(.bottom, 4)
             .contentShape(Rectangle())
@@ -1027,7 +1059,7 @@ struct ConversationView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(suggestions) { cmd in
-                    Button { text = "/\(cmd.name) " } label: {
+                    Button { put("/\(cmd.name) ") } label: {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("/\(cmd.name)").font(.callout.monospaced()) + Text(cmd.hint.map { "  \($0)" } ?? "").font(.caption).foregroundColor(.secondary)
                             if !cmd.desc.isEmpty { Text(cmd.desc).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
@@ -1164,8 +1196,9 @@ struct ConversationView: View {
                 }
             }
             // Next message prediction (Composer Plus): the guess for this chat, over an empty composer; a tap puts it in.
-            if let p = c.prediction, text.isEmpty, images.isEmpty, files.isEmpty, !c.running, c.optionOffer == nil {
-                Button { text = p.text; c.prediction = nil; focused = true } label: {
+            // Not while Improve prompt runs: the guess must not look like the improved text.
+            if let p = c.prediction, text.isEmpty, images.isEmpty, files.isEmpty, !c.running, c.optionOffer == nil, improving == nil {
+                Button { put(p.text, focus: true); c.prediction = nil } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "sparkles").font(.caption).foregroundStyle(.secondary)
                         Text(verbatim: p.text).font(.subheadline).foregroundStyle(.secondary).lineLimit(2).multilineTextAlignment(.leading)
@@ -1180,7 +1213,7 @@ struct ConversationView: View {
             }
             // Complete while typing (Composer Plus): how the message may go on; a tap adds it at the end.
             if let g = guess, let rest = completionRest(typed: text, asked: g.asked, completion: g.completion) {
-                Button { text += rest; guess = nil; focused = true } label: {
+                Button { put(text + rest, focus: true); guess = nil } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "text.cursor").font(.caption).foregroundStyle(.secondary)
                         (Text(verbatim: "…") + Text(verbatim: rest.trimmingCharacters(in: .whitespaces))).font(.subheadline).foregroundStyle(.secondary).lineLimit(2).multilineTextAlignment(.leading)
@@ -1195,10 +1228,9 @@ struct ConversationView: View {
             }
             // while a turn runs, sending queues the next turn like desktop's default busy-Enter; the queue dock's "Send now" steers
             // While the Mac makes the branch, the field takes no text (the sent message is on its way).
-            TextField(c.branching ? "Creating branch…" : c.newBranch ? "First message on a new branch…" : c.running ? "Queue a message…" : "Ask DeepSeek", text: $text, axis: .vertical).lineLimit(1...6).focused($focused).padding(.horizontal, 4).disabled(c.branching)
-                // A new field after each send: iOS can keep the sent text on screen while the field has the focus
-                // (pending autocorrection or input method text), although `text` is empty. `send()` gives the focus back.
-                .id(sent)
+            TextField(c.branching ? "Creating branch…" : c.newBranch ? "First message on a new branch…" : c.running ? "Queue a message…" : damon ? "Ask Damon" : "Ask DeepSeek", text: $text, axis: .vertical).lineLimit(1...6).focused($focused).padding(.horizontal, 4).disabled(c.branching)
+                // A new field after each text that the app writes (`put`): the field shows that text, not the old one.
+                .id(field)
             HStack(spacing: 10) {
                 Menu {
                     if UIImagePickerController.isSourceTypeAvailable(.camera) {
@@ -1266,7 +1298,7 @@ struct ConversationView: View {
     @ViewBuilder private var planButton: some View {
         let on = planOn(c.currentSess?.plan), drafted = text.range(of: #"^/plan(?=$|\s)"#, options: .regularExpression) != nil
         Button {
-            if on { c.run { try await c.leavePlan() } } else { text = planToggled(text) }
+            if on { c.run { try await c.leavePlan() } } else { put(planToggled(text)) }
             UISelectionFeedbackGenerator().selectionChanged()
         } label: {
             Image(systemName: "list.bullet.clipboard").font(.footnote.weight(.medium))
@@ -1284,7 +1316,7 @@ struct ConversationView: View {
             let undo = improved.map { $0.after == text } ?? false
             Button {
                 if let t = improving { t.task.cancel(); improving = nil; return }
-                if undo, let u = improved { text = u.before; improved = nil; return }
+                if undo, let u = improved { put(u.before); improved = nil; return }
                 let draft = text, id = UUID()
                 // Only this ask clears the handle: an older, cancelled one that ends later must not hide a newer one.
                 improving = (id, Task { @MainActor in
@@ -1293,7 +1325,7 @@ struct ConversationView: View {
                         guard let better = try await c.improve(draft), !Task.isCancelled else { return }
                         guard text == draft else { c.error = String(localized: "The message changed while it was improved, so it was not replaced."); return }
                         guard better != draft else { return }
-                        text = better; improved = (draft, better)
+                        put(better); improved = (draft, better)
                         UINotificationFeedbackGenerator().notificationOccurred(.success)
                     } catch is CancellationError {} catch { if !Task.isCancelled { c.error = userText(error) } }
                 })
@@ -1322,15 +1354,22 @@ struct ConversationView: View {
         .buttonStyle(.plain).opacity(canSend || c.running || (icon == "play.fill") ? 1 : 0.3)
     }
 
+    /// Every text that the app writes into the message field (an improvement and its Undo, a prediction, a completion, a
+    /// starter, a sheet's text, a send) goes through here. A new field (`.id(field)`) shows it: while the field has the focus, iOS can keep the old text on screen (pending autocorrection or input method text)
+    /// although `text` changed, and Send then sends the text that was not shown. The new field takes the focus of the old one.
+    private func put(_ t: String, focus: Bool = false) {
+        let keep = focused || focus
+        text = t; field += 1
+        if keep { DispatchQueue.main.async { focused = true } }
+    }
+
     func send() {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines), imgs = images, fs = files
-        text = ""; images = []; files = []; sent += 1
-        // The new field (`.id(sent)`) takes the focus of the old one, so the keyboard stays open.
-        if focused { DispatchQueue.main.async { focused = true } }
+        put(""); images = []; files = []
         follow = true // your message and its answer show at the end
         let name = t.hasPrefix("/") ? String(t.dropFirst().prefix { !$0.isWhitespace }) : ""
         // a failed send (link down, Mac asleep) puts the draft back instead of losing it
-        let restore = { if text.isEmpty && images.isEmpty && files.isEmpty { text = t; images = imgs; files = fs } }
+        let restore = { if text.isEmpty && images.isEmpty && files.isEmpty { put(t); images = imgs; files = fs } }
         // New branch + `/plan <message>`: the branch chat starts in plan mode (not /plan in this chat).
         if c.newBranch, let m = planMessage(t), !m.isEmpty || !imgs.isEmpty || !fs.isEmpty {
             c.run { do { try await c.startOnBranch(m, images: imgs, files: fs, plan: true) } catch { restore(); throw error } }; return
@@ -1517,6 +1556,46 @@ struct OptionButtons: View {
     }
 }
 
+/// Approve button (Composer Plus `approveButton`): one button per approval sentence, with the whole sentence. A tap asks
+/// once (the full sentence), then sends the exact sentence as your message. One send at a time (the option guard).
+struct ApproveButtons: View {
+    @EnvironmentObject var c: Client
+    let offer: ApprovalOffer
+    /// The sentence and the chat of the tap: the confirmation sends only into that chat.
+    @State private var asking: (sid: String, sentence: String)?
+    var body: some View {
+        let busy = c.current.map { c.optionBusy.contains($0) } ?? true
+        let w = approveWords(macLang: c.macLang)
+        VStack(alignment: .leading, spacing: 6) {
+            // One quiet card per sentence (the Mac's outlined button: thin accent border, the sentence as plain text), with
+            // its own Onayla button that never wraps. The sentence is text, not a tinted link.
+            ForEach(offer.sentences, id: \.self) { s in
+                VStack(alignment: .trailing, spacing: 8) {
+                    Text(verbatim: s.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression))
+                        .font(.subheadline).foregroundStyle(Color.secondary).multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityHidden(true) // the button below reads the whole sentence
+                    Button { UISelectionFeedbackGenerator().selectionChanged(); asking = c.current.map { ($0, s) } } label: {
+                        Text(verbatim: w.button).font(.subheadline.weight(.semibold)).lineLimit(1).fixedSize()
+                    }
+                    .buttonStyle(.borderedProminent).controlSize(.small)
+                    .disabled(busy)
+                    .accessibilityLabel(Text(verbatim: "\(w.button): \(s)"))
+                    .accessibilityHint(Text(verbatim: w.hint))
+                }
+                .padding(12)
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.accentColor.opacity(0.6), lineWidth: 1))
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text(verbatim: w.group))
+        .confirmationDialog(Text(verbatim: w.confirm), isPresented: Binding(get: { asking != nil }, set: { if !$0 { asking = nil } }), titleVisibility: .visible, presenting: asking) { a in
+            Button(w.button) { let o = offer; c.run(waits: false) { try await c.approve(a.sid, o, a.sentence) } }
+            Button(w.cancel, role: .cancel) {}
+        } message: { a in Text(verbatim: a.sentence) }
+    }
+}
+
 struct LineView: View {
     @EnvironmentObject var c: Client
     let line: Line
@@ -1526,6 +1605,8 @@ struct LineView: View {
     var onQuote: ((String) -> Void)? = nil
     /// Turn rollback (Composer Plus): nil when this row cannot be rolled back.
     var onRollback: (() -> Void)? = nil
+    /// Approve button: the sentences whose button shows now for this answer.
+    var onayButtons: Set<String> = []
     @State private var open = false
     @State private var copied = false
     @State private var selecting = false
@@ -1576,7 +1657,8 @@ struct LineView: View {
             }.frame(maxWidth: .infinity, alignment: .trailing)
         case .assistant:
             VStack(alignment: .leading, spacing: 6) {
-                Markdown(text: line.text).frame(maxWidth: .infinity, alignment: .leading)
+                // Assistant callouts: only in the assistant chat, as on the Mac.
+                Markdown(text: line.text, callouts: c.current != nil && c.current == c.assistantId, calloutLang: c.macLang, onayButtons: onayButtons).frame(maxWidth: .infinity, alignment: .leading)
                 if !live {
                     Button {
                         UIPasteboard.general.string = line.text; UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -1863,22 +1945,65 @@ struct ImageViewer: View {
 
 struct Markdown: View {
     let text: String
+    /// Assistant callouts: the boxes of the assistant chat (`calloutLang`: the Mac's Composer Plus language); nil elsewhere.
+    var callouts = false
+    var calloutLang: String? = nil
+    /// Approve button: the sentences whose button shows under this answer (their block is hidden: the button holds them).
+    var onayButtons: Set<String> = []
     var body: some View {
+        // As on the Mac: a button-worthy `onay` sentence shows once, as plain gray text when it has no button now; a block
+        // that never gets a button stays a code block.
+        let onay = text.range(of: "onay", options: .caseInsensitive) == nil ? [] : Set(onayBlocks(text).filter(approvable))
         VStack(alignment: .leading, spacing: 8) {
             ForEach(Array(mdBlocks(text).enumerated()), id: \.offset) { _, b in
-                if b.code {
+                let sentence = b.code && b.lang.lowercased() == "onay" ? b.text.trimmingCharacters(in: jsTrim) : nil
+                if let sentence, onayButtons.contains(sentence) { EmptyView() }
+                else if let sentence, onay.contains(sentence) { Text(verbatim: sentence).foregroundStyle(.secondary).textSelection(.enabled) }
+                else if b.code {
                     CodeBlock(text: b.text, lang: b.lang)
                 } else {
                     VStack(alignment: .leading, spacing: 6) {
-                        ForEach(Array(mdParts(b.text).enumerated()), id: \.offset) { _, p in
+                        ForEach(Array((callouts ? mdCallouts(mdParts(b.text)) : mdParts(b.text).map(MdBlock.part)).enumerated()), id: \.offset) { _, p in
                             switch p {
-                            case .line(let l): MdLineView(line: mdLine(l))
-                            case .table(let rows): MdTable(rows: rows)
+                            case .part(.line(let l)): MdLineView(line: mdLine(l))
+                            case .part(.table(let rows)): MdTable(rows: rows)
+                            case .callout(let kind, let title, let lines): CalloutBox(kind: kind, title: title, lines: lines, label: calloutLabel(kind, macLang: calloutLang))
                             }
                         }
                     }.textSelection(.enabled)
                 }
             }
+        }
+    }
+}
+
+/// One Assistant callout: a colored box with its label, or `[!DETAILS]` as a closed section that opens with a tap.
+struct CalloutBox: View {
+    let kind: String, title: String, lines: [String], label: String
+    @State private var open = false
+    private var color: Color {
+        switch kind {
+        case "result": .green
+        case "problem": .red
+        case "approval": .accentColor
+        case "questions": .purple
+        case "important": .orange
+        case "running": .secondary
+        default: Color(.separator)
+        }
+    }
+    var body: some View {
+        let content = VStack(alignment: .leading, spacing: 4) { ForEach(Array(lines.enumerated()), id: \.offset) { _, l in MdLineView(line: mdLine(l)) } }
+        if kind == "details" {
+            DisclosureGroup(isExpanded: $open) { content.padding(.top, 4) } label: { Text(verbatim: title.isEmpty ? label : title).bold() }
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(color))
+        } else {
+            VStack(alignment: .leading, spacing: 4) { Text(verbatim: label).font(.subheadline.bold()).foregroundStyle(color); content }
+                .padding(.horizontal, 12).padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading)
+                .background(color.opacity(0.09), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(alignment: .leading) { UnevenRoundedRectangle(topLeadingRadius: 8, bottomLeadingRadius: 8).fill(color).frame(width: 3) }
+                .accessibilityElement(children: .combine)
         }
     }
 }
@@ -2344,8 +2469,8 @@ struct NewSessionSheet: View {
 
 /// The Assistant tab, in the slot of the old Agents tab; Tether opens on it. It asks the Mac for its one assistant chat
 /// (`openAssistant`: `GET /plus/assistant`, the route of the desktop's Assistant row, which makes the chat when there is
-/// none) and opens it on the Sessions stack, so one chat view serves every chat. Back leads to Sessions; this tab opens
-/// the assistant again. It says why when the Mac is not connected or its Assistant is off.
+/// none) and opens it on the Sessions stack, so one chat view serves every chat. The chat has no Back: Main menu (☰) leads
+/// to Sessions, and the Mac switch opens the other Mac's Damon chat (`openDamon`); this tab opens the assistant again. It says why when the Mac is not connected or its Assistant is off.
 struct AssistantTab: View {
     @EnvironmentObject var c: Client
     /// Why the last open failed (for example, the Assistant is off on the Mac); Try again asks again.
@@ -2356,10 +2481,10 @@ struct AssistantTab: View {
         NavigationStack {
             Group {
                 if c.state == .off || c.state == .reconnecting { OfflineView() }
-                else if !ready || (failed == nil && c.plus.contains("assistant")) { ProgressView(ready ? "Opening the assistant…" : "Connecting to your Mac…") }
+                else if !ready || (failed == nil && c.plus.contains("assistant")) { ProgressView(ready ? "Opening \(assistantName)…" : "Connecting to your Mac…") }
                 else {
                     ContentUnavailableView {
-                        Label("Assistant", systemImage: "sparkles")
+                        Label(assistantName, systemImage: "sparkles")
                     } description: {
                         // No route: an older Composer Plus on the Mac.
                         Text(failed ?? String(localized: "Update Composer Plus on your Mac and switch on Assistant in Settings → Composer Plus."))
@@ -2368,8 +2493,8 @@ struct AssistantTab: View {
                     }
                 }
             }
-            .navigationTitle("Assistant")
-            .toolbar { ToolbarItem(placement: .topBarLeading) { MacPicker() } }
+            .navigationTitle(assistantName)
+            .toolbar { ToolbarItem(placement: .topBarLeading) { MacPicker(damon: true) } }
         }
         // Each time the tab shows, and when the Mac connects while it shows.
         .task(id: ready && c.plus.contains("assistant")) { open() }
@@ -2523,7 +2648,7 @@ struct SettingsView: View {
                     Section {
                         Toggle("Assistant apart from chats", isOn: $c.assistantApart)
                         Toggle("Assistant messages only", isOn: $c.assistantMessagesOnly)
-                    } header: { Text("Assistant") } footer: { Text("Apart from chats: the assistant chat is not in the Sessions list (search still finds it); the Assistant tab opens it and shows a badge while it waits for you or has a new reply. Messages only: in the assistant chat you see your messages, its replies and errors, without thinking and tool rows. These switches are for this iPhone.") }
+                    } header: { Text(verbatim: assistantName) } footer: { Text("Apart from chats: the assistant chat is not in the Sessions list (search still finds it); the \(assistantName) tab opens it and shows a badge while it waits for you or has a new reply. Messages only: in the assistant chat you see your messages, its replies and errors, without thinking and tool rows. These switches are for this iPhone.") }
                 }
                 if c.plus.contains("issue-report") {
                     Section {
@@ -3303,8 +3428,9 @@ struct IdeasSheet: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
                     ForEach(focusPresets, id: \.self) { p in
-                        let on = focus.trimmingCharacters(in: .whitespaces) == p
-                        Button { focus = on ? "" : p } label: { Text(LocalizedStringKey(p)).font(.footnote) }
+                        // The topic in the UI language, as the web writes it (the Mac's model reads any language).
+                        let on = focus.trimmingCharacters(in: .whitespaces) == focusLabel(p)
+                        Button { focus = on ? "" : focusLabel(p) } label: { Text(verbatim: focusLabel(p)).font(.footnote) }
                             .buttonStyle(.bordered).tint(on ? .accentColor : .secondary).accessibilityAddTraits(on ? .isSelected : [])
                     }
                 }
@@ -3365,7 +3491,7 @@ struct IdeasSheet: View {
     }
     private func card(_ i: J) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack { Text(i["title"] as? String ?? "").font(.title3.bold()); Spacer(); if let e = i["effort"] as? String { Text(LocalizedStringKey(e.capitalized)).font(.caption).padding(.horizontal, 8).padding(.vertical, 3).background(.quaternary, in: Capsule()) } }
+            HStack { Text(i["title"] as? String ?? "").font(.title3.bold()); Spacer(); if let e = i["effort"] as? String { Text(e == "small" ? "Small" : e == "medium" ? "Medium" : e == "large" ? "Large" : LocalizedStringKey(e.capitalized)).font(.caption).padding(.horizontal, 8).padding(.vertical, 3).background(.quaternary, in: Capsule()) } }
             Text(i["summary"] as? String ?? "")
             if let w = i["why"] as? String { Text(w).font(.footnote).foregroundStyle(.secondary) }
         }
@@ -3732,7 +3858,7 @@ struct MemorySheet: View {
                         Text(p.note.isEmpty ? (p.changes.isEmpty ? String(localized: "The model proposes no change.") : String(localized: "Check these \(p.changes.count) change(s), then apply them.")) : p.note).font(.footnote)
                         ForEach(p.changes) { ch in
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(LocalizedStringKey(ch.op == "add" ? "Add" : ch.op == "edit" ? "Change" : "Remove")).font(.caption.bold())
+                                Text(ch.op == "add" ? "Add" : ch.op == "edit" ? "Change" : "Remove").font(.caption.bold())
                                     .foregroundStyle(ch.op == "add" ? Color.green : ch.op == "edit" ? Color.blue : Color.red)
                                 if let b = ch.before { Text(b).strikethrough().foregroundStyle(.secondary).font(.subheadline) }
                                 if let t = ch.text { Text(t).font(.subheadline) }
@@ -4288,3 +4414,674 @@ struct BoardCardRow: View {
         .accessibilityElement(children: .combine)
     }
 }
+
+/// Damon's status panel (the Mac's Durum panel, Composer Plus `assistantTodos`): the to-do list in its owner groups (yours,
+/// then Damon's) with the waiting state and its reason, Görevler (the live tasks, then the ended ones under History), the
+/// chats that Resume after an AIProxy outage continued, today's summary and the projects that changed in the last 24 hours
+/// (a tap opens one: its chats, to-do items and git branch). It reads the web panel's route on open, every 5 s while a
+/// task runs, and on pull to refresh. Read only: the Mac keeps the list (tell Damon in the chat to change it).
+/// The Mac's texts (items, reasons, task titles and results, summary lines, chat titles, commits) are data: Text(verbatim:).
+struct StatusSheet: View {
+    @EnvironmentObject var c: Client
+    @Environment(\.dismiss) private var dismiss
+    let sessionId: String
+    @State private var view: StatusView?
+    @State private var failed: String?
+    @State private var historyOpen = false
+    @State private var openProjects = Set<String>()
+    @State private var git: [String: Result<(branch: String?, commits: [(hash: String, at: Date?, subject: String)]), Error>] = [:]
+    /// The newest read wins (a poll and a pull to refresh can overlap), as in the web panel.
+    @State private var seq = 0
+    var body: some View {
+        NavigationStack {
+            List {
+                if let v = view {
+                    if !v.on { Text("Switch on Assistant status panel in Settings → Composer Plus on your Mac.").foregroundStyle(.secondary) }
+                    else { content(v) }
+                } else if failed == nil { HStack(spacing: 8) { ProgressView(); Text(String(localized: "status.loading", defaultValue: "Loading…", bundle: uiStrings)) } }
+                if let f = failed { Text(String(localized: "status.readFailed", defaultValue: "Could not refresh: \(f)", bundle: uiStrings)).font(.footnote).foregroundStyle(.orange) }
+            }
+            .refreshable { await load(fresh: true) }
+            .navigationTitle(String(localized: "status.title", defaultValue: "Status", bundle: uiStrings)).navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+                if let at = view?.at { ToolbarItem(placement: .principal) { VStack(spacing: 0) { Text(String(localized: "status.title", defaultValue: "Status", bundle: uiStrings)).font(.headline); Text(String(localized: "status.updated", defaultValue: "List \(at.formatted(date: .omitted, time: .shortened))", bundle: uiStrings)).font(.caption2).foregroundStyle(.secondary) } } }
+            }
+            .task { await load() }
+            // While a task runs, read again every 5 s (the web panel's STATUS_POLL_MS); while the Mac translates the result
+            // lines, every 3 s (the web panel's STATUS_GAP_MS) until it says that it is done. A failed read ends it.
+            .task(id: view.map { $0.live.contains { $0.state == "running" } || $0.translating } ?? false) {
+                while !Task.isCancelled, let v = view, v.translating || v.live.contains(where: { $0.state == "running" }) {
+                    try? await Task.sleep(for: .seconds(v.live.contains { $0.state == "running" } ? 5 : 3))
+                    if Task.isCancelled { return }
+                    await load()
+                    if failed != nil { return }
+                }
+            }
+        }
+    }
+    @ViewBuilder private func content(_ v: StatusView) -> some View {
+        if let s = v.summary {
+            Section {
+                ForEach(Array(s.projects.enumerated()), id: \.offset) { _, p in
+                    VStack(alignment: .leading, spacing: 2) { Text(verbatim: p.project).font(.subheadline.weight(.semibold)); Text(verbatim: p.text).font(.subheadline) }
+                }
+            } header: { Text(verbatim: String(localized: "status.summary", defaultValue: "Summary", bundle: uiStrings) + " · " + s.at.formatted(date: .omitted, time: .shortened)) }
+        }
+        Section {
+            if v.groups.isEmpty { Text("No items. Tell \(assistantName) a task that you have in mind.").foregroundStyle(.secondary) }
+            ForEach(v.groups, id: \.owner) { g in
+                HStack {
+                    Text(g.owner == "agent" ? String(localized: "todos.groupAgent", defaultValue: "\(assistantName) will do", bundle: uiStrings) : String(localized: "todos.groupUser", defaultValue: "You will do", bundle: uiStrings)).font(.footnote.weight(.semibold)).foregroundStyle(g.owner == "agent" ? Color.accentColor : .secondary)
+                    Text(verbatim: "\(g.items.count)").font(.footnote).foregroundStyle(.tertiary)
+                    if g.waiting > 0 { Text(String(localized: "todos.waitingCount", defaultValue: "\(g.waiting) waiting", bundle: uiStrings)).font(.footnote).foregroundStyle(.orange) }
+                }
+                ForEach(g.items) { i in
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(verbatim: i.text).fontWeight(i.waiting == nil ? .regular : .medium)
+                            if let w = i.waiting {
+                                (Text(String(localized: "todos.waiting", defaultValue: "Waiting for you", bundle: uiStrings)).foregroundStyle(.orange) + Text(verbatim: " · ") + Text(w.since, format: .relative(presentation: .numeric, unitsStyle: .abbreviated))
+                                    + (v.overdue.contains(i.id) ? Text(verbatim: " · ") + Text(String(localized: "todos.overdue", defaultValue: "Overdue", bundle: uiStrings)).foregroundStyle(.red).bold() : Text(verbatim: ""))).font(.caption)
+                                Text(verbatim: w.reason).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        writeButton(.item(i, overdue: v.overdue.contains(i.id)), name: i.text, handover: i.owner != "agent")
+                    }
+                }
+            }
+        } header: { Text(String(localized: "todos.title", defaultValue: "To-do", bundle: uiStrings)) } footer: { Text("Tell \(assistantName) in the chat to add, give or remove an item. The list is kept on your Mac.") }
+        Section {
+            if v.live.isEmpty && v.ended.isEmpty { Text("\(assistantName) has no tasks today.").foregroundStyle(.secondary) }
+            ForEach(v.live) { t in taskRow(t, v) }
+            if let o = v.outage, o.others > 0 { Text(String(localized: "status.outageMore", defaultValue: "AIProxy outage (\(o.at.formatted(date: .omitted, time: .shortened))): \(o.others) chat(s) continued", bundle: uiStrings)).font(.caption).foregroundStyle(.secondary) }
+            if !v.ended.isEmpty {
+                DisclosureGroup(isExpanded: $historyOpen) { ForEach(v.ended) { t in taskRow(t, v) } } label: {
+                    HStack { Text(String(localized: "status.history", defaultValue: "History", bundle: uiStrings)); Text(verbatim: "\(v.ended.count)").foregroundStyle(.tertiary) }
+                }
+            }
+        } header: { HStack { Text(String(localized: "status.tasks", defaultValue: "Tasks", bundle: uiStrings)); Text(verbatim: "\(v.live.count)").foregroundStyle(.tertiary) } }
+        Section {
+            if v.projects.isEmpty { Text(String(localized: "status.projectsEmpty", defaultValue: "No project changed in the last 24 hours.", bundle: uiStrings)).foregroundStyle(.secondary) }
+            ForEach(v.projects) { p in
+                DisclosureGroup(isExpanded: Binding(get: { openProjects.contains(p.id) }, set: { if $0 { openProjects.insert(p.id) } else { openProjects.remove(p.id) } })) {
+                    projectDetail(p, v)
+                } label: {
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(verbatim: p.title).font(.subheadline.weight(.semibold))
+                            if let line = v.lines[p.id] { Text(verbatim: line).font(.caption).foregroundStyle(.secondary) }
+                            else { Text(String(localized: "status.projectChats", defaultValue: "\(p.count) chats changed", bundle: uiStrings)).font(.caption).foregroundStyle(.secondary) }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        writeButton(.project(p, line: v.lines[p.id]), name: p.title)
+                    }
+                }
+            }
+        } header: { Text(String(localized: "status.projects", defaultValue: "Projects", bundle: uiStrings)) }
+    }
+    /// → (the Mac's Write in the message box; for an item of yours, Give to the assistant): the row's text after the chat's
+    /// draft, then the sheet closes and the message field has the focus. Nothing is sent. Borderless: in a List row, only
+    /// the arrow takes its tap, not the whole row.
+    private func writeButton(_ row: StatusRow, name: String, handover: Bool = false) -> some View {
+        let label = handover ? String(localized: "todos.handover", defaultValue: "Give to the assistant: \(name)", bundle: uiStrings) : String(localized: "status.insert", defaultValue: "Write in the message box: \(name)", bundle: uiStrings)
+        let short = handover ? String(localized: "todos.handoverShort", defaultValue: "Give to the assistant", bundle: uiStrings) : String(localized: "status.insertShort", defaultValue: "Write in the message box", bundle: uiStrings)
+        let locale = c.uiLocale
+        return Button {
+            c.writeDraft(statusInsert(row, now: Date(), span: { Duration.seconds(max(0, $0)).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .abbreviated, maximumUnitCount: 1).locale(locale)) }), sessionId)
+            dismiss()
+        } label: { Image(systemName: "arrow.right").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle()) }
+            .buttonStyle(.borderless).accessibilityLabel(Text(verbatim: label)).help(Text(verbatim: short))
+    }
+    private func taskRow(_ t: StatusTask, _ v: StatusView) -> some View {
+        HStack(alignment: .top) {
+        Button { open(t.id) } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(verbatim: t.title).foregroundStyle(.primary)
+                (Text(statusTaskState(t.state)).foregroundStyle(t.state == "running" ? Color.accentColor : t.state == "done" ? .green : t.state == "stopped" ? .secondary : .orange)
+                    + Text(verbatim: " · ") + Text(Duration.seconds(max(0, (t.ended ?? Date()).timeIntervalSince(t.started))), format: .units(allowed: [.hours, .minutes, .seconds], width: .abbreviated, maximumUnitCount: 1))).font(.caption)
+                if let o = v.outage, o.resumed.contains(t.id) { Text(String(localized: "status.outageRow", defaultValue: "Continued after the outage · \(o.at.formatted(date: .omitted, time: .shortened))", bundle: uiStrings)).font(.caption).foregroundStyle(.secondary) }
+                if let r = t.result { Text(verbatim: r).font(.caption).foregroundStyle(.secondary) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()) // the whole row opens the task
+        }
+        .buttonStyle(.plain)
+        writeButton(.task(t, outage: v.outage.flatMap { $0.resumed.contains(t.id) ? $0.at.formatted(date: .omitted, time: .shortened) : nil }), name: t.title)
+        }
+    }
+    @ViewBuilder private func projectDetail(_ p: StatusProject, _ v: StatusView) -> some View {
+        ForEach(p.chats) { ch in
+            Button { open(ch.id) } label: {
+                HStack { Text(verbatim: ch.title).font(.subheadline).foregroundStyle(.primary); Spacer()
+                    if ch.running { Text(String(localized: "status.task.running", defaultValue: "Working", bundle: uiStrings)).font(.caption).foregroundStyle(Color.accentColor) }
+                    else if let u = ch.updated { Text(u, format: .relative(presentation: .named, unitsStyle: .abbreviated)).font(.caption).foregroundStyle(.secondary) } }
+            }
+        }
+        let todos = v.groups.flatMap(\.items).filter { statusFold($0.text).contains(statusFold(p.title)) }
+        ForEach(todos) { i in VStack(alignment: .leading) { Text(verbatim: i.text).font(.subheadline); Text(i.owner == "agent" ? String(localized: "todos.groupAgent", defaultValue: "\(assistantName) will do", bundle: uiStrings) : String(localized: "todos.groupUser", defaultValue: "You will do", bundle: uiStrings)).font(.caption).foregroundStyle(.secondary) } }
+        switch git[p.id] {
+        case nil: HStack(spacing: 8) { ProgressView(); Text(String(localized: "status.loading", defaultValue: "Loading…", bundle: uiStrings)).font(.caption) }.task { await loadGit(p.id) }
+        case .failure(let e)?: Text(String(localized: "status.readFailed", defaultValue: "Could not refresh: \(userText(e))", bundle: uiStrings)).font(.caption).foregroundStyle(.orange)
+        case .success(let g)?:
+            if let b = g.branch {
+                Text(String(localized: "status.branch", defaultValue: "Branch: \(b)", bundle: uiStrings)).font(.caption)
+                ForEach(g.commits, id: \.hash) { cm in
+                    VStack(alignment: .leading, spacing: 1) {
+                        HStack(alignment: .firstTextBaseline) { Text(verbatim: cm.hash).font(.caption2.monospaced()).foregroundStyle(.secondary); Text(verbatim: cm.subject).font(.caption) }
+                        if let at = cm.at { Text(at, format: .relative(presentation: .named, unitsStyle: .abbreviated)).font(.caption2).foregroundStyle(.secondary) }
+                    }
+                }
+            } else { Text(String(localized: "status.noGit", defaultValue: "Not a git repository.", bundle: uiStrings)).font(.caption).foregroundStyle(.secondary) }
+        }
+    }
+    private func open(_ id: String) { dismiss(); c.open(id) }
+    private func load(fresh: Bool = false) async {
+        seq += 1; let mine = seq
+        if fresh { git = [:] } // the open projects read their git details again (the web clears them first too)
+        do {
+            let v = try await c.loadStatus(sessionId, fresh: fresh)
+            guard mine == seq else { return } // a newer read started meanwhile
+            if let v { view = v }; failed = nil
+        } catch is CancellationError {} catch { if mine == seq { failed = userText(error) } }
+    }
+    private func loadGit(_ project: String) async {
+        do { let g = try await c.loadStatusProject(sessionId, project); git[project] = .success(g) }
+        catch is CancellationError {} catch { git[project] = .failure(error) }
+    }
+}
+// END StatusSheet
+
+// MARK: - Damon card stack (Composer Plus `statusCards`)
+
+/// What a tap in the deck asks for; `CardDeck` does it (the pure `DeckView` only draws).
+enum DeckAction { case ask(StatusCard), done(StatusCard), reply(StatusCard), watch(StatusCard), seen(StatusCard), write(StatusCard), approve(String), projects, pick(Int), later(String) }
+
+/// The deck as the Mac's Durum panel shows it, drawn from data (no Client): the count bar, the Onay card (at most one),
+/// then the Sorun, Senden, Sürüyor and Bugün bitti cards. Closed: the top card with the edges of the cards behind it and
+/// a "+N". Open: all cards one under the other in a scroll view (`maxHeight`); Bugün bitti and your notes are folded rows.
+/// `compact`: you type, so the Onay card is one line and has no Approve button. The Mac's texts (titles, reasons, results,
+/// sentences) are data: Text(verbatim:). `b`: the table of the UI language.
+struct DeckView: View {
+    let cards: StatusCards, sentences: [String]
+    var loaded = true
+    /// The Mac's status panel is off: only the count bar, with the hint to switch it on.
+    var off = false
+    let now: Date, b: Bundle, locale: Locale
+    var compact = false, busy = false
+    let maxHeight: CGFloat
+    /// False draws the open list without a scroll view (the screenshot test: ImageRenderer cannot draw a scroll view).
+    var scrolls = true
+    /// Phase 2 views of the open deck: "stack" (the list), "queue" (the decision queue), "brief" (the briefing). `queue`:
+    /// `statusQueue`; `options`: the choice's options (the "karar" entry); `answered`/`answeredTotal`: the count of the
+    /// head line; `index`: the entry on screen.
+    var mode: Binding<String> = .constant("stack")
+    var queue: [QueueEntry] = []
+    var options: [ChatOption] = []
+    var answered = 0, answeredTotal = 0
+    var index: Binding<Int> = .constant(0)
+    @Binding var open: Bool
+    @Binding var doneOpen: Bool
+    @Binding var notesOpen: Bool
+    let act: (DeckAction) -> Void
+    @State private var topicsOpen = false
+    @State private var listHeight: CGFloat = 0
+
+    private var total: Int { (cards.approval == nil ? 0 : 1) + cards.all.count }
+    static func color(_ g: String) -> Color {
+        switch g { case "onay": .accentColor; case "karar": .purple; case "sorun": .red; case "senden": .orange; case "suruyor": .gray; default: .green }
+    }
+    private static func glyph(_ g: String) -> String {
+        switch g { case "onay": "●"; case "karar": "◇"; case "sorun": "▲"; case "senden": "◆"; case "suruyor": "○"; default: "✓" }
+    }
+    private func typeWord(_ g: String) -> String {
+        switch g {
+        case "onay": String(localized: "cards.onay", defaultValue: "Approval waits", bundle: b)
+        case "sorun": String(localized: "cards.sorun", defaultValue: "Problem", bundle: b)
+        case "senden": String(localized: "cards.senden", defaultValue: "For you", bundle: b)
+        case "suruyor": String(localized: "cards.suruyor", defaultValue: "Running", bundle: b)
+        default: String(localized: "cards.bitti", defaultValue: "Done today", bundle: b)
+        }
+    }
+    private func span(_ t: TimeInterval) -> String {
+        Duration.seconds(max(0, t)).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .abbreviated, maximumUnitCount: 1).locale(locale))
+    }
+    private var countText: String {
+        if !loaded { return String(localized: "status.loading", defaultValue: "Loading…", bundle: b) }
+        if off { return String(localized: "Switch on Assistant status panel in Settings → Composer Plus on your Mac.", bundle: b) }
+        let k = cards.counts
+        let parts = [k.onay > 0 ? String(localized: "cards.count.onay", defaultValue: "\(k.onay) approval(s)", bundle: b) : nil,
+                     k.sorun > 0 ? String(localized: "cards.count.sorun", defaultValue: "\(k.sorun) problem(s)", bundle: b) : nil,
+                     k.senden > 0 ? String(localized: "cards.count.senden", defaultValue: "\(k.senden) for you", bundle: b) : nil,
+                     k.suruyor > 0 ? String(localized: "cards.count.suruyor", defaultValue: "\(k.suruyor) running", bundle: b) : nil,
+                     k.bitti > 0 ? String(localized: "cards.count.bitti", defaultValue: "\(k.bitti) done", bundle: b) : nil].compactMap { $0 }
+        return parts.isEmpty ? String(localized: "cards.none", defaultValue: "Nothing open", bundle: b) : parts.joined(separator: " · ")
+    }
+
+    var body: some View {
+        VStack(spacing: 6) {
+            countBar
+            if off {} else if open { viewPicker; openList } else if total > 0 { closedStack }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 6)
+        .animation(.snappy, value: open)
+    }
+
+    // MARK: count bar
+    /// A tap or a drag down opens the deck, a drag up closes it; the buttons keep their own taps.
+    private var countBar: some View {
+        HStack(spacing: 8) {
+            Text(verbatim: countText).font(.footnote.weight(.semibold)).lineLimit(off ? 3 : 1).minimumScaleFactor(0.75).frame(maxWidth: .infinity, alignment: .leading)
+            Button { act(.projects) } label: { Text(String(localized: "status.projects", defaultValue: "Projects", bundle: b)).font(.footnote).lineLimit(1) }
+                .buttonStyle(.bordered).controlSize(.small)
+            Button { open.toggle() } label: { Image(systemName: open ? "chevron.up" : "chevron.down").frame(width: 36, height: 36).contentShape(Rectangle()) }
+                .accessibilityLabel(Text(verbatim: open ? String(localized: "Hide", bundle: b) : String(localized: "Show", bundle: b)))
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { open = true }
+        .gesture(DragGesture(minimumDistance: 16).onEnded { v in
+            if v.translation.height > 16 { open = true } else if v.translation.height < -16 { open = false }
+        })
+    }
+
+    // MARK: closed: the top card, the edges of the cards behind it and "+N"
+    private var closedStack: some View {
+        let behind = min(total - 1, 2)
+        return ZStack(alignment: .top) {
+            topCard
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.bottom, CGFloat(behind) * 6)
+        .background(alignment: .top) {
+            ZStack(alignment: .top) {
+                if behind >= 2 { edge(inset: 20, down: 12) }
+                if behind >= 1 { edge(inset: 10, down: 6) }
+            }
+            .onTapGesture { open = true }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if total > 1 {
+                Button { open = true } label: { Text(verbatim: "+\(total - 1)").font(.caption2.weight(.bold)).padding(.horizontal, 7).padding(.vertical, 2).background(Capsule().fill(Color(.secondarySystemFill))) }
+                    .buttonStyle(.plain).padding(.trailing, 14).offset(y: 2)
+                    .accessibilityLabel(Text(verbatim: "+\(total - 1)"))
+            }
+        }
+    }
+    private func edge(inset: CGFloat, down: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(.tertiarySystemFill)).frame(height: 36).padding(.horizontal, inset).offset(y: down)
+    }
+    @ViewBuilder private var topCard: some View {
+        if cards.approval != nil { onayCard } else if let first = cards.all.first { card(first) }
+    }
+
+    // MARK: open
+    @ViewBuilder private var openList: some View {
+        let list = VStack(alignment: .leading, spacing: 8) {
+            if mode.wrappedValue == "queue" { queueView } else if mode.wrappedValue == "brief" { briefView } else { stackList }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        if scrolls {
+            ScrollView { list.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { listHeight = $0 } }
+                .frame(height: min(max(listHeight, 1), maxHeight))
+        } else { list }
+    }
+    /// The Cards view: today's open list.
+    @ViewBuilder private var stackList: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if cards.approval != nil { onayCard }
+            ForEach(["sorun", "senden", "suruyor"], id: \.self) { g in ForEach(cards.groups[g] ?? []) { card($0) } }
+            let done = cards.groups["bitti"] ?? []
+            if !done.isEmpty {
+                foldRow(open: $doneOpen, title: typeWord("bitti") + " \(done.count)" + (cards.counts.fresh > 0 ? " · " + String(localized: "cards.fresh", defaultValue: "\(cards.counts.fresh) new", bundle: b) : ""))
+                if doneOpen { ForEach(done) { card($0) } }
+            }
+            if !cards.notes.isEmpty {
+                foldRow(open: $notesOpen, title: String(localized: "cards.notes", defaultValue: "Your notes", bundle: b) + " \(cards.notes.count)")
+                if notesOpen {
+                    ForEach(cards.notes) { n in Text(verbatim: n.text).font(.subheadline).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 10) }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    private func foldRow(open: Binding<Bool>, title: String) -> some View {
+        Button { withAnimation(.snappy) { open.wrappedValue.toggle() } } label: {
+            HStack(spacing: 6) { Text(verbatim: open.wrappedValue ? "▾" : "▸").accessibilityHidden(true); Text(verbatim: title).font(.footnote.weight(.semibold)); Spacer(minLength: 0) }
+                .foregroundStyle(.secondary).frame(minHeight: 32).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).accessibilityLabel(Text(verbatim: title)).accessibilityValue(Text(verbatim: open.wrappedValue ? String(localized: "Expanded", bundle: b) : String(localized: "Collapsed", bundle: b)))
+    }
+
+    // MARK: phase 2: view picker, decision queue, briefing
+    private var viewPicker: some View {
+        Picker(String(localized: "cards.views", defaultValue: "View", bundle: b), selection: mode) {
+            Text(String(localized: "cards.view.stack", defaultValue: "Cards", bundle: b)).tag("stack")
+            Text(String(localized: "cards.view.queue", defaultValue: "Queue", bundle: b)).tag("queue")
+            Text(String(localized: "cards.view.brief", defaultValue: "Briefing", bundle: b)).tag("brief")
+        }
+        .pickerStyle(.segmented)
+    }
+    private var at: Int { max(0, min(index.wrappedValue, queue.count - 1)) }
+    /// One entry of the queue: the Onay card (the only place that draws it in these views), a Senden card, or the choice.
+    @ViewBuilder private func entryView(_ e: QueueEntry) -> some View {
+        switch e.kind {
+        case "onay": onayCard
+        case "karar": choiceCard
+        default: if let c = e.card { card(c) }
+        }
+    }
+    private var choiceCard: some View {
+        frame("karar") {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    Text(verbatim: Self.glyph("karar")).foregroundStyle(Self.color("karar")).accessibilityHidden(true)
+                    Text(String(localized: "queue.choiceTitle", defaultValue: "\(assistantName) asks you to choose", bundle: b)).font(.subheadline.weight(.semibold))
+                    Spacer(minLength: 0)
+                }
+                // The user types: no option buttons (as OptionButtons hide while the text field has text).
+                if !compact { ForEach(options, id: \.n) { o in
+                    Button { act(.pick(o.n)) } label: {
+                        Text(verbatim: "\(o.n). \(o.label)").font(.subheadline).multilineTextAlignment(.leading).frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.bordered).tint(o.recommended ? .accentColor : .secondary).disabled(busy)
+                    .accessibilityLabel(Text(verbatim: "\(o.n). \(o.label)"))
+                } }
+            }
+        }
+        .accessibilityElement(children: .contain)
+    }
+    private var queueView: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(String(localized: "queue.left", defaultValue: "\(queue.count) left", bundle: b))
+                Spacer(minLength: 8)
+                Text(String(localized: "queue.answered", defaultValue: "\(answered)/\(answeredTotal) answered", bundle: b))
+            }
+            .font(.footnote.weight(.semibold)).foregroundStyle(.secondary)
+            if queue.isEmpty {
+                VStack(spacing: 4) {
+                    Text(String(localized: "queue.empty", defaultValue: "Nothing waits for you", bundle: b)).font(.subheadline.weight(.semibold))
+                    if cards.counts.suruyor > 0 {
+                        Text(String(localized: "queue.emptyRunning", defaultValue: "\(cards.counts.suruyor) running. \(assistantName) tells you.", bundle: b)).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity).padding(.vertical, 12)
+            } else {
+                let e = queue[at]
+                HStack(spacing: 6) {
+                    Text(verbatim: "\(at + 1) / \(queue.count)").font(.caption).foregroundStyle(.secondary)
+                    if e.live && e.kind != "onay" { tag(String(localized: "cards.live", defaultValue: "LIVE", bundle: b), .red) }
+                }
+                entryView(e)
+                HStack {
+                    Button(String(localized: "queue.prev", defaultValue: "Previous", bundle: b)) { index.wrappedValue = at - 1 }.disabled(at == 0)
+                    Spacer(minLength: 0)
+                    Button(String(localized: "queue.later", defaultValue: "Later", bundle: b)) { act(.later(e.key)) }
+                    Spacer(minLength: 0)
+                    Button(String(localized: "queue.next", defaultValue: "Next", bundle: b)) { index.wrappedValue = at + 1 }.disabled(at >= queue.count - 1)
+                }
+                .buttonStyle(.bordered).controlSize(.small)
+            }
+        }
+    }
+    private var briefView: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(verbatim: now.formatted(.dateTime.weekday(.wide).day().month(.wide).locale(locale))).font(.caption).foregroundStyle(.secondary)
+            if let e = queue.first {
+                Text(String(localized: "brief.next", defaultValue: "Next task · 1 of \(queue.count)", bundle: b)).font(.subheadline.weight(.semibold))
+                entryView(e)
+            } else {
+                Text(String(localized: "brief.nothing", defaultValue: "Nothing needed from you", bundle: b)).font(.subheadline.weight(.semibold))
+            }
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
+                tile("senden", queue.count, String(localized: "brief.waiting", defaultValue: "Waits for you", bundle: b)) { index.wrappedValue = 0; mode.wrappedValue = "queue" }
+                tile("sorun", cards.counts.sorun, typeWord("sorun")) { mode.wrappedValue = "stack" }
+                tile("suruyor", cards.counts.suruyor, typeWord("suruyor")) { mode.wrappedValue = "stack" }
+                tile("bitti", cards.counts.bitti, typeWord("bitti")) { doneOpen = true; mode.wrappedValue = "stack" }
+            }
+            let done = cards.groups["bitti"] ?? []
+            if !done.isEmpty {
+                Text(String(localized: "brief.doneList", defaultValue: "Done today", bundle: b)).font(.subheadline.weight(.semibold)).padding(.top, 4)
+                ForEach(done) { c in
+                    HStack(spacing: 8) {
+                        Text(verbatim: Self.glyph("bitti")).foregroundStyle(Self.color("bitti")).accessibilityHidden(true)
+                        Button { act(.watch(c)) } label: { Text(verbatim: c.title).font(.subheadline).lineLimit(2).multilineTextAlignment(.leading) }
+                            .buttonStyle(.plain).disabled(c.task == nil)
+                        Spacer(minLength: 0)
+                        Text(verbatim: c.since.formatted(.dateTime.hour().minute().locale(locale))).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+    private func tile(_ g: String, _ count: Int, _ label: String, _ go: @escaping () -> Void) -> some View {
+        Button(action: go) {
+            HStack {
+                Text(verbatim: label).font(.footnote).lineLimit(1).minimumScaleFactor(0.8)
+                Spacer(minLength: 4)
+                Text(verbatim: "\(count)").font(.headline).monospacedDigit()
+            }
+            .foregroundStyle(Self.color(g)).padding(10).frame(maxWidth: .infinity, minHeight: 44)
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Self.color(g).opacity(0.10)))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Self.color(g).opacity(0.45), lineWidth: 1))
+        }
+        .buttonStyle(.plain).accessibilityLabel(Text(verbatim: "\(label): \(count)"))
+    }
+
+    // MARK: cards
+    private func tag(_ s: String, _ color: Color) -> some View {
+        Text(verbatim: s).font(.caption2.weight(.bold)).foregroundStyle(.white).padding(.horizontal, 5).padding(.vertical, 1).background(Capsule().fill(color))
+    }
+    private func frame<V: View>(_ g: String, @ViewBuilder _ content: () -> V) -> some View {
+        let color = Self.color(g)
+        return content().padding(10).frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(color.opacity(0.10)))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(color.opacity(0.45), lineWidth: 1))
+    }
+    private func card(_ c: StatusCard) -> some View {
+        let color = Self.color(c.group)
+        return frame(c.group) {
+            HStack(alignment: .top, spacing: 8) {
+                Text(verbatim: Self.glyph(c.group)).font(.subheadline).foregroundStyle(color).accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(verbatim: c.title).font(.subheadline.weight(.semibold)).lineLimit(3).multilineTextAlignment(.leading)
+                        if c.fresh { tag(String(localized: "cards.new", defaultValue: "new", bundle: b), .green) }
+                    }
+                    stateLine(c)
+                    if let r = reason(c) { Text(verbatim: r).font(.caption).foregroundStyle(.secondary).lineLimit(3) }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                mainButton(c)
+            }
+        }
+        .accessibilityElement(children: .contain)
+    }
+    /// "state · time": the time is the age (Sorun, Senden, Sürüyor) or the end's clock time (Bitti).
+    private func stateLine(_ c: StatusCard) -> some View {
+        let time = c.group == "bitti" ? c.since.formatted(.dateTime.hour().minute().locale(locale)) : span(now.timeIntervalSince(c.since))
+        let state: String? = switch c.group {
+        case "sorun": c.task.map { statusTaskState($0.state, bundle: b) }
+        case "senden": String(localized: "todos.waiting", defaultValue: "Waiting for you", bundle: b)
+        case "suruyor": c.task.map { statusTaskState($0.state, bundle: b) } ?? String(localized: "cards.withAgent", defaultValue: "With \(assistantName)", bundle: b)
+        default: c.task.map { statusTaskState($0.state, bundle: b) }
+        }
+        let first = (state.map { Text(verbatim: $0).foregroundStyle(Self.color(c.group)) } ?? Text(verbatim: "")) + Text(verbatim: state == nil ? time : " · " + time).foregroundStyle(.secondary)
+        let over = c.overdue ? Text(verbatim: " · ").foregroundStyle(.secondary) + Text(String(localized: "todos.overdue", defaultValue: "Overdue", bundle: b)).foregroundStyle(.red).bold() : Text(verbatim: "")
+        return (first + over).font(.caption)
+    }
+    private func reason(_ c: StatusCard) -> String? {
+        if c.group == "senden", let w = c.item?.waiting { return w.reason }
+        if let r = c.task?.result, !r.isEmpty { return r }
+        return nil
+    }
+    @ViewBuilder private func mainButton(_ c: StatusCard) -> some View {
+        let waits = c.item?.waiting != nil || c.task?.state == "waiting"
+        switch c.group {
+        case "sorun": actionButton(c, String(localized: "cards.ask", defaultValue: "Ask \(assistantName)", bundle: b), .ask(c))
+        case "senden": waits ? actionButton(c, String(localized: "cards.reply", defaultValue: "Reply", bundle: b), .reply(c)) : actionButton(c, String(localized: "cards.done", defaultValue: "Done", bundle: b), .done(c))
+        case "suruyor":
+            if c.task != nil { actionButton(c, String(localized: "cards.watch", defaultValue: "Watch", bundle: b), .watch(c)) }
+            else {
+                Button { act(.write(c)) } label: { Image(systemName: "arrow.right").frame(minWidth: 36, minHeight: 36).contentShape(Rectangle()) }
+                    .buttonStyle(.borderless).accessibilityLabel(Text(verbatim: typeWord(c.group) + ", " + String(localized: "status.insert", defaultValue: "Write in the message box: \(c.title)", bundle: b)))
+            }
+        default: actionButton(c, String(localized: "cards.seen", defaultValue: "Seen", bundle: b), .seen(c))
+        }
+    }
+    private func actionButton(_ c: StatusCard, _ label: String, _ a: DeckAction) -> some View {
+        Button { act(a) } label: { Text(verbatim: label).font(.subheadline.weight(.semibold)).lineLimit(1).fixedSize() }
+            .buttonStyle(.bordered).controlSize(.small).tint(Self.color(c.group))
+            .accessibilityLabel(Text(verbatim: "\(typeWord(c.group)), \(label): \(c.title)"))
+    }
+
+    // MARK: Onay card
+    private var onayCount: Int { sentences.isEmpty ? (cards.approval?.items.count ?? 0) : sentences.count }
+    private var onayCard: some View {
+        let a = cards.approval!
+        let live = sentences.contains(where: liveApproval) || a.items.contains { liveApproval($0.text) }
+        let approve = String(localized: "Approve", bundle: b)
+        return frame("onay") {
+            if compact {
+                HStack(spacing: 8) {
+                    Text(verbatim: Self.glyph("onay")).foregroundStyle(Self.color("onay")).accessibilityHidden(true)
+                    Text(String(localized: "cards.waitingCount", defaultValue: "\(onayCount) approval(s) waiting", bundle: b)).font(.subheadline.weight(.semibold))
+                    if live { tag(String(localized: "cards.live", defaultValue: "LIVE", bundle: b), .red) }
+                    Spacer(minLength: 0)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 6) {
+                        Text(verbatim: Self.glyph("onay")).foregroundStyle(Self.color("onay")).accessibilityHidden(true)
+                        Text(verbatim: typeWord("onay") + (a.since.map { " · " + span(now.timeIntervalSince($0)) } ?? "")).font(.subheadline.weight(.semibold))
+                        if live { tag(String(localized: "cards.live", defaultValue: "LIVE", bundle: b), .red) }
+                        Spacer(minLength: 0)
+                    }
+                    ForEach(sentences, id: \.self) { s in
+                        VStack(alignment: .leading, spacing: 6) {
+                            if liveApproval(s) { tag(String(localized: "cards.live", defaultValue: "LIVE", bundle: b), .red) }
+                            Text(verbatim: s.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)).font(.subheadline)
+                                .frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true).accessibilityHidden(true)
+                            HStack { Spacer(minLength: 0)
+                                Button { act(.approve(s)) } label: { Text(verbatim: approve).font(.subheadline.weight(.semibold)).lineLimit(1).fixedSize() }
+                                    .buttonStyle(.borderedProminent).controlSize(.small).disabled(busy)
+                                    .accessibilityLabel(Text(verbatim: "\(typeWord("onay")), \(approve): \(s)"))
+                            }
+                        }
+                    }
+                    if sentences.isEmpty && !a.items.isEmpty {
+                        Text(String(localized: "cards.approveAgain", defaultValue: "Approve comes back when \(assistantName) writes the approval sentence again.", bundle: b)).font(.caption).foregroundStyle(.secondary)
+                    }
+                    if !a.items.isEmpty {
+                        DisclosureGroup(isExpanded: $topicsOpen) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                ForEach(a.items) { i in Text(verbatim: cardMark(i.text).title).font(.caption).frame(maxWidth: .infinity, alignment: .leading) }
+                            }
+                        } label: { Text(String(localized: "cards.topics", defaultValue: "\(a.items.count) topic(s)", bundle: b)).font(.caption).foregroundStyle(.secondary) }
+                    }
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+    }
+}
+
+/// The deck in Damon's chat: reads the status answer (the same GET as StatusSheet), keeps what the phone remembers (Seen,
+/// the time the Bitti group was folded) and does what a tap asks for. One approval path: the confirmation of
+/// `ApproveButtons`, then `Client.approve`.
+struct CardDeck: View {
+    @EnvironmentObject var c: Client
+    let sessionId: String
+    /// You type: the deck closes and the Onay card is one line.
+    let typing: Bool
+    @State private var answer: J?
+    @State private var open = false
+    @State private var doneOpen = false
+    @State private var notesOpen = false
+    @State private var seq = 0
+    @State private var seen = Set<String>()
+    @State private var newSince = Date(timeIntervalSince1970: 0)
+    @State private var showProjects = false
+    /// The chat, the offer on screen and the sentence of the tap: a newer block or a news turn while the confirmation shows
+    /// sends nothing (`Client.approve` compares the offer), as with `ApproveButtons`.
+    @State private var asking: (sid: String, offer: ApprovalOffer, sentence: String)?
+    @State private var tick = Date()
+    /// Phase 2: the open deck's view ("stack", "queue", "brief"), the entry on screen, the keys that you moved to the end
+    /// with Later (not stored), and the entry keys that showed while the deck was on screen (for "x/y answered").
+    @AppStorage("cardView") private var view = "stack"
+    @State private var queueIndex = 0
+    @State private var later: [(key: String, ident: String)] = []
+    @State private var queueSeen = Set<String>()
+
+    private var offer: ApprovalOffer? { c.approvalOffer }
+    private var cards: StatusCards { statusCards(answer ?? [:], now: tick, approvals: offer?.sentences.count ?? 0, seen: seen, newSince: newSince) }
+    private var choice: OptionOffer? { c.optionOffer }
+    private var queue: [QueueEntry] { statusQueue(cards, sentences: offer?.sentences ?? [], options: (choice?.options ?? []).map(\.label), later: later.filter { identOf($0.key) == $0.ident }.map(\.key)) }
+    /// What an entry says now: a new sentence or a new option list is a new entry for Later (client.js identOf).
+    private func identOf(_ key: String) -> String {
+        switch key {
+        // The answer that holds the block (`from`), not the offer's seq: a [quiet] news turn moves the seq, not the entry.
+        case "onay": "onay|\(offer.map { String($0.from) } ?? "")|\((offer?.sentences ?? []).joined(separator: "\n"))"
+        case "karar": "karar|\(choice.map { String($0.seq) } ?? "")|\((choice?.options ?? []).map(\.text).joined(separator: "\n"))"
+        default: key
+        }
+    }
+    /// One count per entry; a newer option list is a new entry (client.js countKey).
+    private func countKey(_ e: QueueEntry) -> String { e.kind == "karar" ? "karar|\(choice?.seq ?? 0)" : e.key }
+    var body: some View {
+        let w = approveWords(macLang: c.macLang)
+        let q = queue, keys = Set(q.map(countKey))
+        DeckView(cards: cards, sentences: offer?.sentences ?? [], loaded: answer != nil, off: c.cardsOff, now: tick, b: uiStrings, locale: c.uiLocale, compact: typing,
+                 busy: c.optionBusy.contains(sessionId), maxHeight: UIScreen.main.bounds.height * 0.7,
+                 mode: $view, queue: q, options: choice?.options ?? [], answered: queueSeen.subtracting(keys).count, answeredTotal: queueSeen.union(keys).count, index: $queueIndex,
+                 open: $open, doneOpen: $doneOpen, notesOpen: $notesOpen, act: act)
+            .background(.bar)
+            .onChange(of: keys, initial: true) { _, k in queueSeen.formUnion(k) }
+            .onChange(of: typing) { _, t in if t { open = false } }
+            .onChange(of: doneOpen) { _, o in if !o { c.cardsFolded(); newSince = c.cardsNewSince } }
+            .sheet(isPresented: $showProjects) { StatusSheet(sessionId: sessionId) }
+            .confirmationDialog(Text(verbatim: w.confirm), isPresented: Binding(get: { asking != nil }, set: { if !$0 { asking = nil } }), titleVisibility: .visible, presenting: asking) { a in
+                Button(w.button) { c.run(waits: false) { try await c.approve(a.sid, a.offer, a.sentence) } }
+                Button(w.cancel, role: .cancel) {}
+            } message: { a in Text(verbatim: a.sentence) }
+            .task(id: sessionId) { answer = nil; later = []; queueSeen = []; queueIndex = 0; c.cardsOff = false; seen = c.cardsSeen(); newSince = c.cardsNewSince; await load() }
+            .onDisappear { c.cardsOff = false }
+            // The same reads as StatusSheet: every 5 s while a task runs, and once after a turn ends.
+            .task(id: running) {
+                while !Task.isCancelled, running {
+                    try? await Task.sleep(for: .seconds(5))
+                    if Task.isCancelled { return }
+                    await load()
+                }
+            }
+            .onChange(of: c.running) { was, now in if was && !now { Task { await load() } } }
+            // Wait times, Overdue, the approval's age and the day's end change while nothing runs: draw again once a minute.
+            .task { while !Task.isCancelled { try? await Task.sleep(for: .seconds(60)); if !Task.isCancelled { tick = Date() } } }
+    }
+    private var running: Bool { (answer?["tasks"] as? [J] ?? []).contains { $0["state"] as? String == "running" } }
+    private func load() async {
+        seq += 1; let mine = seq
+        guard let a = try? await c.loadStatusAnswer(sessionId), mine == seq else { return }
+        answer = a; tick = Date(); c.cardsOff = a["on"] as? Bool == false
+    }
+    private func act(_ a: DeckAction) {
+        let locale = c.uiLocale
+        let span = { (t: TimeInterval) in Duration.seconds(max(0, t)).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .abbreviated, maximumUnitCount: 1).locale(locale)) }
+        switch a {
+        case .projects: showProjects = true
+        case .later(let key): later = later.filter { $0.key != key } + [(key, identOf(key))]
+        case .pick(let n): if let o = choice { UISelectionFeedbackGenerator().selectionChanged(); c.run(waits: false) { try await c.pickOption(o, n) } }
+        case .approve(let s): if let o = offer { UISelectionFeedbackGenerator().selectionChanged(); asking = (sessionId, o, s) }
+        case .ask(let card), .reply(let card), .write(let card):
+            // The outage line, as on the Mac: today's newest outage continued this card's task (statusView's rule).
+            let out = answer.flatMap { statusView($0, now: Date()).outage }
+            let time = card.task.flatMap { t in out.flatMap { $0.resumed.contains(t.id) ? $0.at.formatted(date: .omitted, time: .shortened) : nil } }
+            c.writeDraft(deckText(card, outage: time, span: span), sessionId)
+        case .done(let card):
+            c.writeDraft(String(localized: "cards.doneMessage", defaultValue: "Done: \(card.title)", bundle: uiStrings), sessionId)
+        case .watch(let card): if let t = card.task { c.open(t.id) }
+        case .seen(let card): if let k = card.seenKey { c.markCardSeen(k); seen = c.cardsSeen() }
+        }
+    }
+}
+// END CardDeck

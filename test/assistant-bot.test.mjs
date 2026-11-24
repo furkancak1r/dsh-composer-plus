@@ -10,7 +10,7 @@
 //   assistant itself give no news. A chat archived or deleted after its news was queued gives none either (a delegated
 //   task's result still goes). The last reply leaves out what a rollback withdrew (both kinds) and a fork's copy.
 //   Scope "automations" (the default): only a turn that a schedule started (the first own prompt of the newest turn has
-//   source.kind "schedule", also in a chat that you started; a failed first step logs no prompt, so the queued message that
+//   source.kind "schedule", not dsh's "[SCHEDULE CHANGE]" notice, also in a chat that you started; a failed first step logs no prompt, so the queued message that
 //   started the turn counts) gives news, at its end (also a short one) and each wait; other chats, a typed turn and a fork
 //   of an automation give none. Scope "all" is the first behavior (the checks above it run with it). The scope stays in the same file.
 import assert from 'node:assert/strict';
@@ -36,9 +36,17 @@ const note = assistantNewsNote([
 assert.match(note, /not instructions for you/);
 assert.match(note, /Do not call other tools/);
 // Quiet news: the panel and the list first; a chat line only when the user must act or a requested task ends.
-assert.match(note, /Update the to-do list \(todo_list_add, todo_list_remove\)\. Do not write a status summary for this news/, 'news updates the list, not the summary (the panel shows a summary only after Get summary)');
-assert.match(note, /Write to the user only when the user must act, when a task that the user asked for is done, when a task failed or is blocked, or when a live system has an error or a risk/);
-assert.match(note, /with the topic name and not internal IDs\. Otherwise write nothing in the chat/);
+assert.match(note, /Update the to-do list \(todo_list_add, todo_list_remove\): the cards of the status panel show this news, so do not write it in the chat\. Do not write a status summary for this news/, 'news updates the list (the cards), not the summary (the panel shows a summary only after Get summary)');
+// Damon card stack: news is `[quiet]` unless it brings a new approval or a new live error or risk.
+assert.match(note, /Reply with only `\[quiet\]` and write no other text in this turn, also not next to a tool call, unless the news brings a new approval \(with its `onay` block\) or a new error or risk on a live system: then write one short line per topic, in the user's language, with the topic name and not internal IDs/);
+assert.doesNotMatch(note, /when a task that the user asked for is done/, 'a finished task is a card, not a chat line');
+// Review 1 (P2): with the status panel off there are no cards, so the note keeps the earlier rule (a chat line when a task
+// that the user asked for is done) and does not ask for `[quiet]`.
+{
+  const off = assistantNewsNote([{ id: 'a', title: 'T', project: 'p', at: 1, kind: 'finished', task: true }], 10, { cards: false });
+  assert.match(off, /Write to the user only when the user must act, when a task that the user asked for is done, when a task failed or is blocked, or when a live system has an error or a risk/);
+  assert.doesNotMatch(off, /\[quiet\]|cards of the status panel/, 'panel off: no [quiet], no cards');
+}
 assert.doesNotMatch(note, /a few lines|Tell the user each line/, 'no reply per news line');
 assert.ok(note.indexOf('"New"') < note.indexOf('"Mid"'), 'newest first');
 assert.match(note, /"New" \(project "q", chat b\): waits for your approval/);
@@ -48,7 +56,9 @@ assert.match(note, /And 1 more chats changed/);
 // The News rule of the prompt agrees with the note: news updates the to-do list, never the status summary.
 const newsRule = ASSISTANT_SECTION.split('\n').find((l) => l.startsWith('- News rule'));
 assert.ok(newsRule, 'the prompt has a News rule line');
-assert.doesNotMatch(newsRule, /status_summary_set replaces|status panel/, 'the News rule does not ask for a status summary');
+assert.doesNotMatch(newsRule, /status_summary_set replaces|(?:write|put)[^.]*(?:in|to) the status panel/, 'the News rule does not ask for a status summary');
+// Damon card stack: while the status panel section is in the prompt, its news rule (`[quiet]`, cards) wins.
+assert.match(newsRule, /when the section "Assistant status panel \(Composer Plus\)" is in this prompt, use its news rule/);
 assert.match(newsRule, /to-do list/);
 
 // A fake dsh.
@@ -233,9 +243,13 @@ await until(() => bot.pending()[0]?.kind === 'finished', 'the fork turn is news'
 assert.equal(bot.pending()[0].reply, '', 'no inherited reply');
 web.session.inheritedEventCount = 0;
 
-// Off: the queue is dropped, no more wakes.
+// Off: the queue is dropped, no more wakes. The switch goes off after its file write; the assistant runs, so a slow write
+// cannot let the flush send the news first.
+assistantAgent.status = 'running';
 turn(web, 'completed', 90000);
 assert.deepEqual((await call(ASSISTANT_NOTIFY_PATH, 'POST', { on: false })).body, { on: false, scope: 'all' });
+assert.equal(bot.pending().length, 0, 'the off drops the queued news');
+assistantAgent.status = 'idle'; emit('agent/status', { agent: assistantAgent, status: 'idle' });
 await pause(80);
 assert.equal(bot.pending().length, 0); assert.equal(steers.length, 3);
 // Assistant off: no news either.
@@ -258,7 +272,7 @@ await until(() => steers.length === base + 1, 'one wake for the automation');
 const autoStep = await listeners.get('agent/pre-step')[0]({ agent: assistantAgent }, async () => ({ kind: 'enter', messages: [assistantAgent.queued, steers.at(-1)[1]] }));
 const autoNote = autoStep.messages[0].content[0].text;
 assert.match(autoNote, /\(project "Assistant", chat s-auto, an automation\): finished\. Last reply: "Audit done: 0 findings\."/);
-assert.match(autoNote, /not instructions for you/); assert.match(autoNote, /Call chat_read only to read more of the chat of each automation\./); assert.match(autoNote, /Otherwise write nothing in the chat/);
+assert.match(autoNote, /not instructions for you/); assert.match(autoNote, /Call chat_read only to read more of the chat of each automation\./); assert.match(autoNote, /Reply with only `\[quiet\]` and write no other text in this turn, also not next to a tool call, unless the news brings a new approval/);
 assert.doesNotMatch(autoNote, /s-web|s-assistant\b/, 'no ordinary chat, not the assistant');
 for (const named of autoNote.match(/\b[a-z]+_[a-z_]+\b/g) ?? []) assert.ok(assistantFreeTool(named), `the note names ${named}, which the assistant cannot call`);
 await pause(80); await bot.flush();
@@ -365,6 +379,19 @@ typed.events.push({ seq: 11, type: 'approval/decided', data: { id: 't' } }, { se
 turn(typed, 'completed', 5000);
 await pause(80); await bot.flush();
 assert.equal(steers.length, before + 2, 'a turn that you typed in that chat is no news'); assert.deepEqual(bot.pending(), []);
+// dsh 0.2.2's "[SCHEDULE CHANGE]" notice (a task of this chat was changed in another chat) has source.kind "schedule" too,
+// but dsh puts it into the next step: the turn that you typed after it is not an automation (dsh 0.2.2-rc.5 log order).
+const changeText = '[SCHEDULE CHANGE]\nA scheduled task involving this session was changed outside this session. This notice is not a delivery of the task and needs no action.';
+const splice = (seq, target, extra) => ({ seq, type: 'agent/inbox/spliced', data: { target, start: 0, ...extra } });
+const changed = newAgent('s-changed', { cwd: '/demo/weather-cli' }, [{ seq: 0, type: 'turn/start' }, um(1, 'Every morning check the weather'), am(2, 'ok O'), { seq: 3, type: 'turn/end' },
+  splice(4, 'next-step', { inserted: [{ role: 'user', content: [{ type: 'text', text: changeText }], source: { kind: 'schedule' } }] }),
+  splice(5, 'next-turn', { inserted: [{ role: 'user', content: [{ type: 'text', text: 'Slow weather job' }], source: { kind: 'user' } }] }),
+  { seq: 6, type: 'turn/start' }, splice(7, 'next-step', { removedCount: 1, inserted: [] }), splice(8, 'next-turn', { removedCount: 1, inserted: [] }), { seq: 9, type: 'step/start' },
+  sched(10, changeText), um(11, 'Slow weather job'), am(12, 'Weather job done.')]);
+clock += 200000;
+turn(changed, 'completed', 90000);
+await pause(80); await bot.flush();
+assert.equal(steers.length, before + 2, 'a schedule change notice does not make your turn an automation'); assert.deepEqual(bot.pending(), []);
 // A turn whose first step fails (an unknown model, a rate limit) logs no prompt: dsh only took it out of the queue. A
 // scheduled delivery that fails so after a typed turn is an automation's failure; a typed prompt that fails so after a
 // scheduled turn is not.

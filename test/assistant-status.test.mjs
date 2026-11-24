@@ -10,7 +10,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ASSISTANT_TODOS_PATH, STATUS_LIMITS, TODO_TOOLS, installAssistant, installAssistantBot, installAssistantTodos, statusGit, statusProjects, statusTasks } from '../index.js';
+import { ASSISTANT_TODOS_PATH, STATUS_LIMITS, TODO_TOOLS, installAssistant, installAssistantBot, installAssistantTodos, statusGit, statusProjects, statusTasks, todoList } from '../index.js';
 
 const NOW = Date.UTC(2026, 10, 9, 12, 0, 0);
 const ev = (seq, type, data, time = NOW - 1000) => ({ seq, type, data, time });
@@ -173,6 +173,13 @@ try {
   assert.deepEqual(r.body.tasks.map((t) => t.id).sort(), ['c-done', 'c-fail', 'c-lost', 'c-run', 'c-stop', 'c-wait', 's-deleg']);
   assert.deepEqual(r.body.tasks[0], { id: 's-deleg', title: 'Fix the login form', state: 'waiting', started: r.body.tasks[0].started, chat: true, result: 'acme-web · assistant/fix-login' }, 'a delegated chat is a task, first');
   assert.equal(r.body.tasks.find((t) => t.id === 'c-done').result, 'Flights found: 3 options', 'a disposed child: its saved log');
+  // Furkan, 2026-11-23 ("görünmesin o zaman panelde"): an archived delegated chat that waited for the user shows no card
+  // (chat_archive archives it in the assistant's own turn, so the kept chat list does not change); unarchived, it is back.
+  archivedIds.push('s-deleg');
+  r = await call('?sessionId=s-a');
+  assert.equal(r.body.tasks.some((t) => t.id === 's-deleg'), false, 'an archived chat that waited for you: no card');
+  archivedIds.pop();
+  r = await call('?sessionId=s-a'); assert.equal(r.body.tasks[0].id, 's-deleg', 'unarchived: the card is back');
   // F-08: the next read does not read the ended child's log or all chats again; Refresh (`&refresh=1`) does.
   const [o1, l1] = [observed, listed];
   r = await call('?sessionId=s-a'); assert.equal(r.body.tasks.find((t) => t.id === 'c-done').result, 'Flights found: 3 options');
@@ -443,6 +450,13 @@ try {
     turnEnd('s-onay', { kind: 'completed' }, reply(0, 'Ready.\n\n```onay\nCANLI DEPLOY PROSOLOCAL 15c101d7 ŞİMDİ\n```'));
     turnEnd('s-plain', { kind: 'completed' }, reply(0, 'Report sent.'));
     assert.deepEqual((await rowsOf('s-onay')).map((t) => [t.state, t.result]), [['waiting', 'acme-web · fix/deploy']], 'an onay block: waits for the user');
+    // Furkan, 2026-11-23: the ended task's chat is archived (chat_archive) while it still waits: no card (the bot's
+    // ended row is not shown either); unarchived, it waits again.
+    archivedIds.push('s-onay');
+    assert.equal(assistant.tasks.has('s-onay'), false, 'an ended task (the bot\'s endedTasks row)');
+    assert.deepEqual(await rowsOf('s-onay'), [], 'an archived chat that waited for you: no card');
+    archivedIds.pop();
+    assert.deepEqual((await rowsOf('s-onay')).map((t) => t.state), ['waiting'], 'unarchived: it waits again');
     assert.deepEqual((await rowsOf('s-plain')).map((t) => t.state), ['done'], 'an answer without a block: done');
     // Review 1: the 5 s poll does not read an unchanged log again (only the jobs); a grown log is read again.
     {
@@ -479,6 +493,43 @@ try {
   r = await call('?sessionId=s-a');
   assert.deepEqual(r.body.tasks.filter((t) => t.chat && !open(t)), [], 'an ended delegated chat of yesterday is left out');
   assert.equal(assistant.endedTasks.size, 0, 'and taken out of the map');
+
+  // Automations stay out of the panel (Furkan, 2026-11-23): a chat whose newest turn a schedule started is not a project
+  // chat, live (its log in memory) or not (dsh's schedule service names it; its saved log is read once). A chat that you
+  // wrote in after the scheduled turn, a delegated task with a scheduled turn and a "Sorun:" item stay.
+  {
+    const sched = [ev(0, 'turn/start', {}), ev(1, 'user/message', { source: { kind: 'schedule' } }), ev(2, 'turn/end', { reason: { kind: 'completed' } })];
+    const typedAfter = [...sched, ev(3, 'turn/start', {}), ev(4, 'user/message', { source: { kind: 'user' } }), ev(5, 'turn/end', { reason: { kind: 'completed' } })];
+    const cold = { 's-cold-auto': sched, 's-cold-new': sched };
+    newAgent('s-auto', { cwd: '/demo/acme-web' }, sched);
+    newAgent('s-typed', { cwd: '/demo/acme-web' }, typedAfter);
+    newAgent('s-deleg2', { cwd: '/demo/acme-web' }, sched);
+    await assistant.tasks.add('s-deleg2', { title: 'Delegated work', project: 'acme-web' });
+    const row = (id, title) => ({ sessionId: id, updatedAt: clock - 500, cwd: '/demo/acme-web', projections: { values: { title } } });
+    const extra = [row('s-auto', 'Nightly check'), row('s-typed', 'Asked after the reminder'), row('s-deleg2', 'Delegated work'), row('s-cold-auto', 'Cold automation'), row('s-cold-new', 'Hourly audit'), row('s-cold-plain', 'Cold plain')];
+    items.push(...extra);
+    let reads = 0; const { observeSession } = ctx.sessionQuery; const getBefore = ctx.get;
+    ctx.sessionQuery.observeSession = async (id, o) => { if (id in cold) { reads += 1; return { header: {}, events: cold[id], inheritedEventCount: 0, [Symbol.dispose]() {} }; } return observeSession(id, o); };
+    const schedule = { catalog: async () => [{ id: 't1', target: { kind: 'session', sessionId: 's-cold-auto' } }, { id: 't2', target: { kind: 'new', create: {} } }],
+      history: async ({ id }) => ({ records: id === 't2' ? [{ targetSessionId: 's-cold-new' }] : [] }) };
+    ctx.get = (name) => (name === 'schedule' ? schedule : getBefore(name));
+    await todos.store.change('s-a', (list) => todoList.add(list, { text: 'Sorun: Gece denetimi hata verdi (acme-web)', owner: 'agent' }));
+    try {
+      r = await call('?sessionId=s-a&refresh=1');
+      const shown = r.body.projects.flatMap((p) => p.chats.map((c) => c.id));
+      for (const id of ['s-auto', 's-cold-auto', 's-cold-new']) assert.ok(!shown.includes(id), `an automation chat is left out: ${id}`);
+      for (const id of ['s-typed', 's-deleg2', 's-cold-plain']) assert.ok(shown.includes(id), `stays: ${id}`);
+      assert.ok(r.body.tasks.some((t) => t.id === 's-deleg2' && t.chat), 'the delegated task stays a task');
+      assert.ok(r.body.items.some((i) => i.text.startsWith('Sorun: Gece denetimi')), 'a "Sorun:" item of an automation stays');
+      assert.equal(reads, 2, 'the saved logs of the two scheduled targets are read, not the plain cold chat');
+      await call('?sessionId=s-a&refresh=1'); assert.equal(reads, 2, 'read once while the chat does not change');
+    } finally {
+      ctx.get = getBefore; Object.assign(ctx.sessionQuery, { observeSession });
+      items.splice(items.length - extra.length, extra.length);
+      for (const id of ['s-auto', 's-typed', 's-deleg2']) agents.delete(id);
+      await assistant.tasks.drop('s-deleg2');
+    }
+  }
 
   // Off: no status, no git.
   const sw = await routes.get(ASSISTANT_TODOS_PATH).fetch(new Request(`http://x${ASSISTANT_TODOS_PATH}`, { method: 'POST', body: JSON.stringify({ on: false }) }));

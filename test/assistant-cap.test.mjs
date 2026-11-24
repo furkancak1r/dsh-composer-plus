@@ -26,8 +26,12 @@ class El {
   querySelectorAll(sel) {
     if (sel === ':scope > [data-slot="conversation.chat.flow"]') return this.children.filter((c) => c.attrs['data-slot'] === 'conversation.chat.flow');
     if (sel === ':scope > [data-chat-turn]') return this.children.filter((c) => 'data-chat-turn' in c.attrs);
-    const m = sel.match(/^\[data-conversation-session="([^"]+)"\] \[data-chat-flow\]$/);
-    if (m) { const conv = this.all.find((e) => e.attrs['data-conversation-session'] === m[1]); return conv ? conv.all.filter((e) => 'data-chat-flow' in e.attrs) : []; }
+    const m = sel.match(/^\[data-conversation-session="([^"]+)"\] (\[data-chat-flow\]|nav\[class\*="_frame"\])$/);
+    if (m) {
+      const conv = this.all.find((e) => e.attrs['data-conversation-session'] === m[1]);
+      return conv ? conv.all.filter((e) => (m[2] === '[data-chat-flow]' ? 'data-chat-flow' in e.attrs : e.tag === 'nav' && /_frame/.test(e.attrs.class ?? ''))) : [];
+    }
+    if (sel === ':scope > [role="tooltip"]') return this.children.filter((c) => c.attrs.role === 'tooltip');
     throw new Error(`selector not in the mini DOM: ${sel}`);
   }
 }
@@ -135,4 +139,31 @@ out = view.render();
 assert.ok(!css().includes('data-chat-turn'), 'short chat: nothing hidden'); assert.equal(out.c[1], null);
 // Unmount: the watcher stops.
 view.unmount(); assert.equal(observers.size, 0, 'unmount stops both watchers');
+
+// Quiet turns (every text only [quiet]: dsh's chat nodes, quietTurnSet) take no place of the 8: 9 real turns and 6 quiet
+// news turns after them still show the newest 8 real turns, and the button counts only real turns.
+const quietChat = new Map(); for (const n of [50, 51, 52, 53, 54, 55, 56, 57, 58]) quietChat.set(`${n}:s`, { key: `${n}:s`, kind: 'assistant-step', data: { turn: n, step: 1, blocks: [{ kind: 'text', text: `Real ${n}.` }] } });
+for (const n of [59, 60, 61, 62, 63, 64]) quietChat.set(`${n}:s`, { key: `${n}:s`, kind: 'assistant-step', data: { turn: n, step: 1, blocks: [{ kind: 'text', text: '[quiet]' }] } });
+const store = { getSnapshot: () => ({ nodes: quietChat }), subscribe: () => () => {} };
+id = 's-quiet';
+// dsh's turn rail with its tooltip for a pointed quiet turn: the response line says only [quiet].
+const tip = new El({ role: 'tooltip' }, [new El({}, []), new El({}, [])]); tip.children[0].textContent = 'Turn 64'; tip.children[1].textContent = '[quiet]';
+const nav = new El({ class: 'eGxaPq_frame' }, [tip]); nav.tag = 'nav';
+body.append(new El({ 'data-conversation-session': 's-quiet' }, [nav, new El({ 'data-chat-flow': '' }, [new El({ 'data-slot': 'conversation.chat.flow' }, rowsOf([50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64]))])]));
+const quietView = mount(() => ({ status, chatOf: () => store, t }));
+out = quietView.render();
+assert.ok(css().includes('[data-chat-turn="50"]') && !css().includes('[data-chat-turn="51"]'), 'only the oldest real turn is behind the cap');
+for (const n of [59, 64]) assert.ok(!css().includes(`[data-chat-turn="${n}"] {`) && !css().includes(`[data-chat-turn="${n}"],`), `quiet turn ${n} is not capped (its rows are 0-height already)`);
+assert.equal(out.c[1].c[0].c[0], 'assistantChatView.earlier:1', 'the button counts real turns only');
+// The rail tooltip of a quiet turn is hidden; another turn's tooltip shows.
+assert.equal(tip.style.display, 'none', 'the rail tooltip that says only [quiet] is hidden');
+tip.children[1].textContent = 'Real 58.'; observers.get(nav).fn([]); assert.equal(tip.style.display, '', 'a real response shows');
+tip.children[1].textContent = ' [QUIET] '; observers.get(nav).fn([]); assert.equal(tip.style.display, 'none');
+quietView.unmount(); assert.equal(tip.style.display, '', 'unmount gives dsh its tooltip back');
+// Without quiet turns the cap counts every turn as before (above); 8 real turns and quiet ones: no cap at all.
+for (const n of [50]) quietChat.delete(`${n}:s`);
+quietChat.set('50:s', { key: '50:s', kind: 'assistant-step', data: { turn: 50, step: 1, blocks: [{ kind: 'text', text: '[quiet]' }] } });
+const eight = mount(() => ({ status, chatOf: () => store, t })); out = eight.render();
+assert.ok(!css().includes('data-chat-turn'), '8 real turns and 7 quiet ones: nothing is capped'); assert.equal(out.c[1], null);
+eight.unmount();
 console.log('assistant-cap: ok');

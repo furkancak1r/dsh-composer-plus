@@ -69,7 +69,17 @@ workspaces.items[0].sessionIds.pop(); delete list.byId['s-note'];
 // The Assistant row: the state dot of the chat.
 const [rowOpts, RowIcon] = entry('sidebar.panellist', 'composer-plus-assistant');
 const button = { attrs: new Map(), style: {}, setAttribute(k, v) { this.attrs.set(k, v); }, removeAttribute(k) { this.attrs.delete(k); } };
-const render = (extra) => { const el = RowIcon({ ...rowOpts.inject(), ...hooks, size: 16, active: false, t, ...extra }); const out = typeof el.t === 'function' ? el.t(el.p) : el; return out; };
+// The row always stays: its glyph draws one rule that hides dsh's Unpin button in this row only (with and without
+// Assistant apart), so a click cannot unpin Damon and an old in-memory unpin choice of dsh does not apply.
+const keepRule = (el) => { const style = find(el, (n) => n.t === 'style' && 'data-composer-plus-assistant-row' in n.p); return style === undefined ? undefined : text(style.c); };
+const rowGlyph = (apartOn) => RowIcon({ ...rowOpts.inject(), apart: { subscribe: () => () => {}, getSnapshot: () => apartOn }, ...hooks, size: 16, active: false, t });
+for (const apartOn of [true, false]) {
+  const rule = keepRule(rowGlyph(apartOn));
+  assert.equal(rule, '[class*="_panelEntry"]:has(style[data-composer-plus-assistant-row]) [class*="_panelUnpin"]{display:none!important}',
+    `Assistant apart ${apartOn ? 'on' : 'off'}: the row hides dsh's Unpin button`);
+}
+assert.doesNotMatch(keepRule(rowGlyph(true)), /,/, 'one selector: only the row that holds this style, not other panel rows');
+const render = (extra) => { const el = RowIcon({ ...rowOpts.inject(), ...hooks, size: 16, active: false, t, ...extra }); const glyph = find(el, (n) => typeof n.t === 'function'); return glyph.t(glyph.p); };
 let out = render();
 assert.equal(out.p['data-composer-plus-assistant-state'], 'idle', 'idle: no dot');
 assert.equal(find(out, (n) => n.t === 'StateDot'), undefined);
@@ -150,18 +160,19 @@ delete list.byId['s-assistant'].retainedBy;
   draw(16); out = draw(16);
   assert.equal(button.appended.length, 1); assert.equal(portalOf(out)?.p.host, button.appended[0], 'expanded again: the dot is at the end');
   assert.equal(button.appended[0].style.marginRight, undefined, 'dsh before 0.2.2-rc.2 (same padding on both sides): no shift');
-  assert.match(find(portalOf(out), (n) => n.t === 'style').c.join(''), /_panelEntry.*:hover.*\[data-composer-plus-assistant-dot\]\{visibility:hidden\}/, 'the dot gives way to dsh 0.2.2-rc.2\'s pin button');
+  assert.equal(find(portalOf(out), (n) => n.t === 'style'), undefined, 'no rule that hides the dot: the row has no pin button to give way to');
   unmount();
-  // dsh 0.2.2-rc.2 keeps 38 px on the right of a wide panel row for its pin button (12 px on the left): the dot moves into
-  // that room, where the project rows' status sits. Only with a mouse (hover): a touch screen shows no pin button.
+  // dsh 0.2.2-rc.2 keeps 38 px on the right of a wide panel row for its pin button (12 px on the left). The Damon row has
+  // no pin button, so the dot moves into that room, where the project rows' status sits: with a mouse and on a touch screen.
   const realStyle = globalThis.getComputedStyle; const realMedia = globalThis.matchMedia;
-  globalThis.getComputedStyle = () => ({ paddingLeft: '9px', paddingRight: '38px' }); globalThis.matchMedia = () => ({ matches: true });
-  button.appended.length = 0; draw(16); draw(16);
-  assert.equal(button.appended[0].style.marginRight, '-29px', '0.2.2-rc.2: the dot sits in the pin room');
-  unmount(); globalThis.matchMedia = () => ({ matches: false });
-  button.appended.length = 0; draw(16); draw(16);
-  assert.equal(button.appended[0].style.marginRight, undefined, 'no hover: no shift');
-  unmount(); globalThis.getComputedStyle = realStyle; globalThis.matchMedia = realMedia;
+  globalThis.getComputedStyle = () => ({ paddingLeft: '9px', paddingRight: '38px' });
+  for (const hover of [true, false]) {
+    globalThis.matchMedia = () => ({ matches: hover });
+    button.appended.length = 0; draw(16); draw(16);
+    assert.equal(button.appended[0].style.marginRight, '-29px', `0.2.2-rc.2 (${hover ? 'mouse' : 'touch'}): the dot sits in the pin room`);
+    unmount();
+  }
+  globalThis.getComputedStyle = realStyle; globalThis.matchMedia = realMedia;
   [React.useState, React.useLayoutEffect] = real; React.useRef = realRef; statuses = new Map();
 }
 delete globalThis.document.createElement;
@@ -216,6 +227,29 @@ assert.match(text(note()), /assistantFree\.inactive/, 'the note when not active'
 switches.free = { on: true, active: true };
 await settings.inject().setFeature('assistantFree', true); await tick();
 assert.equal(note(), null, 'no note while active');
+// The optional Obsidian setup card that Hide closed comes back with a button under the Assistant switch (only while it
+// is hidden on this device).
+{ const again = () => { const el = find(settingsTree(switches.free), (n) => typeof n.t === 'function' && n.t.name === 'SetupShowAgain'); assert.ok(el, 'the show-again element'); return el.t(el.p); };
+  assert.equal(again(), null, 'not hidden: no button');
+  mem.set('dsh-composer-plus.assistant.setup-hidden', '1');
+  let button = again();
+  assert.equal(button, null, 'the flag is read once: a direct storage write does not show the button');
+  // Hide on the card (the same flag) shows the button; its click shows the card again.
+  const [welcomeEntry, WelcomeCard] = [...live.values()].find(([o]) => o.name === 'conversation.input.dock' && o.id === 'assistant-welcome');
+  const inj = welcomeEntry.inject('x');
+  const hostDown = globalThis.fetch;
+  globalThis.fetch = async (url) => (String(url) === '/api/composer-plus.assistant-setup' ? Response.json({ ready: false, folder: '~/Assistant', steps: { obsidian: false, vault: false, memory: 'missing', rules: false } }) : hostDown(url));
+  await inj.setup.check();
+  const sid = inj.assistant.getSnapshot().sessionId;
+  const card = () => { const out = WelcomeCard({ sessionId: sid, useSession: (sel) => sel({ blank: false, promptAttempted: true, running: false }), ...inj, t }); return typeof out?.t === 'function' ? out.t(out.p) : out; };
+  find(card(), (n) => n.t === 'Button' && text(n) === 'assistant.import.hide').p.onClick();
+  assert.equal(card()?.p?.['data-composer-plus-assistant-setup'], undefined, 'hidden: no setup card (the import card may show)');
+  button = find(again(), (n) => n.t === 'Button');
+  assert.equal(text(button), 'assistant.setup.title', 'the button has the card title');
+  button.p.onClick();
+  assert.equal(again(), null, 'shown again: no button');
+  assert.equal(card()?.p?.['data-composer-plus-assistant-setup'], '', 'the card is back');
+  globalThis.fetch = hostDown; }
 
 // Switch Assistant apart off: its overlay goes, the row icon is plain again.
 const toggled = (id, on) => { toggles.update((d) => { d[id] = on; }); };

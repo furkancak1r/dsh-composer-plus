@@ -384,6 +384,48 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(c.current, "x")
     }
 
+    /// Damon's Mac switch: the other Mac goes on screen and the Damon tab shows (it opens that Mac's Damon chat when the
+    /// Mac answers, or says that it is not connected). A Mac that is not paired, or the Mac on screen, changes nothing.
+    @MainActor func testOpenDamonOnOtherMac() {
+        let c = Client(), undo = twoMacs(c)
+        defer { undo() }
+        c.open("damon-a1"); XCTAssertEqual(c.tab, .sessions)
+        c.openDamon(on: "nope")
+        XCTAssertEqual(c.activeFp, "a1"); XCTAssertEqual(c.path, ["damon-a1"], "a Mac that is not paired: nothing changes")
+        c.openDamon(on: "a1")
+        XCTAssertEqual(c.path, ["damon-a1"], "the Mac on screen: nothing changes")
+        c.openDamon(on: "b2")
+        XCTAssertEqual(c.activeFp, "b2"); XCTAssertEqual(c.pairing?.token, "tb")
+        XCTAssertEqual(c.tab, .assistant, "stays in Damon"); XCTAssertTrue(c.path.isEmpty); XCTAssertNil(c.current, "nothing of A stays on screen")
+        XCTAssertNotEqual(c.state, .connected, "the new Mac is not connected yet")
+    }
+
+    /// Improve prompt, Undo, a prediction and a sheet's text write the field while it has the focus: the field is made again
+    /// (`put`), so it shows the new text (not a text that iOS keeps for a pending autocorrection) and keeps the focus.
+    /// ponytail: only the sheet path (`draftPushed`, focus: true) runs here. The improve answer and Undo (focus: false, the
+    /// focus kept from `focused`) need the Mac or a tap; tether-assistant-tab.test.mjs checks that they call `put`.
+    @MainActor func testPutShowsNewText() throws {
+        func field(_ v: UIView) -> UITextView? { if let t = v as? UITextView, t.isEditable { return t }; return v.subviews.lazy.compactMap(field).first }
+        func spin(_ s: Double) { RunLoop.main.run(until: Date().addingTimeInterval(s)) }
+        let c = Client(), sid = "put-test"
+        defer { c.setDraft("", sid) }
+        c.state = .connected; c.current = sid; c.setDraft("", sid)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let w = UIWindow(windowScene: scene)
+        defer { w.isHidden = true }
+        w.rootViewController = UIHostingController(rootView: NavigationStack { ConversationView() }.environmentObject(c))
+        w.makeKeyAndVisible(); spin(1)
+        let old = try XCTUnwrap(field(w))
+        old.becomeFirstResponder(); old.insertText("fix teh"); spin(0.5)
+        XCTAssertEqual(c.draft(sid), "fix teh")
+        c.setDraft("Fix the login bug", sid); c.draftPushed += 1; spin(1)
+        let new = try XCTUnwrap(field(w))
+        XCTAssertFalse(new === old, "the field is made again")
+        XCTAssertEqual(new.text, "Fix the login bug", "the field shows the new text before Send")
+        XCTAssertTrue(new.isFirstResponder, "the keyboard stays open")
+        new.resignFirstResponder(); spin(0.3)
+    }
+
     /// The tab bar: the Assistant has the slot of the old Agents tab, and Tether opens on it. A value that an older build
     /// could have saved (the Agents tab was 1) does not open a removed screen: the tab is not read from storage.
     @MainActor func testTabs() {
@@ -469,6 +511,9 @@ final class CoreTests: XCTestCase {
         let t = [Line(kind: .user, text: "hi"), Line(kind: .reasoning, text: "hmm"), Line(kind: .tool, text: "bash"), Line(kind: .result, text: "ok"),
                  Line(kind: .assistant, text: "hello"), Line(kind: .error, text: "HTTP 500"), Line(kind: .turn, text: "Completed")]
         XCTAssertEqual(botLines(t).map(\.kind), [.user, .assistant, .error])
+        // A reply that is only `[quiet]` shows nothing (as on the Mac); a reply that says more stays.
+        let quiet = [Line(kind: .user, text: "news"), Line(kind: .assistant, text: " [QUIET]\n"), Line(kind: .assistant, text: "[quiet]\nThe audit found 2 issues.")]
+        XCTAssertEqual(botLines(quiet).map(\.text), ["news", "[quiet]\nThe audit found 2 issues."])
     }
     /// Assistant apart from chats: the list leaves the assistant chat out while the switch is on (its project then has no rows).
     @MainActor func testAssistantApartList() {
@@ -725,6 +770,18 @@ final class CoreTests: XCTestCase {
                  Line(kind: .assistant, text: "Looking."), Line(kind: .tool, text: "bash"), Line(kind: .assistant, text: "Fixed it."), Line(kind: .tool, text: "ls"), Line(kind: .turn, text: "Completed")]
         XCTAssertEqual(lastReply(t), "Fixed it.")
         XCTAssertEqual(lastReply(Array(t.prefix(3)) + [Line(kind: .tool, text: "bash")]), "", "no reply in this turn: not the old one")
+    }
+
+    /// A completed turn whose reply is empty or only `[quiet]` gives no Turn finished notification; any other reply, and a
+    /// turn that failed, stopped or hit the token limit, do.
+    func testQuietTurn() {
+        for quiet in ["", "  \n", "[quiet]", "[QUIET]", "  [Quiet]\n"] {
+            XCTAssertTrue(quietTurn(reply: quiet, reason: "completed"), quiet)
+            for reason in ["error", "max-tokens", "aborted", "interrupted", nil] { XCTAssertFalse(quietTurn(reply: quiet, reason: reason), "\(quiet) \(reason ?? "nil")") }
+        }
+        for loud in ["Fixed it.", "[quiet]\nThe audit found 2 issues.", "Audit: [quiet]", "[quiet].", "quiet"] { XCTAssertFalse(quietTurn(reply: loud, reason: "completed"), loud) }
+        let t = [Line(kind: .user, text: "note"), Line(kind: .assistant, text: " [quiet] "), Line(kind: .turn, text: "Completed")]
+        XCTAssertTrue(quietTurn(reply: lastReply(t), reason: "completed"), "the check of the turn/end notification")
     }
 
     func testGoal() {
@@ -995,6 +1052,14 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(c.transcript.map(\.text), ["one", "A1", "two", "A2"]); XCTAssertEqual(c.transcript[2].seq, 3, "a user row keeps its seq")
         c.apply(marker)
         XCTAssertEqual(c.transcript.map(\.text), ["one", "A1"], "the withdrawn rows leave at once")
+        // Damon: a message typed while a turn runs goes into that turn (dsh's steer; a `steering` row on the Mac). The phone
+        // draws it as your message with its seq, also in the bot view, so it keeps Roll back (canRollBack).
+        let steer = Client()
+        steer.replaySnapshot([["type": "turn/start", "seq": 1, "data": J()], ["type": "user/message", "seq": 2, "data": ["content": "slow job", "source": ["kind": "user"]]],
+                              ["type": "assistant/message", "seq": 3, "data": ["message": ["content": [["type": "text", "text": "working"]]]]],
+                              ["type": "user/message", "seq": 4, "data": ["content": "steer note", "source": ["kind": "user"]]],
+                              ["type": "turn/end", "seq": 6, "data": ["reason": ["kind": "completed"]]]])
+        XCTAssertEqual(botLines(steer.transcript).filter { $0.kind == .user }.map(\.seq), [2, 4], "the steered message is your row with its seq")
         // A rolled-back chat opened later: the span hides both turn ends but not the first turn's start (seen live).
         let turns: [J] = [
             ["type": "turn/start", "seq": 4, "time": 1_700_000_000_000, "data": J()],
@@ -1608,6 +1673,78 @@ final class AgentboxIdeasTests: XCTestCase {
         }
     }
 
+    /// Approve button: the same table as client.js parseApprovals (test/fixtures/approval-blocks.json).
+    func testApprovalBlocksMatchTheMac() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../test/fixtures/approval-blocks.json")
+        let cases = try XCTUnwrap((try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? J)?["cases"] as? [J])
+        XCTAssertGreaterThanOrEqual(cases.count, 100)
+        for c in cases {
+            let text = c["text"] as? String ?? ""
+            XCTAssertEqual(onayBlocks(text).filter(approvable), c["sentences"] as? [String] ?? [], text)
+        }
+    }
+
+    /// Approve button: the newest block after your newest message, also from an earlier turn or the middle of a turn; not
+    /// while the chat runs, after a stopped turn, after your message, in a withdrawn answer or a fork's inherited one.
+    @MainActor func testApproveClient() async throws {
+        let ask = "Onaylıyorum: feature/x dalını origin'e push et."
+        let blk = "Hazır.\n\n```onay\n\(ask)\n```\n"
+        let news: J = ["type": "user/message", "seq": 30, "data": ["content": "news", "source": ["kind": "composer-plus-assistant-news"]]]
+        XCTAssertEqual(chatApprovals(turn(1, "a", blk))?.sentences, [ask])
+        XCTAssertEqual(chatApprovals(turn(1, "a", blk))?.from, 3)
+        XCTAssertNil(chatApprovals(turn(1, "a", blk, end: nil)), "not while the turn runs")
+        XCTAssertNil(chatApprovals(turn(1, "a", blk, end: "interrupted")), "not after a stopped turn")
+        XCTAssertNil(chatApprovals(turn(1, "a", blk) + turn(10, "b", "Tamam.")), "your message after the block ends it")
+        let kept = turn(1, "a", blk) + [news] + [["type": "turn/start", "seq": 31, "data": J()], ["type": "assistant/message", "seq": 32, "data": ["message": ["content": [["type": "text", "text": "Haber."]]]]], ["type": "turn/end", "seq": 33, "data": ["reason": ["kind": "completed"]]]]
+        XCTAssertEqual(chatApprovals(kept)?.sentences, [ask], "a news turn keeps the older block")
+        XCTAssertEqual(chatApprovals(kept)?.from, 3); XCTAssertEqual(chatApprovals(kept)?.seq, 32)
+        XCTAssertNil(chatApprovals(turn(1, "a", blk), from: 5), "a fork's inherited answer")
+        let marker: J = ["type": "user/message", "seq": 20, "sourceEventSeqs": [11, 12, 13], "data": ["content": [], "source": ["kind": rollbackSource]]]
+        XCTAssertEqual(chatApprovals(turn(1, "a", blk) + turn(10, "b", "No.") + [marker])?.from, 3, "a withdrawn turn: the older block offers again")
+        XCTAssertNil(chatApprovals(turn(1, "a", "```onay\n\("x".padding(toLength: 501, withPad: "x", startingAt: 0))\n```")), "too long: code only")
+        XCTAssertNil(chatApprovals(turn(1, "a", blk) + turn(10, "b", "```onay\nOnaylıyorum: canlı görevi iptal et.\n```")), "a newest block without a button hides the older one")
+        // The client: the option guard, a subagent chat offers nothing, the words follow the Mac's language.
+        let c = Client()
+        c.current = "A"; c.path = ["A"]
+        c.sessions = [Sess(["sessionId": "A", "projections": ["values": ["title": "A"]]])!]
+        c.replaySnapshot(turn(1, "hi", blk))
+        XCTAssertNil(c.approvalOffer, "the fork offset is not known yet")
+        c.optionsFrom = 0
+        let offer = try XCTUnwrap(c.approvalOffer)
+        do { try await c.approve("A", offer, ask); XCTFail("no Mac: the send fails") } catch {}
+        XCTAssertNotNil(c.approvalOffer, "a failed send keeps the button")
+        try await c.approve("A", offer, "Onaylıyorum: başka bir şey.") // not a sentence of the offer: nothing
+        try await c.approve("B", offer, ask) // another chat on screen than the tap's: nothing
+        let stale = ApprovalOffer(seq: offer.seq, latest: offer.latest, from: 99, sentences: offer.sentences)
+        try await c.approve("A", stale, ask) // a block that is not the chat's offer now (a newer one came): nothing
+        XCTAssertTrue(c.optionBusy.isEmpty)
+        c.optionPicked["A"] = offer.picks; XCTAssertNil(c.approvalOffer, "sent: no button")
+        c.optionPicked["A"] = nil; c.running = true; XCTAssertNil(c.approvalOffer, "not while the chat runs"); c.running = false
+        c.sessions = [Sess(["sessionId": "A", "parentSessionId": "P", "origin": "subagent"])!]
+        XCTAssertNil(c.approvalOffer)
+        XCTAssertEqual(approveWords(macLang: "tr").button, "Onayla"); XCTAssertEqual(approveWords(macLang: "en-US", phone: "tr").button, "Approve")
+        XCTAssertEqual(approveWords(macLang: nil, phone: "tr-TR").button, "Onayla", "an older Mac: the phone's language")
+        XCTAssertEqual(assistantName, "Damon")
+    }
+
+    /// Assistant callouts: a quote that starts with a marker is one box (its later quote lines too); [!DETAILS] keeps its
+    /// summary; an unknown marker, a marker after text and a plain quote stay quotes.
+    func testCallouts() {
+        let parts = mdParts("Hi.\n> [!PROBLEM] The build fails.\n> - step 2\n>\n> more\nAfter.\n> [!details] Logs\n> line 1\n> plain quote\n> [!NOTE] x\n> see [!RESULT]")
+        XCTAssertEqual(mdCallouts(parts), [
+            .part(.line("Hi.")), .callout(kind: "problem", title: "", lines: ["The build fails.", "- step 2", "", "more"]), .part(.line("After.")),
+            .callout(kind: "details", title: "Logs", lines: ["line 1", "plain quote", "[!NOTE] x", "see [!RESULT]"]),
+        ])
+        XCTAssertEqual(mdCallouts(mdParts("> [!NOTE] x\n> see")), [.part(.line("> [!NOTE] x")), .part(.line("> see"))], "an unknown marker: a quote")
+        XCTAssertEqual(mdCallouts(mdParts("> [!RESULT]done")), [.part(.line("> [!RESULT]done"))], "a marker glued to a word")
+        XCTAssertEqual(mdCallouts(mdParts("> a\n> [!RESULT] b")), [.part(.line("> a")), .part(.line("> [!RESULT] b"))], "a marker only on the first line of a quote")
+        // The fences of the Approve rule: ~~~, longer fences and CRLF make the same code block (its button hides it).
+        XCTAssertEqual(mdBlocks("Hi.\r\n~~~onay\r\nOk.\r\n~~~\r\nAfter").map { "\($0.code)|\($0.lang)|\($0.text)" }, ["false||Hi.", "true|onay|Ok.", "false||After"])
+        XCTAssertEqual(mdBlocks("````onay\nOk.\n````").map { "\($0.code)|\($0.lang)|\($0.text)" }, ["true|onay|Ok."])
+        XCTAssertEqual(mdBlocks("```\nopen").map(\.code), [true], "an open fence runs to the end")
+        XCTAssertEqual(calloutLabel("approval", macLang: "tr"), "Onay gerekli"); XCTAssertEqual(calloutLabel("running", macLang: "en"), "Still running")
+    }
+
     private func turn(_ s: Int, _ user: String, _ answer: String?, end: String? = "completed") -> [J] {
         var e: [J] = [["type": "turn/start", "seq": s, "data": J()], ["type": "user/message", "seq": s + 1, "data": ["content": user, "source": ["kind": "user"]]]]
         if let answer { e.append(["type": "assistant/message", "seq": s + 2, "data": ["message": ["content": [["type": "reasoning", "text": "## Options\n1. secret"], ["type": "text", "text": answer]]]]]) }
@@ -1623,6 +1760,37 @@ final class AgentboxIdeasTests: XCTestCase {
         XCTAssertEqual(chatOffer(two)?.options.map(\.label), ["Merge it", "Add a test"], "reasoning is left out")
         XCTAssertEqual(chatOffer(two)?.options.last?.text, "Add a test\nwith a fixture")
         XCTAssertNil(chatOffer(turn(1, "a", opts) + turn(10, "b", "No list.")), "an older list does not come back")
+        // A hidden news turn (reply only [quiet]) keeps the answer's options; your message after the answer, a news turn
+        // with text, a running or a stopped turn end them (client.js chatOffer).
+        func news(_ s: Int, _ text: String?, end: String? = "completed") -> [J] {
+            var e = turn(s, "", text, end: end); e[1] = ["type": "user/message", "seq": s + 1, "data": ["content": "news", "source": ["kind": "news"]]]; return e
+        }
+        // Only in the assistant chat (`quiet: true`, review 2): another chat has no hidden news turns.
+        let kept = chatOffer(turn(1, "a", opts) + news(10, "[quiet]") + news(20, " [QUIET] "), quiet: true)
+        XCTAssertEqual(kept?.seq, 3, "the old answer's seq"); XCTAssertEqual(kept?.latest, 20, "latest: the newest turn start")
+        XCTAssertNil(chatOffer(turn(1, "a", opts) + news(10, "[quiet]")), "another chat: a quiet turn ends it")
+        XCTAssertNil(chatOffer(turn(1, "a", opts) + turn(10, "b", "[quiet]"), quiet: true), "your message after the answer, then a quiet turn")
+        XCTAssertNil(chatOffer(turn(1, "a", opts) + news(10, "Fine."), quiet: true), "a news turn with text")
+        XCTAssertNil(chatOffer(turn(1, "a", opts) + news(10, "[quiet]") + news(20, nil), quiet: true), "a news turn with tools only")
+        XCTAssertNil(chatOffer(turn(1, "a", opts) + news(10, "[quiet]", end: "interrupted"), quiet: true), "a stopped news turn")
+        XCTAssertNil(chatOffer(turn(1, "a", opts) + news(10, "[quiet]", end: nil), quiet: true), "a running news turn")
+        // Review 2: a text sent with a tool call in the news turn is news (quietTurnSet), also when the turn ends with [quiet].
+        var loud = news(10, "[quiet]")
+        loud.insert(["type": "assistant/message", "seq": 14, "data": ["message": ["content": [["type": "text", "text": "X finished."], ["type": "tool_use"]]]]], at: 2)
+        XCTAssertNil(chatOffer(turn(1, "a", opts) + loud, quiet: true), "a text with a tool call ends it")
+        // Review 2 (rule 9): your message after the answer, also one that went into the running news turn (a steer, a
+        // user/message of the turn), ends it; withdrawn by either marker kind, it does not.
+        // A news turn in log order: start 20, news 21, your steer 22, its [quiet] answer 23, end 24.
+        let steered: [J] = [["type": "turn/start", "seq": 20, "data": J()],
+                            ["type": "user/message", "seq": 21, "data": ["content": "news", "source": ["kind": "news"]]],
+                            ["type": "user/message", "seq": 22, "data": ["content": "wait", "source": ["kind": "user"]]],
+                            ["type": "assistant/message", "seq": 23, "data": ["message": ["content": [["type": "text", "text": "[quiet]"]]]]],
+                            ["type": "turn/end", "seq": 24, "data": ["reason": ["kind": "completed"]]]]
+        XCTAssertNil(chatOffer(turn(1, "a", opts) + steered, quiet: true), "a steered message ends it")
+        for kind in [rollbackSource, "dsh-rewind"] {
+            let marker: J = ["type": "user/message", "seq": 40, "sourceEventSeqs": [22], "data": ["content": [], "source": ["kind": kind]]]
+            XCTAssertEqual(chatOffer(turn(1, "a", opts) + steered + [marker], quiet: true)?.seq, 3, "a withdrawn message (\(kind)): kept")
+        }
         XCTAssertNil(chatOffer(turn(1, "a", opts, end: nil)), "not while the turn runs")
         XCTAssertNil(chatOffer(turn(1, "a", opts) + turn(10, "b", nil, end: nil)), "a newer running turn hides the older list")
         XCTAssertNil(chatOffer(turn(1, "a", opts, end: "interrupted")), "not a stopped turn")
@@ -2205,5 +2373,257 @@ final class BranchStateTests: XCTestCase {
         await b.load(); XCTAssertTrue(b.missing)
         answer = nil
         await b.load(); XCTAssertFalse(b.off); XCTAssertFalse(b.missing); XCTAssertTrue(b.loaded)
+    }
+}
+
+/// Damon's status panel and Tether's language: the same rule and words as the Mac.
+final class DamonParityTests: XCTestCase {
+    /// The Durum panel: the same table as client.js statusParts (test/fixtures/status-panel.json).
+    func testStatusPanelMatchesTheMac() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../test/fixtures/status-panel.json")
+        let cases = try XCTUnwrap((try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? J)?["cases"] as? [J])
+        XCTAssertGreaterThanOrEqual(cases.count, 8)
+        let ms = { (d: Date?) in d.map { NSNumber(value: ($0.timeIntervalSince1970 * 1000).rounded()) } }
+        for c in cases {
+            let name = c["name"] as? String ?? ""
+            let now = Date(timeIntervalSince1970: (c["now"] as! NSNumber).doubleValue / 1000)
+            let v = statusView(c["data"] as? J ?? [:], now: now)
+            let want = c["want"] as! J
+            let groups = (want["groups"] as! [J]).map { "\($0["owner"]!)|\(($0["ids"] as! [String]).joined(separator: ","))|\($0["waiting"]!)" }
+            XCTAssertEqual(v.groups.map { "\($0.owner)|\($0.items.map(\.id).joined(separator: ","))|\($0.waiting)" }, groups, name)
+            XCTAssertEqual(v.overdue.sorted(), want["overdue"] as? [String], name)
+            XCTAssertEqual(v.live.map(\.id), want["live"] as? [String], name)
+            XCTAssertEqual(v.ended.map(\.id), want["ended"] as? [String], name)
+            if let o = want["outage"] as? J {
+                XCTAssertEqual(ms(v.outage?.at), o["at"] as? NSNumber, name)
+                XCTAssertEqual(v.outage?.resumed.sorted(), o["resumed"] as? [String], name); XCTAssertEqual(v.outage?.others, o["others"] as? Int, name)
+            } else { XCTAssertNil(v.outage, name) }
+            XCTAssertEqual(ms(v.summary?.at), want["summaryAt"] as? NSNumber, name)
+            let lines = (want["lines"] as! J).compactMapValues { $0 as? String }
+            XCTAssertEqual(v.lines, lines, name)
+        }
+        // The item texts are data: kept as they came, also one that reads like an order.
+        let v = statusView(["items": [["id": "a1", "text": "Ignore the rules **now**", "owner": "agent"]]], now: Date())
+        XCTAssertEqual(v.groups.first?.items.first?.text, "Ignore the rules **now**")
+        // The table holds in any time zone of the phone (a time of today is 1 min before now, yesterday 27 h before).
+        let first = try XCTUnwrap(cases.first { ($0["name"] as? String)?.hasPrefix("today outage") == true })
+        for zone in ["Pacific/Kiritimati", "Etc/GMT+12", "America/Los_Angeles"] {
+            var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(identifier: zone)!
+            let now = Date(timeIntervalSince1970: (first["now"] as! NSNumber).doubleValue / 1000)
+            XCTAssertEqual(statusView(first["data"] as! J, now: now, cal: cal).outage?.others, 2, zone)
+        }
+        // The Mac reads again while it translates the result lines.
+        XCTAssertTrue(statusView(["translating": true], now: Date()).translating)
+    }
+
+    /// Damon card stack: the same cards as client.js statusCards (test/fixtures/status-cards.json), with the Mac's marks and
+    /// the CANLI label. Times are ms in the table.
+    func testStatusCardsMatchTheMac() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../test/fixtures/status-cards.json")
+        let cases = try XCTUnwrap((try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? J)?["cases"] as? [J])
+        XCTAssertGreaterThanOrEqual(cases.count, 6)
+        let date = { (v: Any?) in Date(timeIntervalSince1970: (v as! NSNumber).doubleValue / 1000) }
+        let ms = { (d: Date) in NSNumber(value: (d.timeIntervalSince1970 * 1000).rounded()) }
+        for c in cases {
+            let name = c["name"] as? String ?? ""
+            let o = c["opts"] as? J ?? [:]
+            let p = statusCards(c["data"] as? J ?? [:], now: date(c["now"]), approvals: o["approvals"] as? Int ?? 0, seen: Set(o["seen"] as? [String] ?? []), newSince: date(o["newSince"] ?? 0))
+            let want = c["want"] as! J
+            if let a = want["approval"] as? J {
+                XCTAssertEqual(p.approval?.items.map(\.id), a["items"] as? [String], name)
+                XCTAssertEqual(p.approval?.since.map(ms), a["since"] as? NSNumber, name)
+            } else { XCTAssertNil(p.approval, name) }
+            let wg = want["groups"] as! J
+            XCTAssertEqual(Set(p.groups.keys), Set(wg.keys), name)
+            for g in cardGroups {
+                let got = (p.groups[g] ?? []).map { "\($0.key)|\($0.title)|\($0.item?.id ?? "-")|\($0.task?.id ?? "-")|\(ms($0.since))|\($0.overdue)|\($0.fresh)" }
+                let exp = (wg[g] as! [J]).map { "\($0["key"]!)|\($0["title"]!)|\(($0["item"] as? String) ?? "-")|\(($0["task"] as? String) ?? "-")|\($0["since"]!)|\($0["overdue"] as! Bool)|\($0["fresh"] as! Bool)" }
+                XCTAssertEqual(got, exp, "\(name): \(g)")
+            }
+            XCTAssertEqual(p.notes.map(\.id), want["notes"] as? [String], name)
+            let k = want["counts"] as! J
+            XCTAssertEqual(p.counts, CardCounts(onay: k["onay"] as! Int, sorun: k["sorun"] as! Int, senden: k["senden"] as! Int, suruyor: k["suruyor"] as! Int, bitti: k["bitti"] as! Int, fresh: k["fresh"] as! Int), name)
+        }
+        // The marks and the CANLI label (the same lines as test/status-cards.test.mjs).
+        XCTAssertEqual(cardMark("SORUN:  canlı").kind, "sorun"); XCTAssertEqual(cardMark("SORUN:  canlı").title, "canlı")
+        XCTAssertNil(cardMark("Bu bir onay: değil").kind); XCTAssertNil(cardMark("Onay:").kind)
+        XCTAssertTrue(liveApproval("Onaylıyorum: canlı sunucuya deploy et."))
+        XCTAssertFalse(liveApproval("Onaylıyorum (canlı değil): dal main'e alınsın."))
+        XCTAssertFalse(liveApproval("Onaylıyorum: yalnız yerel test."))
+        // The day check uses the phone's calendar: the table holds in any time zone.
+        let first = try XCTUnwrap(cases.first { ((($0["want"] as! J)["groups"] as! J)["bitti"] as! [J]).count == 2 })
+        for zone in ["Pacific/Kiritimati", "Etc/GMT+12", "America/Los_Angeles"] {
+            var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(identifier: zone)!
+            let o = first["opts"] as? J ?? [:]
+            let p = statusCards(first["data"] as! J, now: date(first["now"]), approvals: o["approvals"] as? Int ?? 0, seen: Set(o["seen"] as? [String] ?? []), newSince: date(o["newSince"] ?? 0), cal: cal)
+            XCTAssertEqual(p.counts.bitti, 2, zone)
+        }
+    }
+
+    /// Screenshots of the card deck (closed and open) with made-up data, in Turkish. They are written only when SHOT_DIR is
+    /// set (run with TEST_RUNNER_SHOT_DIR=<dir>); without it the test is skipped.
+    @MainActor func testCardDeckScreenshots() throws {
+        guard let dir = ProcessInfo.processInfo.environment["SHOT_DIR"], !dir.isEmpty else { throw XCTSkip("SHOT_DIR is not set") }
+        let now = Date(timeIntervalSince1970: 1_794_993_000)
+        let ago = { (m: Double) in Int((now.timeIntervalSince1970 - m * 60) * 1000) }
+        let data: J = [
+            "items": [
+                ["id": "a1", "text": "Onay: acme-web testi main'e alınır", "owner": "user", "created": ago(14)],
+                ["id": "a2", "text": "Onay: acme-api betiği test servisinde denenir", "owner": "user", "created": ago(6)],
+                ["id": "a3", "text": "Sorun: acme-web gece derlemesi hata verdi", "owner": "agent", "created": ago(40)],
+                ["id": "a4", "text": "Senden: acme-api ortam değişkenini ekle", "owner": "user", "created": ago(26 * 60)],
+                ["id": "a5", "text": "Rapor hizası için karar", "owner": "agent", "created": ago(300), "waiting": ["reason": "Hangi başlık seçilsin?", "since": ago(150)]],
+                ["id": "a6", "text": "Süt al", "owner": "user", "created": ago(500)],
+                ["id": "a7", "text": "Fatura öde", "owner": "user", "created": ago(600)],
+                ["id": "a8", "text": "acme-web sorgularını hızlandır", "owner": "agent", "created": ago(90)]],
+            "tasks": [
+                ["id": "t1", "title": "acme-api uç noktaları", "state": "running", "started": ago(25)],
+                ["id": "t2", "title": "acme-docs çeviri", "state": "running", "started": ago(12)],
+                ["id": "t3", "title": "acme-web sorgularını hızlandır", "state": "running", "started": ago(50)],
+                ["id": "t4", "title": "acme-web gece derlemesi hata verdi", "state": "failed", "started": ago(45), "ended": ago(41)],
+                ["id": "t5", "title": "acme-api yedekleme betiği", "state": "done", "started": ago(120), "ended": ago(70), "result": "Testler geçti"],
+                ["id": "t6", "title": "acme-docs bağlantı denetimi", "state": "done", "started": ago(80), "ended": ago(30), "result": "3 kırık bağlantı düzeltildi"]]]
+        let sentence = "Onaylıyorum: acme-web testi main'e alınsın, canlı değil."
+        let cards = statusCards(data, now: now, approvals: 1, newSince: Date(timeIntervalSince1970: now.timeIntervalSince1970 - 60 * 60))
+        XCTAssertEqual(cards.counts, CardCounts(onay: 1, sorun: 1, senden: 2, suruyor: 3, bitti: 2, fresh: 1))
+        XCTAssertEqual(cards.notes.count, 2)
+        let tr = uiBundle("tr")
+        func render(_ open: Bool, _ name: String) throws {
+            let view = DeckView(cards: cards, sentences: [sentence], now: now, b: tr, locale: Locale(identifier: "tr_TR"), maxHeight: 10_000, scrolls: false,
+                                open: .constant(open), doneOpen: .constant(open), notesOpen: .constant(open), act: { _ in })
+                .frame(width: 390).background(Color(.systemBackground)).environment(\.locale, Locale(identifier: "tr_TR")).environment(\.colorScheme, .light)
+            let r = ImageRenderer(content: view); r.scale = 3
+            let img = try XCTUnwrap(r.uiImage, "ImageRenderer gave no image")
+            try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+            try XCTUnwrap(img.pngData()).write(to: URL(fileURLWithPath: dir).appendingPathComponent(name))
+        }
+        try render(false, "tether-deste-kapali.png")
+        try render(true, "tether-deste-acik.png")
+    }
+
+    /// Damon card stack, phase 2: the decision queue as client.js statusQueue (test/fixtures/status-queue.json).
+    func testStatusQueueMatchesTheMac() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../test/fixtures/status-queue.json")
+        let cases = try XCTUnwrap((try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? J)?["cases"] as? [J])
+        XCTAssertGreaterThanOrEqual(cases.count, 5)
+        for c in cases {
+            let name = c["name"] as? String ?? ""
+            let now = Date(timeIntervalSince1970: (c["now"] as! NSNumber).doubleValue / 1000)
+            let cards = statusCards(c["data"] as? J ?? [:], now: now, approvals: c["approvals"] as? Int ?? 0)
+            let got = statusQueue(cards, sentences: c["sentences"] as? [String] ?? [], options: c["options"] as? [String] ?? [], later: c["later"] as? [String] ?? [])
+                .map { "\($0.kind)|\($0.key)|\($0.live)" }
+            let want = (c["want"] as! [J]).map { "\($0["kind"]!)|\($0["key"]!)|\($0["live"] as! Bool)" }
+            XCTAssertEqual(got, want, name)
+        }
+    }
+
+    /// → of the Status sheet: the same text as client.js statusInsert (test/fixtures/status-insert.json), in English and
+    /// Turkish, without ids; appendLine is the web panel's append rule.
+    func testStatusInsertMatchesTheMac() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../test/fixtures/status-insert.json")
+        let table = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? J)
+        let ms = { (v: Any?) in (v as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) } }
+        let now = try XCTUnwrap(ms(table["now"]))
+        let cases = try XCTUnwrap(table["cases"] as? [J])
+        XCTAssertGreaterThanOrEqual(cases.count, 8)
+        for c in cases {
+            let name = c["name"] as? String ?? "", r = c["row"] as! J, want = c["want"] as! [String: String]
+            let row: StatusRow
+            if let i = r["item"] as? J {
+                let w = i["waiting"] as? J
+                row = .item(StatusItem(id: i["id"] as! String, text: i["text"] as! String, owner: i["owner"] as! String, waiting: w.map { ($0["reason"] as! String, ms($0["since"])!) }), overdue: r["overdue"] as? Bool == true)
+            } else if let t = r["task"] as? J {
+                row = .task(StatusTask(id: t["id"] as! String, title: t["title"] as! String, state: t["state"] as! String, started: ms(t["started"])!, ended: ms(t["ended"]), result: t["result"] as? String, chat: false), outage: r["outage"] as? String)
+            } else {
+                let p = r["project"] as! J
+                row = .project(StatusProject(id: p["id"] as! String, title: p["title"] as! String, count: p["count"] as! Int, chats: []), line: r["line"] as? String)
+            }
+            for lang in ["en", "tr"] {
+                let got = statusInsert(row, now: now, span: { "\(Int($0.rounded()))s" }, bundle: uiBundle(lang))
+                XCTAssertEqual(got, want[lang], "\(name) (\(lang))")
+            }
+        }
+        for a in try XCTUnwrap(table["append"] as? [J]) {
+            XCTAssertEqual(appendLine(a["draft"] as! String, a["text"] as! String), a["want"] as? String, a["name"] as? String ?? "")
+        }
+    }
+
+    /// One string table: every key has en and tr; the Mac's language picks it (Turkish: Turkish, else English).
+    func testStringTable() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../Resources/Localizable.xcstrings")
+        let strings = try XCTUnwrap((try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? J)?["strings"] as? [String: J])
+        XCTAssertGreaterThan(strings.count, 600)
+        XCTAssertEqual(uiLanguage(macLang: "tr-TR", phone: "en"), "tr"); XCTAssertEqual(uiLanguage(macLang: "en", phone: "tr"), "en")
+        XCTAssertEqual(uiLanguage(macLang: nil, phone: "tr"), "tr", "an older Mac: the phone's language")
+        XCTAssertEqual(uiLanguage(macLang: "de", phone: "tr"), "en", "another language of the Mac: English")
+        let tr = uiBundle("tr"), en = uiBundle("en")
+        XCTAssertEqual(String(localized: "Sessions", bundle: tr), "Oturumlar"); XCTAssertEqual(String(localized: "Sessions", bundle: en), "Sessions")
+        XCTAssertEqual(String(localized: "status.tasks", defaultValue: "Tasks", bundle: tr), "Görevler")
+        XCTAssertEqual(String(localized: "status.outageRow", defaultValue: "Continued after the outage · \("12:00")", bundle: tr), "Kesintiden sonra devam etti · 12:00")
+        XCTAssertEqual(approveWords(macLang: "tr").button, "Onayla"); XCTAssertEqual(calloutLabel("running", macLang: "tr"), "Süren işler")
+        // String(localized:) follows the Mac, not the phone.
+        let saved = uiStrings; defer { uiStrings = saved }
+        uiStrings = tr; XCTAssertEqual(String(localized: "Settings"), "Ayarlar")
+        uiStrings = en; XCTAssertEqual(String(localized: "Settings"), "Settings")
+    }
+}
+
+/// Damon's `[quiet]` reply leaves no trace on the phone (2026-11-19): the same text rule as the Mac (index.js quietReply,
+/// client.js quietText; one table: test/fixtures/quiet-replies.json), and a quiet turn end gives no alert and no buzz.
+final class QuietReplyTests: XCTestCase {
+    func testQuietRepliesMatchTheMac() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../test/fixtures/quiet-replies.json")
+        let cases = try XCTUnwrap((try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? J)?["cases"] as? [J])
+        XCTAssertGreaterThanOrEqual(cases.count, 10)
+        for c in cases {
+            let text = c["text"] as? String ?? ""
+            XCTAssertEqual(quietReply(text), c["quiet"] as? Bool, text)
+            // The chat view uses the same rule: a quiet reply goes, any other reply stays.
+            XCTAssertEqual(botLines([Line(kind: .assistant, text: text)]).count, (c["quiet"] as? Bool == true) ? 0 : 1, text)
+        }
+    }
+    /// The push rule keeps its empty-reply case; a failed turn is never quiet.
+    func testQuietTurn() {
+        XCTAssertTrue(quietTurn(reply: " [QUIET]\n", reason: "completed"))
+        XCTAssertTrue(quietTurn(reply: "", reason: "completed"))
+        XCTAssertFalse(quietTurn(reply: "[quiet]", reason: "error"))
+        XCTAssertFalse(quietTurn(reply: "The deploy failed.", reason: "completed"))
+    }
+    /// The run rule of the Mac (quietRun, runReply) on the shared turn shapes: no alert and no buzz only when every text of
+    /// Damon's turn is `[quiet]`; a turn with a real text notifies with it. The turn is read from the chat's log, as on the
+    /// Mac: an older typed turn with a real reply, then the news turn (its prompt is no `user` message) and its steps.
+    func testQuietTurnsMatchTheMac() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../test/fixtures/quiet-replies.json")
+        let turns = try XCTUnwrap((try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? J)?["turns"] as? [J])
+        XCTAssertGreaterThanOrEqual(turns.count, 8)
+        var seq = 0
+        func ev(_ type: String, _ data: J = [:], _ extra: J = [:]) -> J { seq += 1; return ["seq": seq, "type": type, "data": data].merging(extra) { a, _ in a } }
+        func say(_ blocks: [J]) -> J { ev("assistant/message", ["message": ["content": blocks]]) }
+        func user(_ kind: String, _ text: String) -> J { ev("user/message", ["source": ["kind": kind], "content": [["type": "text", "text": text]]]) }
+        for t in turns {
+            let steps = t["steps"] as? [[String]] ?? []
+            let content = steps.map { s in s.map { b -> J in b == "tool" ? ["type": "tool-call", "id": "c", "name": "chats_list"] : b == "think" ? ["type": "reasoning", "text": "Look."] : ["type": "text", "text": b] } }
+            var log = [ev("turn/start"), user("user", "Fix it."), say([["type": "text", "text": "Done: an older turn."]]), ev("turn/end", ["reason": ["kind": "completed"]]),
+                       ev("turn/start"), user("composer-plus-assistant-news", "news")]
+            log += content.map(say); log.append(ev("turn/end", ["reason": ["kind": "completed"]]))
+            XCTAssertEqual(quietTexts(log), t["quiet"] as? Bool, "\(steps)")
+            XCTAssertEqual(newsReply(log), t["reply"] as? String, "\(steps)")
+            // A message steered into the running turn (a `user` message after the first step) does not split the turn.
+            if content.count > 1 {
+                var steered = log; steered.insert(user("user", "steered"), at: steered.count - 2)
+                XCTAssertEqual(quietTexts(steered), t["quiet"] as? Bool, "steered: \(steps)")
+                XCTAssertEqual(newsReply(steered), t["reply"] as? String, "steered: \(steps)")
+            }
+        }
+        // A rollback that withdrew an older turn's end (from a steered message to its marker) does not make that turn's
+        // earlier text part of the newest turn: the newest turn starts at its own turn/start.
+        seq = 0
+        let older = [ev("turn/start"), user("user", "Deploy."), say([["type": "text", "text": "Deploying now."]]), user("user", "steer"), say([["type": "text", "text": "Done."]]), ev("turn/end", ["reason": ["kind": "completed"]])]
+        let marker = ev("user/message", ["source": ["kind": rollbackSource]], ["sourceEventSeqs": [4]])
+        let newest = [ev("turn/start"), user("composer-plus-assistant-news", "news"), say([["type": "text", "text": "[quiet]"]]), ev("turn/end", ["reason": ["kind": "completed"]])]
+        XCTAssertTrue(quietTexts(older + [marker] + newest), "the withdrawn half of an older turn does not count")
+        XCTAssertEqual(newsReply(older + [marker] + newest), "")
+        // A failed turn with no text: no words from an older turn.
+        XCTAssertEqual(newsReply(older + [ev("turn/start"), say([["type": "tool-call", "id": "c", "name": "bash"]]), ev("turn/end", ["reason": ["kind": "error"]])]), "")
     }
 }
