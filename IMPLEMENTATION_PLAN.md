@@ -1,3 +1,85 @@
+# Damon canvas view (tuval) (branch feat/assistant-canvas-view, 2026-11-24)
+
+Request (Furkan, Damon chat, 2026-11-24): "canvas görünümü yapacaktık başla ona , ona tıklayınca sohbet alanı filan da
+kalksın sadece o gelsin". Spec: the "Sonsuz tuval" option of ~/Damon/Belgeler/Damon arayüzü/damon-yonetim-secenekleri-2026-11-19.html
+(pan, zoom, cards, keyboard: arrows, + and −; "Kart yığınının verisini kullanır, yerini almaz").
+
+## Objective
+A button in the Damon status panel opens a canvas that replaces the chat area (messages, composer) and the panel. The
+canvas shows the panel's data (approval, choice, Sorun, Senden, Sürüyor, Bugün bitti, notes, summary, the queue order) as
+cards: pan (drag, trackpad), zoom (pinch = Ctrl+wheel, Ctrl/Cmd+wheel, + and −), Fit all. **Back to the chat** and Esc
+close it; the chat comes back as it was.
+
+## Invariants
+- Canvas closed: the chat and the status panel behave and look exactly as before (existing unit and browser tests pass
+  unchanged).
+- One data path: the canvas is drawn by StatusPanel from the same `state`, `statusCards`, `statusQueue`; the card
+  elements and their handlers are the panel's own (`card`, `onayCard`, `kararCard`, the note row, `summaryCard`).
+- The chat is hidden with `visibility:hidden` on dsh's `[data-conversation-scroll]` (no unmount, no layout change), so
+  its scroll position and the composer draft stay.
+- Part of the `assistantTodos` feature: switching it off removes the button, the canvas, its listeners and the mark on
+  the chat body. No new dependency, no Host change, no Tether code change.
+
+## Acceptance criteria
+1. Real button (aria-label + tooltip) in the panel header opens the canvas; chat body shows only the canvas.
+2. **Back to the chat** button and Esc close it; scrollTop of the chat and the composer draft are unchanged; focus goes
+   back to the open button.
+3. Approve, →, ×, "…", a task card's click, Get summary, Refresh work on canvas cards through the panel's code. An action
+   that writes into the composer (or needs the option buttons or a project row) shows the chat first.
+4. Card positions and the view (x, y, zoom) are kept in localStorage `dsh-composer-plus.status-canvas` (validated on
+   read, merged on write, pruned to the cards on the canvas); a new card gets the first free place in its group column.
+5. Viewport and cards are focusable; Tab reaches Onayla; a card focused by keyboard is panned into view.
+
+## Phases
+1. [done 2026-11-24 15:4x] Code + tests + texts + docs: pure helpers (`canvasPlace`, `canvasFit`, `canvasZoom`, `readCanvas`) with
+   `test/status-canvas.test.mjs`; StatusCanvas + StatusPanel changes with canvas checks in
+   `test/assistant-todos-client.test.mjs`; 7 texts in en, zh, 11 locales; docs/features.json (13 `how`, `llms`),
+   README limits (13), tether/FEATURES.md gap row (desktop only); `test/browser-status-canvas.mjs` (real dsh 0.2.2-rc.5,
+   headless, chromiumSandbox) + screenshots.
+2. [open] Merge current main, review-guard loop (separate subagent, until no P1/P2), merge --no-ff into main, push,
+   delete branch and worktree.
+
+## Allowed paths
+client.js, locales/*.json, docs/features.json, README*.md, llms.txt, docs/ROUTES.md (generated), tether/FEATURES.md,
+test/status-canvas.test.mjs, test/assistant-todos-client.test.mjs, test/browser-status-canvas.mjs, package.json
+(test:all only), IMPLEMENTATION_PLAN.md.
+
+## Checks
+`npm test`; `node --check client.js`; `git diff --check`; repo has no lint script (verify in package.json);
+`PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-status-canvas.mjs
+~/ai-maintenance/dsh-composer-plus/dsh/0.2.2-rc.5/node_modules/@deepseek-ai/dsh/lib/bin.js`; browser-card-stack.mjs
+(regression, canvas closed).
+
+## Decisions (simplest option where the proposal says nothing; listed for Furkan in the report)
+- Group columns (Onay + summary, Sorun, Senden + choice, Sürüyor, Bugün bitti, Notların), not project islands around a
+  Damon circle: the status data has no project per item, and a second data path is not allowed.
+- No minimap, no "Yalnız bana bekleyenler" filter, no side detail panel, no zoom-level detail change, no touch
+  two-finger pinch (a Mac trackpad pinch comes as Ctrl+wheel).
+- Plain wheel pans; Ctrl/Cmd+wheel zooms (10%–200%); Fit all never zooms above 100%.
+- The canvas button is an icon button (⊞, a text glyph: dsh's primitives have no canvas icon) next to Refresh.
+- An action that writes into the composer (→, Yaptım, Yanıtla, a note's →) or the choice's → closes the canvas first.
+- Esc closes only while the focus is in the chat body or nowhere, and not while a menu or dialog is open.
+- Card positions are pruned when a card leaves (approval, summary, choice, outage, projects keep theirs).
+- Drag uses window pointer listeners (no pointer capture: dsh's elements took the events after the pointer left).
+- Layout is per browser (localStorage), not synced between Macs.
+- The canvas closes when you leave the Damon chat (the panel unmounts); it opens closed after a reload.
+- All groups show unfolded on the canvas (Bugün bitti too).
+- Queue order (statusQueue) shows as "i/N" on the cards that wait for you.
+
+## Risks
+- dsh renames `[data-conversation-scroll]`: the chat would stay visible under the canvas (the canvas is opaque and covers
+  the chat body, so the view still works).
+- A card that grows after it was placed can overlap the card below (only new cards are placed free).
+
+## Last checkpoint
+- 2026-11-24 15:4x: phase 1 done on the branch. main = 5f6d852 at start.
+- Last passing: `npm test` (exit 0); `node test/status-canvas.test.mjs`, `node test/assistant-todos-client.test.mjs`
+  (both red on main's client.js, checked); `PLAYWRIGHT=<Mergen playwright 1.58> node test/browser-status-canvas.mjs
+  <dsh 0.2.2-rc.5 bin>` PASS (headless, chromiumSandbox true); `test/browser-card-stack.mjs` PASS on 0.2.2-rc.5
+  (canvas closed: as before); `git diff --check` clean; no lint script in package.json.
+- Screenshots: /Users/furkancakir/Damon/Belgeler/Composer Plus/tuval-20261124/{1-chat-before,2-canvas-open,3-canvas-pan-zoom,4-chat-after}.png
+- Open: phase 2 (merge main, review loop, merge --no-ff, push, delete branch and worktree).
+
 # Fix: Improve prompt "Mesaj iyileştirilirken değişti" (branch fix/prompt-improve-change-warning)
 
 Owner report 2026-11-23: the wand says "The message changed while it was improved, so it was not replaced." although the

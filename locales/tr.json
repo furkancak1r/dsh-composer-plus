@@ -4494,7 +4494,14 @@
     "cards.approveAgain": "{name} onay cümlesini yeniden yazınca Onayla gelir.",
     "queue.later": "Sonra",
     "queue.keys": "Tuşlar: A onayla / yaptım · 1–9 seçenek · S sonra · J / K sonraki / önceki · R yanıtla",
-    "queue.choiceTitle": "{name} seçmeni istiyor"
+    "queue.choiceTitle": "{name} seçmeni istiyor",
+    "canvas.open": "Tuvali aç",
+    "canvas.close": "Sohbete dön",
+    "canvas.title": "Tuval",
+    "canvas.help": "Tuval. Sürükleyin ya da ok tuşlarıyla gezin. Ctrl ya da Cmd ile tekerlekle ya da + ve − ile yakınlaşın; 0 hepsini sığdırır. Kartlara Tab ile ulaşılır.",
+    "canvas.fit": "Hepsini sığdır",
+    "canvas.zoomIn": "Yakınlaş",
+    "canvas.zoomOut": "Uzaklaş"
   },
   "directory-browser": {
     "browser.title": "Çalışma alanı klasörünü seçin",

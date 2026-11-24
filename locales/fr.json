@@ -2830,7 +2830,14 @@
     "cards.approveAgain": "Le bouton Approuver revient quand {name} réécrit la phrase d’approbation.",
     "queue.later": "Plus tard",
     "queue.keys": "Touches : A approuver / fait · 1–9 choix · S plus tard · J / K suivant / précédent · R répondre",
-    "queue.choiceTitle": "{name} vous demande de choisir"
+    "queue.choiceTitle": "{name} vous demande de choisir",
+    "canvas.open": "Ouvrir le canevas",
+    "canvas.close": "Retour à la discussion",
+    "canvas.title": "Canevas",
+    "canvas.help": "Canevas. Faites-le glisser ou utilisez les flèches pour le déplacer. Zoomez avec Ctrl ou Cmd et la molette, ou avec + et − ; 0 affiche tout. Tab atteint les cartes.",
+    "canvas.fit": "Tout afficher",
+    "canvas.zoomIn": "Zoom avant",
+    "canvas.zoomOut": "Zoom arrière"
   },
   "common": {
     "ok": "OK",

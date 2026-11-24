@@ -2830,7 +2830,14 @@
     "cards.approveAgain": "{name}が承認文を書き直すと、「承認」ボタンが戻ります。",
     "queue.later": "あとで",
     "queue.keys": "キー: A 承認 / やりました · 1–9 選択肢 · S あとで · J / K 次 / 前 · R 返信",
-    "queue.choiceTitle": "{name}が選択を求めています"
+    "queue.choiceTitle": "{name}が選択を求めています",
+    "canvas.open": "キャンバスを開く",
+    "canvas.close": "チャットに戻る",
+    "canvas.title": "キャンバス",
+    "canvas.help": "キャンバス。ドラッグか矢印キーで移動します。Ctrl または Cmd とホイール、または + と − で拡大縮小し、0 で全体を表示します。Tab でカードに移動します。",
+    "canvas.fit": "全体を表示",
+    "canvas.zoomIn": "拡大",
+    "canvas.zoomOut": "縮小"
   },
   "common": {
     "ok": "OK",

@@ -2830,7 +2830,14 @@
     "cards.approveAgain": "Nút Phê duyệt sẽ quay lại khi {name} viết lại câu phê duyệt.",
     "queue.later": "Để sau",
     "queue.keys": "Phím: A phê duyệt / đã làm · 1–9 lựa chọn · S để sau · J / K sau / trước · R trả lời",
-    "queue.choiceTitle": "{name} nhờ bạn chọn"
+    "queue.choiceTitle": "{name} nhờ bạn chọn",
+    "canvas.open": "Mở bảng vẽ",
+    "canvas.close": "Quay lại cuộc trò chuyện",
+    "canvas.title": "Bảng vẽ",
+    "canvas.help": "Bảng vẽ. Kéo hoặc dùng phím mũi tên để di chuyển. Phóng to bằng Ctrl hoặc Cmd và con lăn, hoặc + và −; 0 hiện tất cả. Tab đi đến các thẻ.",
+    "canvas.fit": "Hiện tất cả",
+    "canvas.zoomIn": "Phóng to",
+    "canvas.zoomOut": "Thu nhỏ"
   },
   "common": {
     "ok": "OK",

@@ -2830,7 +2830,14 @@
     "cards.approveAgain": "Tombol Setujui kembali saat {name} menulis ulang kalimat persetujuan.",
     "queue.later": "Nanti",
     "queue.keys": "Tombol: A setujui / sudah · 1–9 pilihan · S nanti · J / K berikutnya / sebelumnya · R balas",
-    "queue.choiceTitle": "{name} meminta Anda memilih"
+    "queue.choiceTitle": "{name} meminta Anda memilih",
+    "canvas.open": "Buka kanvas",
+    "canvas.close": "Kembali ke obrolan",
+    "canvas.title": "Kanvas",
+    "canvas.help": "Kanvas. Seret atau gunakan tombol panah untuk menggesernya. Perbesar dengan Ctrl atau Cmd dan roda, atau dengan + dan −; 0 menampilkan semua. Tab menuju kartu.",
+    "canvas.fit": "Tampilkan semua",
+    "canvas.zoomIn": "Perbesar",
+    "canvas.zoomOut": "Perkecil"
   },
   "common": {
     "ok": "OK",

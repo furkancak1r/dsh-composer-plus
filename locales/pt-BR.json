@@ -2830,7 +2830,14 @@
     "cards.approveAgain": "O botão Aprovar volta quando {name} escrever a frase de aprovação de novo.",
     "queue.later": "Depois",
     "queue.keys": "Teclas: A aprovar / feito · 1–9 opção · S depois · J / K próximo / anterior · R responder",
-    "queue.choiceTitle": "{name} pede que você escolha"
+    "queue.choiceTitle": "{name} pede que você escolha",
+    "canvas.open": "Abrir a tela",
+    "canvas.close": "Voltar ao chat",
+    "canvas.title": "Tela",
+    "canvas.help": "Tela. Arraste ou use as setas para movê-la. Aproxime com Ctrl ou Cmd e a roda, ou com + e −; 0 mostra tudo. Tab chega aos cartões.",
+    "canvas.fit": "Ver tudo",
+    "canvas.zoomIn": "Aproximar",
+    "canvas.zoomOut": "Afastar"
   },
   "common": {
     "ok": "OK",
