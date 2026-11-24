@@ -1830,6 +1830,8 @@
     "subagentCount.total": "Tổng cộng {count} subagent",
     "feature.windowSize": "Ghi nhớ kích thước cửa sổ",
     "feature.windowSize.description": "Ứng dụng máy tính mở với kích thước và vị trí cửa sổ như lần dùng trước, không phải kích thước nhỏ mặc định. Chỉ trong ứng dụng máy tính.",
+    "feature.codexTheme": "Giao diện tối Codex",
+    "feature.codexTheme.description": "Mặc định tắt. Khi dsh dùng bảng màu tối, màu sắc chuyển sang một giao diện tối đơn giản, trung tính như Codex: bề mặt màu than chì, chữ và điểm nhấn màu trắng ngà, không có màu xanh. Bố cục, kích thước và văn bản giữ nguyên. Hãy tắt để lấy lại màu riêng của dsh.",
     "feature.queueReorder": "Kéo thả hàng đợi",
     "feature.queueReorder.description": "Sắp xếp lại tin nhắn trong hàng đợi bằng cách kéo tay nắm.",
     "feature.copyDeeplink": "Sao chép liên kết phiên",

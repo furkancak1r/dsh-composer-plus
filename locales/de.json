@@ -1830,6 +1830,8 @@
     "subagentCount.total": "Subagents insgesamt: {count}",
     "feature.windowSize": "Fenstergröße merken",
     "feature.windowSize.description": "Die Desktop-App öffnet sich mit der Größe und Position, die ihr Fenster zuletzt hatte, nicht in der kleinen Standardgröße. Nur in der Desktop-App.",
+    "feature.codexTheme": "Dunkles Codex-Design",
+    "feature.codexTheme.description": "Standardmäßig aus. Solange dsh seine dunkle Palette nutzt, wechseln die Farben zu einem schlichten, neutralen dunklen Design wie in Codex: anthrazitfarbene Flächen, gebrochen weißer Text und Akzente, kein Blau. Layout, Größen und Texte bleiben gleich. Schalte es aus, um die eigenen Farben von dsh zurückzubekommen.",
     "feature.queueReorder": "Warteschlange per Drag-and-drop",
     "feature.queueReorder.description": "Eingereihte Nachrichten über ihren Griff per Ziehen neu anordnen.",
     "feature.copyDeeplink": "Sitzungslink kopieren",

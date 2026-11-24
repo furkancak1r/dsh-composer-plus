@@ -3498,6 +3498,8 @@
     "subagentCount.total": "Toplam {count} alt ajan",
     "feature.windowSize": "Pencere boyutunu hatırla",
     "feature.windowSize.description": "Masaüstü uygulaması, varsayılan küçük boyutla değil, penceresinin son kullandığınız boyutu ve yeriyle açılır. Yalnız masaüstü uygulamasında.",
+    "feature.codexTheme": "Codex koyu tema",
+    "feature.codexTheme.description": "Varsayılan olarak kapalı. dsh koyu paletini kullanırken renkler Codex gibi sade, nötr bir koyu temaya geçer: antrasit yüzeyler, kırık beyaz metin ve vurgular, mavi yok. Yerleşim, boyutlar ve metinler aynı kalır. Kapatırsanız dsh’in kendi renkleri geri gelir.",
     "feature.queueReorder": "Kuyrukta sürükle bırak",
     "feature.queueReorder.description": "Tutamacı sürükleyerek sıradaki mesajların yerini değiştirin.",
     "feature.copyDeeplink": "Oturum bağlantısını kopyala",

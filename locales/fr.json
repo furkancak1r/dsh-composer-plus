@@ -1830,6 +1830,8 @@
     "subagentCount.total": "Sous-agents au total : {count}",
     "feature.windowSize": "Mémoriser la taille de la fenêtre",
     "feature.windowSize.description": "L’application de bureau s’ouvre avec la taille et la position de sa fenêtre lors de la dernière utilisation, et non à la petite taille par défaut. Uniquement dans l’application de bureau.",
+    "feature.codexTheme": "Thème sombre Codex",
+    "feature.codexTheme.description": "Désactivé par défaut. Tant que dsh utilise sa palette sombre, les couleurs passent à un thème sombre simple et neutre, comme celui de Codex : surfaces anthracite, texte et accents blanc cassé, sans bleu. La mise en page, les tailles et les textes ne changent pas. Désactivez-le pour retrouver les couleurs propres à dsh.",
     "feature.queueReorder": "Glisser-déposer dans la file",
     "feature.queueReorder.description": "Réordonnez les messages en file d’attente en faisant glisser leur poignée.",
     "feature.copyDeeplink": "Copier le lien de session",

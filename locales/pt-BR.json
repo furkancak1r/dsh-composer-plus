@@ -1830,6 +1830,8 @@
     "subagentCount.total": "Total de subagentes: {count}",
     "feature.windowSize": "Lembrar o tamanho da janela",
     "feature.windowSize.description": "O app para desktop abre com o tamanho e a posição que a janela tinha na última vez, não no tamanho pequeno padrão. Só no app para desktop.",
+    "feature.codexTheme": "Tema escuro Codex",
+    "feature.codexTheme.description": "Desativado por padrão. Enquanto o dsh usa a paleta escura, as cores mudam para um tema escuro simples e neutro, como o do Codex: superfícies antracite, texto e destaques off-white, sem azul. O layout, os tamanhos e os textos não mudam. Desative para ter de volta as cores próprias do dsh.",
     "feature.queueReorder": "Arrastar e soltar na fila",
     "feature.queueReorder.description": "Reordene as mensagens na fila arrastando a alça.",
     "feature.copyDeeplink": "Copiar link da sessão",
