@@ -3547,3 +3547,15 @@ Last checkpoint (2026-11-24 14:05, after Furkan's approval of the commit, merge 
 - Open items: none in this branch. Not in this work: the live desktop copy, a Tether build or install on the iPhone,
   a release (each needs its own approval).
 - Next: commit on the branch, merge into main (--no-ff), push main, then remove the branch and its worktree.
+
+## Fix: memory import card comes back at each switch (2026-11-24, fix/memory-import-card-persist)
+
+- Report (Furkan, Damon chat): "her geçişte şu hafıza olayı geliyor yapmama rağmen geliyor düzelt". Screenshot: the card "Önceki hafızanızı aktarın" (Başlat, Gizle) in the Damon chat, picker on "Furkan MacB..." (remote Mac).
+- Cause: the only done record was browser localStorage (client.js `IMPORT_DONE_KEY`, `createFlag`). The remote Mac's page is a `<webview>` with partition `dsh-sidebar-browser-${randomUUID()}` (DSH 0.2.2-rc.5 app.asar lib/main.js line 18109, `DesktopBrowserGuests.acquire`; no `persist:`, new at each DSH start) and the origin `http://127.0.0.1:<listen(0) port>` (tether/gateway/server.mjs createRelay). Its storage starts empty, so the card shows again.
+- Fix: the Host keeps the end (`POST /api/composer-plus.assistant-setup {importEnded: true}` → memory-import-card.json; GET `importEnded`, also true when memory-import.json has a finished file). The client hides the card on `importEnded`, and sends Start, Hide or an older local click to the Host.
+- Tether: no memory import card on the phone; gap row in tether/FEATURES.md.
+- Last checkpoint: commit 5d7bf053 on the branch. Screenshots: ~/Damon/Belgeler/Composer Plus/hafiza-karti-20261124/once-yeni-sayfa.png (card shows on a page with new storage, old code) and sonra-yeni-sayfa.png (no card, new code).
+- Last passing checks: `npm test` exit 0; `PLAYWRIGHT=<Mergen>/node_modules/playwright node test/browser-assistant-welcome.mjs <dsh bin>` PASS on 0.2.2-rc.5, 0.2.0-rc.2, 0.2.1-rc.2 (step 3b red on the old code: "a page with new storage: Hide stays", 1 !== 0).
+- Review: round 1 (review-guard, separate subagent): P1 0, P2 0; P3 fixed (required dir, README limits in 13 languages), P4 fixed (MEMORY_IMPORT_FILE, tests). Round 2: P1 0, P2 0, P3 0; P4 fixed (one JSDoc block). Not done here (round 2 P4, pre-existing): the setup card Hide is still kept only in browser storage (setupHidden).
+- Merged origin/main 3b13f9db (conflicts in IMPLEMENTATION_PLAN.md and tether/FEATURES.md: both sides kept).
+- Open: merge --no-ff into main, push, delete branch and worktree. Live copy only after Furkan sees the screenshots and writes "tamam".
