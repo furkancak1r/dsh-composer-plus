@@ -227,6 +227,16 @@ const MENTIONS_MERGE_MAIN = [
   // A word with a colon between merge and main (review of 2026-11-13, round 7: the colon stopped the English path).
   "Merge PR #42 (fix: footer color) into main.",
   "Merge https://github.com/acme/web/pull/42 into main.",
+  // "?" or "!" inside a word, and a colon after the verb (review of 2026-11-24, P3: these texts passed the gate).
+  "Merge https://github.com/acme/web/pull/42?diff=split into main.",
+  "Merge https://github.com/acme/web/pull/42/files?w=1#diff-1 into origin/main.",
+  "Merge PR #42 (feat!: drop Node 18) into main.",
+  "Merge PR #42 (footer red?) into main.",
+  "Merge PR \"Fix it now!\" into main.",
+  "Push https://github.com/acme/web/pull/42?w=1 to main.",
+  "Merge: feat/a into main.",
+  "Merge: PR #42 (fix: footer color) into main.",
+  "Push: the fix to origin main.",
   // Accepted false positives: a comma does not stop the words between merge or push and main (review of 2026-11-13).
   "Merge the two PRs, then go back to main.",
   "Push the changes, then update main.",
@@ -275,6 +285,10 @@ const NO_MERGE_MAIN = [
   "main'le merge conflict var",
   "main'e merge conflict var",
   "Merge the two PRs, and then go back to main.", // 7 words between merge and "to main": over the limit of 6
+  // A word that ends in "?" or "!" is a sentence end, like ".".
+  "Should we merge it? Then go back to main.",
+  "Merge it! Then go back to main.",
+  "Merge: conflicts with main",
   "Dal main branch'ine birleştirildi.",
   "main branch'e merge edildi",
 ];
