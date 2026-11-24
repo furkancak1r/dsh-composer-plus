@@ -27,7 +27,7 @@ let items = [{ id: 'aaaaaaaa', text: 'Prosolocal\'i internete açmak', owner: 'u
 let tasks = [{ id: 'c-run', title: 'Research Rome', state: 'running', started: NOW - 125000 }, { id: 'c-done', title: 'Flights', state: 'done', started: NOW - 600000, ended: NOW - 60000, result: 'Flights found: 3 options' }];
 let projects = [{ id: 'w-web', title: 'acme-web', count: 2, updated: NOW, chats: [{ id: 's-web', title: 'Login page', updated: NOW - 1000, running: true }] }, { id: 'w-cli', title: 'weather-cli', count: 1, updated: NOW - 5000, chats: [{ id: 's-cli', title: 'Weather', updated: NOW - 5000, running: false }] }];
 let summary = { at: NOW, projects: [{ project: 'acme-web', text: 'Login page done.' }, { project: 'other-proj', text: 'Not in the list.' }] };
-const posts = []; const gets = []; let gate = null; let failNext = null;
+const posts = []; const gets = []; let gate = null; let failNext = null; let dismissFail = false;
 // Refresh's summary request: the Host's open request time (`asked`), a refused request, a read that fails.
 let askedAt = null; let askFail = null; let missed = false; let readFail = null; let askGate = null;
 let outage; // the Host's `outage` (Resume after an AIProxy outage): {at, chats: [{id, title}]}
@@ -43,6 +43,8 @@ globalThis.fetch = async (url, init) => {
         if (askFail) return Response.json({ error: askFail }, { status: 502 });
         askedAt ??= Date.now(); return Response.json({ asked: askedAt });
       }
+      // × of a task card (the Host's dismiss list): `dismissFail` answers as an older Host or a failed write.
+      if (body.action === 'dismiss') return dismissFail ? Response.json({ error: 'bad request' }, { status: 400 }) : Response.json({ ok: true });
       if (gate) await gate;
       if (failNext) { const error = failNext; failNext = null; return Response.json({ error, on: true, items }, { status: 502 }); }
       if (body.action === 'remove') items = items.filter((i) => i.id !== body.id);
@@ -191,7 +193,7 @@ const h2 = find(root, (n) => n.t === 'h2')[0]; assert.equal(find(h2, (n) => n.t 
 assert.equal(find(root, (n) => n.t === 'span' && n.p['aria-label'] !== undefined).length, 0, 'no aria-label on a span');
 assert.match(text(h2), /status\.title/); assert.match(text(h2), /status\.updated/, 'the last update time');
 // The count bar: only the groups that have cards ("1 sorun · 2 senden · …").
-assert.equal(text(find(h2, (n) => n.p?.['data-composer-plus-counts'] === '')[0]), 'cards.count.suruyor:{"count":2} · cards.count.bitti:{"count":1}', 'the count bar');
+assert.equal(text(find(h2, (n) => n.p?.['data-composer-plus-counts'] === '')[0]), 'cards.count.suruyor:{"count":1} · cards.queued:{"count":1} · cards.count.bitti:{"count":1}', 'the count bar: what runs, then Damon\'s queue');
 const refresh = find(root, (n) => n.t === 'button' && n.p['aria-label'] === 'status.refresh')[0]; assert.ok(refresh, 'Refresh button with an aria-label');
 // No summary by default: the Host has one (the assistant wrote it without a request), but the panel shows no card and
 // no summary line in a project row. Get summary is a text button next to Refresh.
@@ -200,8 +202,8 @@ assert.doesNotMatch(text(root), /Login page done/, 'no summary text anywhere by 
 const summarize = find(root, (n) => n.t === 'button' && /-summarize$/.test(n.p.id ?? ''))[0];
 assert.ok(summarize, 'Get summary button'); assert.equal(summarize.p['aria-label'], 'status.summarize', 'an icon button: its name'); assert.equal(summarize.p.title, 'status.summarize', 'and its tooltip');
 assert.equal(summarize.p['aria-disabled'], false); assert.equal(text(summarize).trim(), '', 'no text label (an icon)');
-// To-do items.
-assert.match(text(root), /Prosolocal'i internete açmak/); assert.match(text(root), /Rapor yaz/);
+// To-do items (Damon's item is behind the Sürüyor filter's "Damon'ın sırası" chip: see below).
+assert.match(text(root), /Prosolocal'i internete açmak/);
 const handover = find(root, (n) => n.t === 'button' && /todos\.handover:/.test(n.p['aria-label'] ?? ''));
 assert.equal(handover.length, 1, 'Hand over only for an item of the user');
 // Your own note (an item of yours without a mark) is in the folded "Your notes" group at the bottom; Damon's item is a
@@ -210,7 +212,11 @@ const notesHead = find(root, (n) => n.t === 'button' && n.p['data-group'] === 'n
 assert.equal(notesHead.p["aria-expanded"], false, "your notes: folded"); assert.match(text(notesHead), /cards\.notes\s+1\s*$/, JSON.stringify(text(notesHead)));
 assert.equal(find(root, (n) => n.t === 'ul' && n.p.id === notesHead.p['aria-controls'])[0].p.hidden, true);
 const cardKeys = (tr, g) => find(tr, (n) => n.t === 'li' && n.p.className === 'cp-cs-card' && n.p['data-card'] === g).map((n) => n.p['data-key']);
-assert.deepEqual(cardKeys(root, 'suruyor'), ['c-run', 'bbbbbbbb'], 'Sürüyor: the task (newest start first), then Damon\'s item');
+// The Sürüyor filter's chips (one kind shows at a time; the choice stays in this browser).
+const pickFilter = (f) => find(panel(), (n) => n.t === 'button' && n.p['data-filter'] === f)[0].p.onClick();
+assert.deepEqual(cardKeys(root, 'suruyor'), ['c-run'], 'Sürüyor, Çalışıyor (the default): the running task');
+pickFilter('todo'); assert.deepEqual(cardKeys(panel(), 'suruyor'), ['bbbbbbbb'], 'Damon\'ın sırası: Damon\'s item');
+pickFilter('running');
 assert.deepEqual(cardKeys(root, 'bitti'), ['c-done'], 'Bugün bitti: the ended task');
 // Tasks: state, time, result; a click opens its chat.
 const taskCard = (tr, key) => find(tr, (n) => n.t === 'li' && n.p['data-key'] === key)[0];
@@ -436,7 +442,7 @@ const groupBtn = (tr, g) => find(tr, (n) => n.t === 'button' && n.p['data-group'
   assert.match(text(cardsOf(tr, 'sorun')[0]), /cards\.sorun: .*Gece denetimi hata verdi/, 'the card type for a screen reader, the title without the mark');
   assert.ok(find(cardsOf(tr, 'sorun')[0], (n) => n.t === 'span' && n.p['aria-hidden'] === true && text(n) === '▲').length === 1, 'the symbol is hidden from a screen reader');
   assert.deepEqual(cardsOf(tr, 'senden').map((n) => n.p['data-key']), ['33333333'], 'Senden: the "Senden:" item');
-  assert.ok(cardsOf(tr, 'suruyor').some((n) => n.p['data-key'] === '22222222'), 'Damon\'s item: Sürüyor');
+  pickFilter('todo'); assert.ok(cardsOf(panel(), 'suruyor').some((n) => n.p['data-key'] === '22222222'), 'Damon\'s item: Sürüyor (Damon\'ın sırası)'); pickFilter('running');
   // The order of the groups: Sorun, Senden, Sürüyor, Bugün bitti, your notes.
   const order = find(tr, (n) => n.t === 'section' && n.p['data-group'] !== undefined).map((n) => n.p['data-group']);
   assert.deepEqual(order, ['sorun', 'senden', 'suruyor', 'bitti', 'notes']);
@@ -477,7 +483,7 @@ const groupBtn = (tr, g) => find(tr, (n) => n.t === 'button' && n.p['data-group'
   assert.equal(find(waiting, (n) => n.p?.['data-state'] === 'overdue').length, 0, 'not overdue before 24 hours');
   assert.equal(find(overdue, (n) => n.p?.['data-state'] === 'overdue').length, 1, 'overdue after 24 hours'); assert.match(text(overdue), /todos\.overdue/); assert.match(text(overdue), /Needs the license key/);
   assert.equal(find(waiting, (n) => n.t === 'button' && n.p['data-act'] === 'main')[0].p['aria-label'], 'cards.reply: Install ANR', 'a wait: Yanıtla');
-  assert.ok(cardsOf(tr, 'suruyor').some((n) => n.p['data-key'] === '44444444'), 'an item of Damon without a wait: Sürüyor');
+  pickFilter('todo'); assert.ok(cardsOf(panel(), 'suruyor').some((n) => n.p['data-key'] === '44444444'), 'an item of Damon without a wait: Sürüyor (Damon\'ın sırası)'); pickFilter('running');
   assert.match(text(find(tr, (n) => n.p?.['data-composer-plus-counts'] === '')[0]), /cards\.count\.senden:\{"count":2\}/, 'the count bar counts them');
   assert.equal(posts.length, p0, 'no message and no request by itself');
   // The wait time, Overdue and the day's end change while nothing runs: the stack draws again once a minute (no read,
@@ -526,7 +532,8 @@ const groupBtn = (tr, g) => find(tr, (n) => n.t === 'button' && n.p['data-group'
   assert.equal(seen.p['aria-label'], 'cards.seen: Flights', '×: Gördüm');
   const p0 = posts.length; seen.p.onClick(); assert.equal(focused.at(-1), 'cp-td-s-assistant', 'the focus goes to the stack title');
   assert.deepEqual(find(doneList(), (n) => n.t === 'li' && n.p.className === 'cp-cs-card').map((n) => n.p['data-key']), ['c-stop'], 'Gördüm: the card is gone');
-  assert.equal(posts.length, p0, 'nothing sent to the Host');
+  // Furkan, 2026-11-24: the × goes to the Host's list too (every browser and Tether), and this browser keeps it.
+  assert.deepEqual(posts.slice(p0), [{ sessionId: 's-assistant', action: 'dismiss', task: `c-done|${NOW - 60000}` }], 'the Host gets the key');
   assert.equal(mem.get('dsh-composer-plus.status-tasks-dismissed'), JSON.stringify([`c-done|${NOW - 60000}`]), 'kept in this browser');
   rt.clear(); assert.equal(cardsOf(panel(), 'bitti').length, 1, 'still hidden after the panel opens again');
   // The same task ends again (a new end time): it shows again, and the old key goes.
@@ -534,7 +541,13 @@ const groupBtn = (tr, g) => find(tr, (n) => n.t === 'button' && n.p['data-group'
   tr = panel(); assert.match(text(groupBtn(tr, 'bitti')), /cards\.bitti\s+2/, 'a new end shows the card again');
   // × on a failed task's Sorun card (in its Ayrıntı) hides it the same way.
   const x = find(cardsOf(tr, 'sorun')[0], (n) => n.t === 'button' && n.p['aria-label'] === 'status.dismiss:{"task":"Crash"}')[0];
+  // The Host call fails (an older Host, a failed write): this browser's list still hides the card.
+  dismissFail = true; const p1 = posts.length;
   assert.ok(x, 'an × with an aria-label'); x.p.onClick(); assert.equal(cardsOf(panel(), 'sorun').length, 0, 'the failed card is hidden');
+  assert.deepEqual(posts.slice(p1), [{ sessionId: 's-assistant', action: 'dismiss', task: `c-fail|${NOW - 200000}` }]);
+  await tick(); rt.clear(); assert.equal(cardsOf(panel(), 'sorun').length, 0, 'the Host refused it: localStorage keeps it hidden');
+  assert.ok(JSON.parse(mem.get('dsh-composer-plus.status-tasks-dismissed')).includes(`c-fail|${NOW - 200000}`));
+  dismissFail = false;
   // Two windows: the other one hid Hotels after this panel read the list; this Gördüm keeps that key (it reads the list again).
   mem.set('dsh-composer-plus.status-tasks-dismissed', '[]'); rt.clear(); tr = panel();
   mem.set('dsh-composer-plus.status-tasks-dismissed', JSON.stringify([`c-stop|${NOW - 300000}`]));
@@ -544,6 +557,79 @@ const groupBtn = (tr, g) => find(tr, (n) => n.t === 'button' && n.p['data-group'
   tasks = [{ id: 'c-old', title: 'Yesterday', state: 'done', started: NOW - 30 * 3600000, ended: NOW - 27 * 3600000 }]; await panelProps.store.load('s-assistant');
   assert.equal(groupBtn(panel(), 'bitti'), undefined, 'yesterday\'s end: no Bugün bitti card');
   mem.delete('dsh-composer-plus.status-tasks-dismissed'); mem.delete('dsh-composer-plus.status-done-seen'); tasks = saved; await panelProps.store.load('s-assistant'); rt.clear(); tree = panel();
+}
+
+// The Sürüyor filter (Furkan, 2026-11-24: "sürüyor kısmında damonın yapacağı ve aktif devam eden işler birleşik
+// görünüyor"; then "tümü seçeneğine gerek yok"): two chips, Çalışıyor N (the default) and Damon'ın sırası N, buttons with
+// aria-pressed; this browser keeps the choice. A card runs when the Host says that its task runs now (also an item with
+// the task's words: one card), never by its text; an item of Damon without a running task is Damon's to-do. The header:
+// "Sürüyor 3 · sırada 6". A waiting item stays in Senden; the count bar does not change.
+{
+  const savedItems = items; const savedTasks = tasks; const KEY = 'dsh-composer-plus.status-running-filter';
+  mem.delete(KEY);
+  items = [{ id: 'a0000001', text: 'Maccy 2.8.0 belleğini birkaç gün sonra yeniden ölç', owner: 'agent', created: NOW - 9000 },
+    { id: 'a0000002', text: 'Her cuma 10:00–12:00 rapor hatırlatması', owner: 'agent', created: NOW - 8000 },
+    { id: 'a0000003', text: 'Akşam AIProxy boşken yeni main\'i kur', owner: 'agent', created: NOW - 7000 },
+    { id: 'a0000004', text: 'Gece testi çalışıyor mu bak (running)', owner: 'agent', created: NOW - 6000 },
+    { id: 'a0000005', text: 'Yedek klasörünü kontrol et', owner: 'agent', created: NOW - 5000 },
+    { id: 'a0000006', text: 'Stok raporunu güncelle', owner: 'agent', created: NOW - 4000 },
+    { id: 'a0000007', text: 'Satınalma sorgularını çalıştır', owner: 'agent', created: NOW - 3000 },
+    { id: 'a0000008', text: 'Haftalık stok raporu', owner: 'agent', created: NOW - 2000 },
+    { id: 'a0000009', text: 'ANR kur', owner: 'agent', created: NOW - 1000, waiting: { reason: 'Klasör yolu', since: NOW - 60000 } }];
+  tasks = [{ id: 'c-r1', title: 'Satınalma sorgularını çalıştır', state: 'running', started: NOW - 125000 },
+    { id: 'c-r2', title: 'Montaj testi dalı', state: 'running', started: NOW - 65000 },
+    { id: 'c-r3', title: 'Hava durumu CLI', state: 'running', started: NOW - 5000, chat: true },
+    { id: 'c-d1', title: 'Haftalık stok raporu', state: 'done', started: NOW - 600000, ended: NOW - 60000 }];
+  await panelProps.store.load('s-assistant'); rt.clear();
+  const chip = (tr, f) => find(tr, (n) => n.t === 'button' && n.p['data-filter'] === f)[0];
+  const shown = (tr) => cardsOf(tr, 'suruyor').map((n) => n.p['data-key']);
+  const symOf = (n) => text(find(n, (m) => m.p?.className === 'cp-cs-sym')[0]);
+  const openRun = () => { let tr = panel(); if (groupBtn(tr, 'suruyor').p['aria-expanded'] !== true) { groupBtn(tr, 'suruyor').p.onClick(); tr = panel(); } return tr; };
+  let tr = panel();
+  assert.match(text(groupBtn(tr, 'suruyor')), /cards\.suruyor\s+3\s+· cards\.queued:\{"count":6\}\s*$/, 'the header: the running count · the to-do count');
+  tr = openRun();
+  assert.equal(chip(tr, 'running').p.type, 'button'); assert.equal(chip(tr, 'todo').p.type, 'button');
+  assert.equal(chip(tr, 'running').p['aria-pressed'], true, 'Çalışıyor is the default'); assert.equal(chip(tr, 'todo').p['aria-pressed'], false);
+  assert.equal(chip(tr, 'all'), undefined, 'no Tümü chip');
+  assert.match(text(chip(tr, 'running')), /^status\.task\.running\s+3$/); assert.match(text(chip(tr, 'todo')), /^cards\.queue:\{"name":"Damon"\}\s+6$/);
+  assert.equal(find(tr, (n) => n.p?.role === 'group' && n.p.className === 'cp-cs-chips')[0]?.p['aria-label'], 'cards.suruyor', 'the chips are one named group');
+  assert.deepEqual(shown(tr), ['c-r3', 'c-r2', 'a0000007'], 'only what runs now, newest start first; the item with a running task\'s words is that one card');
+  for (const n of cardsOf(tr, 'suruyor')) {
+    assert.equal(n.p['data-running'], 'true'); assert.equal(symOf(n), '●', 'the running mark');
+    assert.match(text(find(n, (m) => m.p?.className === 'cp-st-sub')[0]), /\d/, 'the time it runs');
+  }
+  assert.deepEqual(cardsOf(tr, 'senden').map((n) => n.p['data-key']), ['a0000009'], 'a waiting item of Damon stays in Senden');
+  assert.deepEqual(cardsOf(tr, 'bitti').map((n) => n.p['data-key']), ['a0000008'], 'an item with a done task\'s words: Bugün bitti');
+  assert.match(text(find(tr, (n) => n.p?.['data-composer-plus-counts'] === '')[0]), /cards\.count\.suruyor:\{"count":3\} · cards\.queued:\{"count":6\}/, 'the count bar: 3 running · 6 queued');
+  assert.equal(find(tr, (n) => n.p?.['data-composer-plus-run-empty'] === '').length, 0, 'no empty line while cards show');
+  chip(tr, 'todo').p.onClick(); tr = panel();
+  assert.equal(mem.get(KEY), 'todo', 'kept in this browser');
+  assert.equal(chip(tr, 'todo').p['aria-pressed'], true); assert.equal(chip(tr, 'running').p['aria-pressed'], false);
+  assert.equal(groupBtn(tr, 'suruyor').p['aria-expanded'], true, 'a chip keeps its group open (6 cards do not fit)');
+  assert.deepEqual(shown(tr), ['a0000006', 'a0000005', 'a0000004', 'a0000003', 'a0000002', 'a0000001'], 'only Damon\'s to-dos, newest first; "çalışıyor" in a text is no running state');
+  for (const n of cardsOf(tr, 'suruyor')) { assert.equal(n.p['data-running'], 'false'); assert.equal(symOf(n), '○', 'a neutral mark'); assert.match(text(n), /cards\.withAgent/); }
+  assert.match(text(groupBtn(tr, 'suruyor')), /cards\.suruyor\s+3\s+· cards\.queued:\{"count":6\}\s*$/, 'the header stays');
+  rt.clear(); tr = openRun(); assert.equal(chip(tr, 'todo').p['aria-pressed'], true, 'a reload keeps the choice');
+  chip(tr, 'running').p.onClick(); assert.equal(mem.get(KEY), 'running');
+  mem.set(KEY, 'all'); rt.clear(); tr = openRun(); assert.equal(chip(tr, 'running').p['aria-pressed'], true, 'an unknown stored value: the default');
+  // Nothing runs (0 running; the item with a task's words is a to-do now: 7 queued): the header and the count bar say so,
+  // the chip shows a line instead of an empty list.
+  const runningTasks = tasks; tasks = tasks.filter((x) => x.state !== 'running'); await panelProps.store.load('s-assistant'); rt.clear(); tr = openRun();
+  assert.match(text(groupBtn(tr, 'suruyor')), /cards\.suruyor\s+0\s+· cards\.queued:\{"count":7\}\s*$/);
+  assert.doesNotMatch(text(find(tr, (n) => n.p?.['data-composer-plus-counts'] === '')[0]), /cards\.count\.suruyor/, 'no "0 running" in the count bar');
+  assert.deepEqual(shown(tr), []); assert.equal(text(find(tr, (n) => n.p?.['data-composer-plus-run-empty'] === '')[0]), 'cards.filterEmpty', 'Çalışıyor 0: a line, not an empty list');
+  chip(tr, 'todo').p.onClick(); tr = panel(); assert.equal(shown(tr).length, 7); assert.equal(find(tr, (n) => n.p?.['data-composer-plus-run-empty'] === '').length, 0);
+  // Only running work (3 running, 0 queued): Damon'ın sırası 0 says so too.
+  tasks = runningTasks; items = items.filter((i) => i.waiting || i.id === 'a0000007' || i.id === 'a0000008'); await panelProps.store.load('s-assistant'); tr = panel();
+  assert.match(text(chip(tr, 'todo')), /\s0$/); assert.deepEqual(shown(tr), []); assert.equal(text(find(tr, (n) => n.p?.['data-composer-plus-run-empty'] === '')[0]), 'cards.filterEmpty');
+  assert.doesNotMatch(text(find(tr, (n) => n.p?.['data-composer-plus-counts'] === '')[0]), /cards\.queued/, 'no "0 queued" in the count bar');
+  chip(tr, 'running').p.onClick(); tr = panel();
+  // The running mark pulses, it is still with reduced motion; a pressed chip has its own look; the focus ring is the panel's.
+  const css = find(tr, (n) => n.t === 'style')[0].c[0];
+  assert.match(css, /\.cp-cs-card\[data-running="true"\] \.cp-cs-sym\{[^}]*animation:cp-cs-run/);
+  assert.match(css, /@media \(prefers-reduced-motion:reduce\)\{[^}]*\.cp-cs-card\[data-running="true"\] \.cp-cs-sym,[^}]*\{animation:none\}/);
+  assert.match(css, /\.cp-cs-chip\[aria-pressed="true"\]\{[^}]*background:/); assert.match(css, /\[data-composer-plus-todos\] button:focus-visible\{outline:/);
+  mem.delete(KEY); items = savedItems; tasks = savedTasks; await panelProps.store.load('s-assistant'); rt.clear(); tree = panel();
 }
 
 // 2026-11-17 ("sağ üstte durum var ama güzel durmuyor görevlerde zaten var"): Resume after an AIProxy outage shows no
@@ -633,9 +719,9 @@ composer.detect = undefined;
   if (projectsBtn().p['aria-expanded'] !== true) projectsBtn().p.onClick();
   // A project row and a Sürüyor card: → ("status.insert…" in its name); a Bugün bitti card: "Mesaj kutusuna yaz" in its "…" menu.
   const writes = () => find(panel(), (n) => n.t === 'button' && /^status\.insert(Short)?:/.test(n.p['aria-label'] ?? ''));
-  const names = writes().map((b) => b.p['aria-label']);
+  const names = writes().map((b) => b.p['aria-label']); pickFilter('todo'); names.push(...writes().map((b) => b.p['aria-label']).filter((n) => !names.includes(n)));
   assert.deepEqual(names, ['status.insert:{"item":"acme-web"}', 'status.insert:{"item":"weather-cli"}', 'status.insertShort: Research Rome', 'status.insertShort: Rapor yaz'],
-    'on each project, each running task and Damon\'s item');
+    'on each project, each running task (Çalışıyor) and Damon\'s item (Damon\'ın sırası)');
   assert.ok(writes().every((b) => b.p.type === 'button'), 'a real button (keyboard)');
   const menuOf = (key) => find(panel(), (n) => n.t === 'Menu' && n.p.anchor?.p?.['data-more'] === key)[0];
   const flights = menuOf('c-done');
@@ -644,7 +730,7 @@ composer.detect = undefined;
   const by = (name) => (name === 'Flights' ? { p: { onClick: () => menuOf('c-done').p.onSelect('write') } }
     : writes().find((b) => b.p['aria-label'] === `status.insert:{"item":"${name}"}` || b.p['aria-label'] === `status.insertShort: ${name}`));
   const before = posts.length; composer.draft = 'Note'; const focus0 = composer.focused;
-  by('Rapor yaz').p.onClick();
+  by('Rapor yaz').p.onClick(); pickFilter('running');
   assert.equal(composer.draft, 'Note\nstatus.insert.item:{"text":"Rapor yaz"}\nstatus.insert.owner:{"owner":"Damon"}', 'the item\'s data after the draft');
   by('Research Rome').p.onClick();
   assert.match(composer.draft, /\nstatus\.insert\.task:\{"title":"Research Rome"\}\nstatus\.insert\.state:\{"state":"status\.task\.running · \d+ (dk|min)\.?"\}$/, 'the task, its state and time');
@@ -668,8 +754,8 @@ composer.stale = true; const n0 = notices.length; arrow().p.onClick(); composer.
 assert.equal(composer.draft, ''); assert.equal(notices.length, n0 + 1, 'an older draft: refused, with the notice');
 assert.equal(posts.length, postsBefore, 'still nothing sent');
 // Remove.
-tree = panel();
-find(tree, (n) => n.t === 'button' && /todos\.remove:.*Rapor/.test(n.p['aria-label'] ?? ''))[0].p.onClick(); await tick();
+pickFilter('todo'); tree = panel();
+find(tree, (n) => n.t === 'button' && /todos\.remove:.*Rapor/.test(n.p['aria-label'] ?? ''))[0].p.onClick(); await tick(); pickFilter('running');
 assert.deepEqual(posts.at(-1), { sessionId: 's-assistant', id: 'bbbbbbbb', action: 'remove' });
 assert.doesNotMatch(text(panel()), /Rapor yaz/);
 
