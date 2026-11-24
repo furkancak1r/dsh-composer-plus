@@ -3510,3 +3510,40 @@ Checkpoint 2026-11-23 ~16:10 (new chat):
 - origin/main 6361c44 merged into the branch (74bac53, no conflict). test/browser-agentbox-ideas.mjs now launches Chromium with `headless: true, chromiumSandbox: true`.
 - Last passing (after the merge): `npm test` exit 0; `PLAYWRIGHT=<playwright 1.58> node test/browser-<name>.mjs <dsh 0.2.2-rc.5 bin>` PASS for card-stack, assistant-todos, assistant-chat-tasks, status-refresh, agentbox-ideas; card-stack also PASS on 0.2.0-rc.2 and 0.2.1-rc.2 (before the merge). No SHOT run; no asset changed. Screenshots not taken again: no fix of rounds 2–3 changes the panel view.
 - Next: merge this branch into main (merge commit after this commit) and push main. No live copy, no release, no npm publish; the branch and the worktree stay.
+
+# Fix: Tether, no status cards in the Damon chat (branch fix/tether-remove-status-cards, base main 5f6d852)
+
+Request (Furkan, 2026-11-24, Assistant chat): "tetherdaki kartları kaldırsana ekran görünmüyor kartlardan dolayı ya".
+Damon's decision: remove the card stack from the Tether Damon chat; approval from the phone keeps working; the desktop
+status panel does not change; the difference goes into tether/FEATURES.md.
+
+Verified before the change: the deck was `CardDeck` in the top `safeAreaInset` of `ConversationView` (UI.swift:645 at
+5f6d852). In the Damon chat the inline `ApproveButtons` were off only because of `approval: damonChat ? nil : approval`
+(UI.swift:798). So the Approve button did not need a new bar: without that condition the Damon chat uses the same inline
+button as every chat (`Client.approve`, testApproveClient, test/tether-approve.test.mjs).
+
+Change: CardDeck removed from the screen and deleted (with `cardsOff`, `cardsSeen`, `markCardSeen`, `cardsNewSince`,
+`cardsFolded`, `deckText`); DeckView, statusCards, statusQueue stay (XCTests and tables shared with client.js). Status
+sheet: title menu → Status (Damon chat, `assistant-todos`). New XCTest `testDamonChatScreen` (PNG only with SHOT_DIR).
+Docs: tether/FEATURES.md (assistantTodos row, gaps), tether/README.md, docs/features.json + llms.txt.
+
+Checks (last passing): `npm test` exit 0; `cd tether/ios && xcodebuild -project DSHMobile.xcodeproj -scheme DSHMobile
+-destination 'platform=iOS Simulator,id=A5766181-4A27-457E-81C2-DFDE4A0F018F' -derivedDataPath ../build/DerivedData test
+CODE_SIGNING_ALLOWED=NO` 117 tests, 0 failures; `node scripts/build-docs.mjs --check`; `git diff --check`. Red first:
+test/tether-status.test.mjs failed on `CardDeck(` before the change.
+Screenshots (headless XCTest render, TEST_RUNNER_SHOT_DIR): ~/Damon/Belgeler/Composer Plus/tether-kartlar-20261124/.
+Review round 1 (separate subagent): P1 0, P2 1 (stale llms sentence), P3 2, P4 2; all fixed.
+Auto review denied the first `git commit` on the branch (not retried).
+
+Last checkpoint (2026-11-24 14:05, after Furkan's approval of the commit, merge and push):
+- Review round 2 (separate subagent, as the branch chat reported it): P1 0, P2 0, one P4: the Tether string
+  `cards.doneMessage` had no use after CardDeck was deleted. Fixed: the key is removed from
+  tether/ios/Resources/Localizable.xcstrings (its en and tr values). Grep: Tether Swift, Tether tests and Tether docs
+  have no other use. The web UI key of the same name (client.js `sendenAct`, locales/*.json, the Mac tests) stays: the
+  Mac status panel still uses it.
+- Checks after this fix (all pass): `npm test` exit 0; the xcodebuild command above: 117 tests, 1 skipped
+  (testCardDeckScreenshots without SHOT_DIR), 0 failures, TEST SUCCEEDED; `node scripts/build-docs.mjs --check`
+  (15 files); `git diff --check`.
+- Open items: none in this branch. Not in this work: the live desktop copy, a Tether build or install on the iPhone,
+  a release (each needs its own approval).
+- Next: commit on the branch, merge into main (--no-ff), push main, then remove the branch and its worktree.
