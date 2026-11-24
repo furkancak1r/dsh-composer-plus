@@ -3325,6 +3325,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
     function createAssistantSetup(request = (init) => fetch(SETUP_ROUTE, init)) {
       let state = null; let seq = 0;
       let running = null; // the seq of the request that runs; reset() ends its claim
+      let ending = false; // endImport's post runs
       const listeners = new Set();
       const set = (next) => { state = next; for (const fn of [...listeners]) fn(); };
       const call = async (init) => {
@@ -3336,7 +3337,8 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
           if (response.status === 404) { if (mine === seq) set({ ready: true, steps: {} }); return state; }
           const data = await response.json().catch(() => ({}));
           if (!response.ok) throw new Error(data?.error ?? `HTTP ${response.status}`);
-          if (mine === seq) set(data);
+          // AGENTS.md rule 7: a read that the Host answered before endImport's save does not bring the ended card back.
+          if (mine === seq) set(state?.importEnded === true ? { ...data, importEnded: true } : data);
         } catch (error) { if (mine === seq) set({ ...(state ?? {}), busy: false, error: String(error?.message ?? error) }); } finally { if (running === mine) running = null; }
         return state;
       };
@@ -3345,6 +3347,15 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         subscribe: (fn) => { listeners.add(fn); return () => { listeners.delete(fn); }; },
         check: () => call(undefined),
         fix: (name, dirs) => call({ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ fix: dirs === undefined ? { name } : { name, dirs } }) }),
+        /** The memory import card ends for good (Start or Hide): the Host keeps it. One post at a time; a failed one is
+         * sent again when the assistant chat opens again (AssistantWelcome). */
+        endImport: async () => {
+          if (ending) return; ending = true;
+          try {
+            const response = await request({ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ importEnded: true }) });
+            if (response.ok && state !== null) set({ ...state, importEnded: true });
+          } catch { /* sent again at the next open */ } finally { ending = false; }
+        },
         reset: () => { seq++; running = null; set(null); },
       };
     }
@@ -3384,8 +3395,10 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
     }
     /** Memory import (part of the onboarding): once the setup is ready or hidden, the ready prompt in the UI language, shown in full
      * in a text field that the user can change. Start sends it as the user's message (dsh's conversation.send); nothing
-     * runs before that click. `send(text)` answers a promise; one send at a time. A sent prompt or Hide ends the card on
-     * this device (IMPORT_DONE_KEY); until then it shows also in an assistant chat that has messages (an update). */
+     * runs before that click. `send(text)` answers a promise; one send at a time. A sent prompt or Hide ends the card in
+     * this browser (IMPORT_DONE_KEY) and in the Host (`importEnded`), so every page ends it: the other Mac's page in a
+     * Remote computers window has new browser storage at each dsh start (Furkan, 2026-11-24). Until then it shows also in
+     * an assistant chat that has messages (an update). */
     const IMPORT_DONE_KEY = 'dsh-composer-plus.assistant.import';
     const importDone = createFlag(IMPORT_DONE_KEY);
     function MemoryImport({ send, t }) {
@@ -3418,12 +3431,16 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         return setup === undefined ? true : s === null || (s.steps === undefined && s.error === undefined) ? null : s.ready === true;
       });
       const done = React.useSyncExternalStore(importDone.subscribe, importDone.getSnapshot);
+      // The Host's record: Start or Hide on any page, or an import that finished files (undefined from an older Host).
+      const ended = React.useSyncExternalStore(setup?.subscribe ?? NO_SUBSCRIBE, () => setup?.getSnapshot()?.importEnded);
       const hidden = React.useSyncExternalStore(setupHidden.subscribe, setupHidden.getSnapshot);
       React.useEffect(() => { if (mine && setup !== undefined && setup.getSnapshot() === null) setup.check(); }, [mine]);
+      // A click on this page, or an earlier one that only this browser kept, goes to the Host.
+      React.useEffect(() => { if (mine && done && ended === false) setup.endImport(); }, [mine, done, ended]);
       if (!mine || ready === null) return null;
       if (!ready && !hidden) return React.createElement(AssistantSetup, { setup, t });
       // An older Host (no setup route: no steps) has no import tools. The import needs no Obsidian.
-      const importer = !done && send !== undefined && typeof setup?.getSnapshot()?.steps?.obsidian === 'boolean' ? React.createElement(MemoryImport, { send: (text) => send(sessionId, text), t }) : null;
+      const importer = !done && ended !== true && send !== undefined && typeof setup?.getSnapshot()?.steps?.obsidian === 'boolean' ? React.createElement(MemoryImport, { send: (text) => send(sessionId, text), t }) : null;
       if (!first) return importer === null ? null : React.createElement('section', { [ASSISTANT_WELCOME_ATTR]: '', 'data-composer-plus-memory-import-card': '', 'aria-label': t('assistant.import.title') },
         React.createElement('style', null, ASSISTANT_WELCOME_CSS), importer);
       return React.createElement('section', { [ASSISTANT_WELCOME_ATTR]: '', 'aria-label': t('assistant.welcome.title') },

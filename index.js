@@ -2508,7 +2508,7 @@ export function apply(ctx, config) {
   installAssistantBot(ctx, home, assistant, { outage, run: (id) => ended.get(id), panel: () => todos?.isOn?.() !== false });
   todos = installAssistantTodos(ctx, home, assistant, { outage });
   installAssistantMorning(ctx, home, assistant, { todos });
-  installAssistantSetup(ctx, assistant, memory);
+  installAssistantSetup(ctx, assistant, memory, { dir: join(home, 'storages', 'dsh-composer-plus') });
   installMemoryImport(ctx, home, assistant, memory);
   installSecrets(ctx, home, undefined, (session) => assistant.isOn() && taskTurn(assistant.tasks.get(session.id), session));
   installBackup(ctx, home);
@@ -11203,6 +11203,8 @@ export async function importSources({ projects, home, dshHome, skip = [], limits
   return out;
 }
 
+/** The finished files of the memory import; installAssistantSetup reads it too (an import that finished files ends the card). */
+const MEMORY_IMPORT_FILE = 'memory-import.json';
 /** Memory import (Host half): the two tools for the assistant's subagents. `assistant`: installAssistant's handle;
  * `memory`: installMemory's handle. Obsidian is not needed: the facts go to the memory folder in use. */
 export function installMemoryImport(ctx, home, assistant, memory, { userHome = homedir(), limits = IMPORT_LIMITS } = {}) {
@@ -11227,7 +11229,7 @@ export function installMemoryImport(ctx, home, assistant, memory, { userHome = h
   const sources = async () => importSources({ projects: projectsOf(), home: userHome, dshHome: home, skip: await skip(), limits });
   // source path → the day (YYYY-MM-DD) that an import finished it: the subagent read all of the file and saved its facts
   // (memory_import `done`). A run that stopped half way leaves the file open, so the next run reads it again.
-  const importFile = join(home, 'storages', 'dsh-composer-plus', 'memory-import.json');
+  const importFile = join(home, 'storages', 'dsh-composer-plus', MEMORY_IMPORT_FILE);
   const doneFile = settingsStore(importFile, (v) => (plainObject(v?.done) ? v.done : {}));
   // A user who imported before this file existed: each source that a saved note names counts as done on that note's day
   // (once, so a second run does not word the same facts again).
@@ -11427,9 +11429,17 @@ This folder is the user's Obsidian vault. The assistant works in it. Write your 
 `;
 
 /** Assistant setup (Host half): the check route and Set up. `assistant`: installAssistant's handle; `memory`:
- * installMemory's handle. */
-export function installAssistantSetup(ctx, assistant, memory, { home = homedir(), apps, configs } = {}) {
-  const check = () => assistantSetup({ folder: assistant.folder, memory, home, ...(apps === undefined ? {} : { apps }), ...(configs === undefined ? {} : { configs }) });
+ * installMemory's handle; `dir`: Composer Plus's storage folder in the dsh home (required: a test never gets the real
+ * one by default). */
+export function installAssistantSetup(ctx, assistant, memory, { home = homedir(), apps, configs, dir } = {}) {
+  if (!isText(dir, 4096)) throw new TypeError('installAssistantSetup: dir is required');
+  // The memory import card ends for good when the user clicked Start or Hide on any page (`POST {importEnded: true}`), or
+  // when an import finished files (installMemoryImport's memory-import.json). The browser's own storage is not enough:
+  // the other Mac's page in this Mac's window gets new storage at each dsh start (Furkan, 2026-11-24).
+  const cardFile = settingsStore(join(dir, 'memory-import-card.json'), (v) => v?.ended === true);
+  const importFile = settingsStore(join(dir, MEMORY_IMPORT_FILE), (v) => plainObject(v?.done) && Object.keys(v.done).length > 0);
+  const importEnded = async () => (await cardFile.read()) || importFile.read();
+  const check = async () => ({ ...(await assistantSetup({ folder: assistant.folder, memory, home, ...(apps === undefined ? {} : { apps }), ...(configs === undefined ? {} : { configs }) })), importEnded: await importEnded() });
   let fixing = Promise.resolve();
   /** Set up: what Composer Plus may do itself. The memory folder goes into the vault (`<assistant folder>/<name>` unless
    * the saved one is already in it, with the subfolder names `dirs` of the UI language unless it has its own) and Project
@@ -11460,7 +11470,8 @@ export function installAssistantSetup(ctx, assistant, memory, { home = homedir()
   }));
   ctx.connection.fetch.register({
     path: ASSISTANT_SETUP_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
-    /** GET: the setup state. POST `{fix: {name}}`: Set up, then the setup state. */
+    /** GET: the setup state. POST `{fix: {name}}`: Set up, then the setup state. POST `{importEnded: true}`: the import card
+     * ends for good, then the setup state. */
     fetch: async (request) => {
       await assistant.ready;
       if (!assistant.isOn()) return json({ error: 'Assistant is off' }, 409);
@@ -11468,6 +11479,11 @@ export function installAssistantSetup(ctx, assistant, memory, { home = homedir()
         if (request.method === 'GET') return json(await check());
         let body;
         try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+        if (plainObject(body) && Object.hasOwn(body, 'importEnded')) {
+          if (Object.keys(body).join() !== 'importEnded' || body.importEnded !== true) return json({ error: 'bad request' }, 400);
+          await cardFile.change(() => ({ ended: true }));
+          return json(await check());
+        }
         // `{fix: {name, dirs?: {global, projects}}}`: the memory folder's name and its subfolder names in the UI language.
         const keys = plainObject(body?.fix) ? Object.keys(body.fix).sort().join() : '';
         const ok = plainObject(body) && Object.keys(body).join() === 'fix' && (keys === 'name' || keys === 'dirs,name');

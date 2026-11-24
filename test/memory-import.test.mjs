@@ -180,8 +180,10 @@ try {
   const memLs = new Map();
   globalThis.localStorage = { getItem: (k) => (memLs.has(k) ? memLs.get(k) : null), setItem: (k, v) => memLs.set(k, String(v)) };
   globalThis.document = { visibilityState: 'visible', querySelector: () => null, addEventListener() {}, removeEventListener() {} };
-  globalThis.fetch = async (url) => (String(url) === '/api/composer-plus.assistant-switch' ? Response.json({ on: true }) : String(url) === '/api/composer-plus.assistant' ? Response.json({ sessionId: 's-assistant' })
-    : String(url) === '/api/composer-plus.assistant-setup' ? Response.json({ ready: true, steps: { obsidian: true, vault: true, memory: 'done', rules: true } }) : new Response('{}', { status: 404 }));
+  // The Host's record of the card (Start or Hide on any page, or an import that finished files) and the client's posts.
+  let importEnded = false; const setupPosts = [];
+  globalThis.fetch = async (url, init) => (String(url) === '/api/composer-plus.assistant-switch' ? Response.json({ on: true }) : String(url) === '/api/composer-plus.assistant' ? Response.json({ sessionId: 's-assistant' })
+    : String(url) === '/api/composer-plus.assistant-setup' ? (init?.method === 'POST' && setupPosts.push(JSON.parse(init.body)), Response.json({ ready: true, steps: { obsidian: true, vault: true, memory: 'done', rules: true }, importEnded })) : new Response('{}', { status: 404 }));
   let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } }, addEventListener() {}, removeEventListener() {} };
   eval(readFileSync(new URL('../client.js', import.meta.url), 'utf8'));
   const states = []; let stateAt = 0;
@@ -213,6 +215,11 @@ try {
     assert.equal(find(render(), (x) => x.t === 'textarea')[0]?.p.value, 'PROMPT TEXT', 'no Obsidian: the import prompt shows');
     states.length = 0; // the next checks: a ready Host (the hidden card does not matter then)
     globalThis.fetch = readyHost; injected.setup.reset(); await injected.setup.check(); }
+  // The Host says the card ended (Start or Hide in another page: the other Mac's page in this window, or this page after a
+  // dsh restart, has its own browser storage): no card, although this page's storage never saw the click.
+  importEnded = true; injected.setup.reset(); await injected.setup.check();
+  assert.equal(find(render(), (x) => x.t === 'textarea').length, 0, 'the Host ended the card: no card on a page with new storage');
+  importEnded = false; injected.setup.reset(); await injected.setup.check();
   let block = render();
   const area = find(block, (x) => x.t === 'textarea')[0];
   assert.equal(area.p.value, 'PROMPT TEXT', 'the full prompt shows in the text field');
@@ -221,5 +228,11 @@ try {
   block = render();
   find(block, (x) => x.t === 'Button')[0].p.onClick(); await tick();
   assert.deepEqual(sent, [['s-assistant', 'PROMPT TEXT, but only acme-web']], 'Start sends the edited text once, to the assistant chat');
+  // Start and Hide set the same flag; the next draw tells the Host once (browser-assistant-welcome step 3b checks Hide).
+  importEnded = true; render(); await tick(); render(); await tick();
+  assert.deepEqual(setupPosts, [{ importEnded: true }], 'Start tells the Host once, so the card ends on every page');
+  // A read that the Host answered before that save (importEnded false) does not bring the card back (AGENTS.md rule 7).
+  importEnded = false; await injected.setup.check();
+  assert.equal(injected.setup.getSnapshot().importEnded, true, 'an older read does not undo the end');
   console.log('memory import checks passed');
 } finally { await rm(root, { recursive: true, force: true }); }
