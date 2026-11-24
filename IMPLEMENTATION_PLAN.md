@@ -3510,3 +3510,13 @@ Checkpoint 2026-11-23 ~16:10 (new chat):
 - origin/main 6361c44 merged into the branch (74bac53, no conflict). test/browser-agentbox-ideas.mjs now launches Chromium with `headless: true, chromiumSandbox: true`.
 - Last passing (after the merge): `npm test` exit 0; `PLAYWRIGHT=<playwright 1.58> node test/browser-<name>.mjs <dsh 0.2.2-rc.5 bin>` PASS for card-stack, assistant-todos, assistant-chat-tasks, status-refresh, agentbox-ideas; card-stack also PASS on 0.2.0-rc.2 and 0.2.1-rc.2 (before the merge). No SHOT run; no asset changed. Screenshots not taken again: no fix of rounds 2–3 changes the panel view.
 - Next: merge this branch into main (merge commit after this commit) and push main. No live copy, no release, no npm publish; the branch and the worktree stay.
+
+## Fix: memory import card comes back at each switch (2026-11-24, fix/memory-import-card-persist)
+
+- Report (Furkan, Damon chat): "her geçişte şu hafıza olayı geliyor yapmama rağmen geliyor düzelt". Screenshot: the card "Önceki hafızanızı aktarın" (Başlat, Gizle) in the Damon chat, picker on "Furkan MacB..." (remote Mac).
+- Cause: the only done record was browser localStorage (client.js `IMPORT_DONE_KEY`, `createFlag`). The remote Mac's page is a `<webview>` with partition `dsh-sidebar-browser-${randomUUID()}` (DSH 0.2.2-rc.5 app.asar lib/main.js line 18109, `DesktopBrowserGuests.acquire`; no `persist:`, new at each DSH start) and the origin `http://127.0.0.1:<listen(0) port>` (tether/gateway/server.mjs createRelay). Its storage starts empty, so the card shows again.
+- Fix: the Host keeps the end (`POST /api/composer-plus.assistant-setup {importEnded: true}` → memory-import-card.json; GET `importEnded`, also true when memory-import.json has a finished file). The client hides the card on `importEnded`, and sends Start, Hide or an older local click to the Host.
+- Tether: no memory import card on the phone; gap row in tether/FEATURES.md.
+- Last checkpoint: commit 5d7bf053 on the branch. Screenshots: ~/Damon/Belgeler/Composer Plus/hafiza-karti-20261124/once-yeni-sayfa.png (card shows on a page with new storage, old code) and sonra-yeni-sayfa.png (no card, new code).
+- Last passing checks: `npm test` exit 0; `PLAYWRIGHT=<Mergen>/node_modules/playwright node test/browser-assistant-welcome.mjs <dsh bin>` PASS on 0.2.2-rc.5, 0.2.0-rc.2, 0.2.1-rc.2 (step 3b red on the old code: "a page with new storage: Hide stays", 1 !== 0).
+- Open: review-guard rounds until no P1/P2 (diff is about 160 lines in 22 files, so the normal loop), then merge --no-ff into main, push, delete branch and worktree. Live copy: only after Furkan sees the screenshots and writes "tamam".
