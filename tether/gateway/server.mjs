@@ -464,23 +464,31 @@ export function inHours(hours, now = new Date()) {
 }
 /** The plain text of a notification: the first line that says something, without Markdown (bold, italic, code, links,
  * images, HTML tags, headings, list, quote and callout marks, a `[!DETAILS]` summary line, a `[quiet]` mark, code
- * blocks), spaces collapsed. A reply that has only an `onay` block is `approval`. The same rule as Tether's pushText
- * (one table: test/fixtures/push-text.json). Damon writes its result on the first line. */
+ * blocks), spaces collapsed. A code span keeps its text as it is (a tool name such as `mcp__aiproxy__bash`, `Promise<void>`),
+ * `__` is bold only at word edges, and only known HTML tags go (`List<String>` stays). A reply that has only an `onay`
+ * block is `approval`. The same rule as Tether's pushText (one table: test/fixtures/push-text.json). Damon writes its
+ * result on the first line. ponytail: each line is cut to PUSH_LINE code points first, so a long line cannot keep the
+ * Host busy (the push shows 600 at most). */
+export const PUSH_LINE = 2000
+const HTML_TAG = /<\/?(?:a|b|i|u|s|em|strong|br|p|div|span|code|pre|sub|sup|small|kbd|mark|del|ins|img|hr|details|summary|h[1-6]|ul|ol|li|blockquote)\b(?:\s[^<>]*)?\/?>/gi
 export function pushText(text, approval = 'Approval waits') {
   let fence = '', onay = false
   for (const raw of String(text ?? '').split(/\r\n?|\n/)) {
-    const t = raw.trim(), f = /^(`{3,}|~{3,})\s*([^\s`]*)/.exec(t)
+    const t = [...raw.trim().slice(0, 2 * PUSH_LINE)].slice(0, PUSH_LINE).join('').replace(/[\uE000\uE001]/g, ''), f = /^(`{3,}|~{3,})\s*([^\s`]*)/.exec(t)
     if (fence) { if (f && f[1][0] === fence[0] && f[1].length >= fence.length && !f[2]) fence = ''; continue }
     if (f) { fence = f[1]; if (f[2].toLowerCase() === 'onay') onay = true; continue }
     let s = t.replace(/^(?:>\s*)+/, '').replace(/^\[quiet\]/i, '').trim()
     if (/^\[!details\]/i.test(s)) continue // the summary line of a closed section
-    s = s.replace(/^\[![a-z]+\]/i, '').trim().replace(/^#{1,6}\s+/, '').replace(/^(?:[-*+]|\d{1,3}[.)])\s+/, '').replace(/^\[[ xX]\]\s+/, '')
-    if (/^(?:[-*_]\s*){3,}$/.test(s)) continue
-    s = s.replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/<((?:https?|mailto):[^>\s]+)>/gi, '$1').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
-      .replace(/<\/?[a-z][a-z0-9-]*(?:\s[^<>]*)?\/?>/gi, '').replace(/(`+)(.+?)\1/g, '$2')
-      .replace(/(\*\*|__)(?=\S)(.+?)(?<=\S)\1/g, '$2').replace(/~~(?=\S)(.+?)(?<=\S)~~/g, '$1')
+    s = s.replace(/^\[![a-z]+\]/i, '').trim()
+    if (/^(?:[-*_]\s*){3,}$/.test(s)) continue // a thematic break (`---`, `* * *`), before a list mark can take its first `*`
+    s = s.replace(/^#{1,6}\s+/, '').replace(/^(?:[-*+]|\d{1,3}[.)])\s+/, '').replace(/^\[[ xX]\]\s+/, '')
+    const code = [] // code spans wait in placeholders, so no other rule changes their text
+    s = s.replace(/(`+)(.+?)\1/g, (_, m, c) => `\uE000${code.push(c) - 1}\uE001`)
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/<((?:https?|mailto):[^>\s]+)>/gi, '$1').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+      .replace(HTML_TAG, '').replace(/\*\*(?=\S)(.+?)(?<=\S)\*\*/g, '$1').replace(/(^|[^\w])__(?=\S)(.+?)(?<=\S)__(?!\w)/g, '$1$2')
+      .replace(/~~(?=\S)(.+?)(?<=\S)~~/g, '$1')
       .replace(/(^|[^\w*])\*(?=\S)([^*]+?)(?<=\S)\*(?![\w*])/g, '$1$2').replace(/(^|[^\w_])_(?=\S)([^_]+?)(?<=\S)_(?![\w_])/g, '$1$2')
-      .replace(/\s+/g, ' ').trim()
+      .replace(/\uE000(\d+)\uE001/g, (_, i) => code[i]).replace(/\s+/g, ' ').trim()
     if (s) return s
   }
   return onay ? approval : ''

@@ -2341,8 +2341,8 @@ export function apply(ctx, config) {
    * the chat is Damon's or one of its subagents (false for another chat), for Tether's Notifications only from Damon;
    * left out while this Mac has no Damon chat, so every chat pushes then. */
   const chatAbout = (sessionId) => {
-    const damon = damonAbout(assistant, sessionId);
     const session = serviceOf('agents')?.get?.(sessionId)?.session;
+    const damon = damonAbout(assistant, sessionId, (id) => serviceOf('agents')?.get?.(id)?.session?.header);
     if (session === undefined) return damon;
     let chat, cwd, project;
     try { chat = ctx.sessionProjections?.snapshot?.(session, ['title'])?.values?.title; } catch { /* no title */ }
@@ -11653,30 +11653,48 @@ export function quietRun(events, from = 0) {
  * real reply in an earlier turn of the run, then `[quiet]`). */
 export const runReply = (events, from = 0) => runTexts(events, from).findLast((t) => !quietReply(t)) ?? '';
 /** `{damon}` of a Tether push (Notifications only from Damon): true for Damon's chat and its subagents (`assistant` is the
- * handle of installAssistant: isOn, id, rootOf), false for another chat, and nothing while this Mac has no Damon chat. */
-export const damonAbout = (assistant, sessionId) => (assistant?.isOn?.() && isText(assistant.id?.()) ? { damon: assistant.rootOf(sessionId) === assistant.id() } : {});
+ * handle of installAssistant: isOn, id; `headerOf(id)` a loaded chat's header), false for another chat, and nothing while
+ * this Mac has no Damon chat. Only a subagent follows its parent (`origin: 'subagent'`, `parentSession`): a fork of Damon
+ * (Branch, Redo; older dsh write its `parentSession` too) and its subagents are another chat, as on the phone. */
+export const damonAbout = (assistant, sessionId, headerOf) => {
+  if (!assistant?.isOn?.() || !isText(assistant.id?.())) return {};
+  let at = sessionId; const seen = new Set();
+  while (at !== assistant.id() && !seen.has(at) && headerOf?.(at)?.origin === 'subagent') { seen.add(at); at = headerOf(at).parentSession; }
+  return { damon: at === assistant.id() };
+};
 /** The words of Damon's Turn finished push for a run (its events from `from`), or undefined for none (2026-11-24: Furkan
- * got the first part of `[quiet]` turns). Each turn is one Damon reply: its texts, without a text that a rollback withdrew
- * and without a partial text that a stop cut (`interrupted`). A turn whose first text starts with `[quiet]` or whose last
- * text ends with `[quiet]` is quiet, also with a progress text before a tool call ("Checking.", then `[quiet]`). A
- * completed turn: its newest text, none when quiet or without text. A failed turn: none (the gateway's DSH error push
- * tells it). A stopped or cut-off turn: its newest text, or '' (the gateway shows the chat). */
+ * got the first part of `[quiet]` turns). Each turn is one Damon reply, cut into parts at each message that you typed
+ * (also one steered into the running turn). A part's texts leave out a text that a rollback withdrew and a partial text
+ * that a stop cut (`interrupted`). Your part: its newest text that is not only `[quiet]` (you asked, so it answers). Any
+ * other part (news, a schedule, a subagent's notice): none when its first text starts with `[quiet]` or the turn's last
+ * text ends with it, also with a progress text before a tool call ("Checking.", then `[quiet]`); else its newest text. A completed
+ * turn: the words of its newest part that has some, else none. A failed turn: none (the gateway's DSH error push tells
+ * it). A stopped or cut-off turn: those words, or '' (the gateway shows the chat). Events without a turn end and without
+ * a text: none. ponytail: Resume after an outage continues a turn with a typed-looking prompt (source `user`), so that
+ * part follows your rule; it is rare, and the note's text is the only mark. */
 export function damonPushWords(events, from = 0) {
-  const gone = withdrawn(events.slice(from));
-  const texts = (turn) => turn.filter((e) => e.type === 'assistant/message' && e.data?.interrupted !== true && !gone(e.seq))
-    .map((e) => textBlocks(e.data?.message?.content).trim()).filter((t) => t !== '');
-  const words = (turn) => {
-    const t = texts(turn); const end = turn.findLast((e) => e.type === 'turn/end')?.data?.reason?.kind;
-    const quiet = t.length > 0 && (/^\[quiet\]/i.test(t[0]) || /\[quiet\]$/i.test(t.at(-1)));
-    if (end === 'error') return undefined;
-    if (end === 'completed') return t.length === 0 || quiet ? undefined : t.at(-1);
-    return quiet ? '' : t.at(-1) ?? '';
+  const own = events.slice(from); const gone = withdrawn(own);
+  const turns = []; let turn;
+  for (const e of own) {
+    if (e.type === 'turn/start' || turn === undefined) turns.push(turn = { parts: [{ typed: false, texts: [] }] });
+    if (e.type === 'turn/end') turn.end = e.data?.reason?.kind;
+    else if (gone(e.seq)) continue;
+    else if (e.type === 'user/message' && e.data?.source?.kind === 'user') turn.parts.push({ typed: true, texts: [] });
+    else if (e.type === 'assistant/message' && e.data?.interrupted !== true) {
+      const t = textBlocks(e.data?.message?.content).trim();
+      if (t !== '') turn.parts.at(-1).texts.push(turn.last = t);
+    }
+  }
+  const words = ({ parts, end, last }) => {
+    const said = ({ typed, texts: t }) => (typed ? t.findLast((x) => !quietReply(x))
+      : t.length === 0 || /^\[quiet\]/i.test(t[0]) || /\[quiet\]$/i.test(last) ? undefined : t.at(-1));
+    const w = parts.map(said).findLast((x) => x !== undefined);
+    if (end === 'completed') return w;
+    if (end === 'error' || (end === undefined && last === undefined)) return undefined;
+    return w ?? '';
   };
   // A run (running → idle) can hold several turns (a queued message starts the next one): its push has the words of its
   // newest turn that has some, so a real reply, then a queued `[quiet]` news turn, still pushes the reply.
-  const turns = []; let turn = [];
-  for (const e of events.slice(from)) { if (e.type === 'turn/start' && turn.length > 0) { turns.push(turn); turn = []; } turn.push(e); }
-  if (turn.length > 0) turns.push(turn);
   return turns.map(words).findLast((w) => w !== undefined);
 }
 /** The words of a chat's Turn finished push at its running → idle edge, or undefined for no push. `from`: where the

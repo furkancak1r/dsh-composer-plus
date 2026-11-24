@@ -194,6 +194,14 @@ for (const { steps, quiet, reply, push } of JSON.parse(readFileSync(new URL('./f
   assert.equal(damonPushWords(events) ?? null, push, `Damon's push: ${label}`);
   assert.equal(newsRowKeys({ nodes }).includes('note'), quiet, `client: ${label}`);
 }
+// A message that you steered into a running news turn (dsh logs it as a `user` message in the same turn): the part after
+// it answers you, so a [quiet] news start does not hide that answer (review 2026-11-24).
+for (const { steps, push } of JSON.parse(readFileSync(new URL('./fixtures/quiet-replies.json', import.meta.url), 'utf8')).steered) {
+  const events = [{ seq: 0, type: 'turn/start' }, { seq: 1, type: 'user/message', data: { source: { kind: 'composer-plus-assistant-news' }, content: [block('news')] } },
+    ...steps.map((s, i) => (typeof s === 'string' ? { seq: 2 + i, type: 'user/message', data: { source: { kind: 'user', rpcId: 'r' }, content: [block(s)] } }
+      : { seq: 2 + i, type: 'assistant/message', data: { message: { content: s.map(block) } } })), { seq: 20, type: 'turn/end', data: { reason: { kind: 'completed' } } }];
+  assert.equal(damonPushWords(events) ?? null, push, `Damon's push, steered: ${JSON.stringify(steps)}`);
+}
 // The notification body never shows `[quiet]` (dsh's turnOutline keeps the turn's last text, also after a real reply).
 const tr = (k) => k;
 for (const reply of ['[quiet]', ' [QUIET] ']) assert.equal(attentionBody('done', undefined, reply, tr), 'notify.done', JSON.stringify(reply));

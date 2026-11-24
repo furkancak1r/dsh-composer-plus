@@ -103,15 +103,33 @@ assert.equal(pushWords([{ seq: 1, type: 'turn/start' }, prompt(2, NEWS), tool(3)
 // A run of two turns: a real reply, then a queued news turn whose first part is real and whose end is [quiet].
 assert.equal(pushWords([...steps(1, 'user', ['Fixed the login.']), ...steps(9, NEWS, ['Checking.', '[quiet]'])], 0), 'Fixed the login.', 'Damon: the quiet second turn does not hide the real reply');
 assert.equal(pushWords([...steps(1, NEWS, ['Checking.', '[quiet]']), ...steps(9, NEWS, ['[quiet]'])], 0), undefined, 'Damon: two quiet turns: no push');
+// A question that you steered into a running news turn (review 2026-11-24): the [quiet] news part does not hide the answer.
+const typed = (seq, text) => ({ seq, type: 'user/message', data: { source: { kind: 'user', rpcId: 'r2' }, content: [{ type: 'text', text }] } });
+const steered = [{ seq: 1, type: 'turn/start' }, prompt(2, NEWS), say(3, '[quiet]'), tool(4), typed(5, 'Is the deploy done?'), say(6, 'Yes: acme-web is live.'), { seq: 7, type: 'turn/end', data: { reason: { kind: 'completed' } } }];
+assert.equal(pushWords(steered, 0), 'Yes: acme-web is live.', 'Damon: a steered question gets its answer pushed');
+assert.equal(pushWords([...steered.slice(0, -1), say(7, '[quiet]'), { seq: 8, type: 'turn/end', data: { reason: { kind: 'completed' } } }], 0), 'Yes: acme-web is live.', 'Damon: a [quiet] after the answer');
+assert.equal(pushWords([...steered.slice(0, 5), { seq: 6, type: 'turn/end', data: { reason: { kind: 'aborted' } } }], 0), '', 'Damon: stopped after the steered question: no words of the quiet part');
+// A rollback that withdrew the steered question: the answer is withdrawn too, and the quiet part stays quiet.
+assert.equal(pushWords([...steered.slice(0, -1), { seq: 7, type: 'user/message', data: { source: { kind: ROLLBACK_SOURCE } }, sourceEventSeqs: [5] }, { seq: 8, type: 'turn/end', data: { reason: { kind: 'completed' } } }], 0), undefined, 'Damon: a withdrawn question');
+// Events of a run that has no turn/start (and no text): no push, not an empty one.
+assert.equal(pushWords([{ seq: 1, type: 'agent/inbox/spliced' }], 0), undefined, 'Damon: no turn and no text: no push');
+assert.equal(pushWords([], 0), undefined, 'Damon: no events: no push');
 // Notifications only from Damon: the Host tells the gateway whether a push is about Damon's chat (or one of its subagents).
-const parents = { sub: 'd1', subsub: 'sub', w1: undefined };
-const rootOf = (id) => { let at = id; while (parents[at] !== undefined) at = parents[at]; return at; };
-const damon = (on, id) => ({ isOn: () => on, id: () => id, rootOf });
-assert.deepEqual(damonAbout(damon(true, 'd1'), 'd1'), { damon: true });
-assert.deepEqual(damonAbout(damon(true, 'd1'), 'subsub'), { damon: true }, 'a subagent of Damon');
-assert.deepEqual(damonAbout(damon(true, 'd1'), 'w1'), { damon: false }, 'a branch chat');
-assert.deepEqual(damonAbout(damon(false, 'd1'), 'w1'), {}, 'Assistant off: no Damon, every chat pushes');
-assert.deepEqual(damonAbout(damon(true, undefined), 'w1'), {}, 'no Damon chat yet: every chat pushes');
-assert.match(readFileSync(new URL('../index.js', import.meta.url), 'utf8'), /const chatAbout = \(sessionId\) => \{\n\s*const damon = damonAbout\(assistant, sessionId\);[\s\S]*?if \(session === undefined\) return damon;[\s\S]*?project: projectOf\(cwd, list\), \.\.\.damon \};/, 'chatAbout gives the gateway the Damon flag');
+// dsh's session headers: a subagent has `origin: 'subagent'` and `parentSession`; a fork (Branch, Redo) of an older dsh
+// has `parentSession` without that origin.
+const headers = { d1: {}, sub: { origin: 'subagent', parentSession: 'd1' }, subsub: { origin: 'subagent', parentSession: 'sub' },
+  fork: { parentSession: 'd1' }, forkSub: { origin: 'subagent', parentSession: 'fork' }, loop: { origin: 'subagent', parentSession: 'loop' }, w1: {} };
+const headerOf = (id) => headers[id];
+const damon = (on, id) => ({ isOn: () => on, id: () => id });
+assert.deepEqual(damonAbout(damon(true, 'd1'), 'd1', headerOf), { damon: true });
+assert.deepEqual(damonAbout(damon(true, 'd1'), 'subsub', headerOf), { damon: true }, 'a subagent of Damon');
+assert.deepEqual(damonAbout(damon(true, 'd1'), 'fork', headerOf), { damon: false }, 'a fork of Damon is another chat, as on the phone');
+assert.deepEqual(damonAbout(damon(true, 'd1'), 'forkSub', headerOf), { damon: false }, 'a subagent of a fork of Damon');
+assert.deepEqual(damonAbout(damon(true, 'd1'), 'loop', headerOf), { damon: false }, 'a parent loop ends');
+assert.deepEqual(damonAbout(damon(true, 'd1'), 'gone', headerOf), { damon: false }, 'a chat that is not loaded');
+assert.deepEqual(damonAbout(damon(true, 'd1'), 'w1', headerOf), { damon: false }, 'a branch chat');
+assert.deepEqual(damonAbout(damon(false, 'd1'), 'w1', headerOf), {}, 'Assistant off: no Damon, every chat pushes');
+assert.deepEqual(damonAbout(damon(true, undefined), 'w1', headerOf), {}, 'no Damon chat yet: every chat pushes');
+assert.match(readFileSync(new URL('../index.js', import.meta.url), 'utf8'), /const chatAbout = \(sessionId\) => \{\n\s*const session = [^\n]*\n\s*const damon = damonAbout\(assistant, sessionId, \(id\) => serviceOf\('agents'\)\?\.get\?\.\(id\)\?\.session\?\.header\);[\s\S]*?if \(session === undefined\) return damon;[\s\S]*?project: projectOf\(cwd, list\), \.\.\.damon \};/, 'chatAbout gives the gateway the Damon flag');
 // The Host's push and green dot on a real agent/status edge: test/unread.test.mjs and test/quiet-replies.test.mjs.
 console.log('tether push words: last reply of the turn (withdrawn replies left out), project name, chat id to the gateway, no push for an empty or [quiet] reply');

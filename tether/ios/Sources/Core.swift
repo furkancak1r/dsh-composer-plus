@@ -1204,30 +1204,43 @@ func quietTexts(_ events: [J]) -> Bool {
 /// lastReply), or "" when it has none.
 func newsReply(_ events: [J]) -> String { turnTexts(events).first { !quietReply($0) } ?? "" }
 /// The words of Damon's Turn finished for its newest turn, or nil for none: the Mac's damonPushWords (index.js; one table:
-/// test/fixtures/quiet-replies.json `push`). A turn whose first text starts with `[quiet]` or whose last text ends with it
-/// is quiet, also its first part (2026-11-24). A partial text that a stop cut (`interrupted`) does not count. Completed:
-/// the newest text, nil when quiet or without text. Failed: nil (the DSH error alert tells it). Stopped: the text or "".
+/// test/fixtures/quiet-replies.json `push` and `steered`). The turn is cut into parts at each message that you typed (also
+/// one steered into the running turn). Your part: its newest text that is not only `[quiet]`. Another part: nil when its
+/// first text starts with `[quiet]` or the turn's last text ends with it (2026-11-24), else its newest text. A partial text
+/// that a stop cut (`interrupted`) does not count. Completed: the newest part's words, else nil. Failed: nil (the DSH
+/// error alert tells it). Stopped: those words or "".
 func damonWords(_ events: [J], reason: String?) -> String? {
     let shown = withoutRolledBack(events)
     let start = shown.lastIndex { $0["type"] as? String == "turn/start" }.map { $0 + 1 } ?? 0
-    let t = shown[start...].compactMap { e -> String? in
-        guard e["type"] as? String == "assistant/message", (e["data"] as? J)?["interrupted"] as? Bool != true else { return nil }
-        let s = contentText(((e["data"] as? J)?["message"] as? J)?["content"], imageMarker: false).trimmingCharacters(in: .whitespacesAndNewlines)
-        return s.isEmpty ? nil : s
+    var parts: [(typed: Bool, texts: [String])] = [(false, [])], last: String?
+    for e in shown[start...] {
+        let type = e["type"] as? String, data = e["data"] as? J
+        if type == "user/message", (data?["source"] as? J)?["kind"] as? String == "user" { parts.append((true, [])) }
+        else if type == "assistant/message", data?["interrupted"] as? Bool != true {
+            let s = contentText((data?["message"] as? J)?["content"], imageMarker: false).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !s.isEmpty { parts[parts.count - 1].texts.append(s); last = s }
+        }
     }
-    let quiet = !t.isEmpty && (t[0].range(of: #"^\[quiet\]"#, options: [.regularExpression, .caseInsensitive]) != nil
-        || t[t.count - 1].range(of: #"\[quiet\]$"#, options: [.regularExpression, .caseInsensitive]) != nil)
-    if reason == "error" { return nil }
-    if reason == "completed" { return t.isEmpty || quiet ? nil : t.last }
-    return quiet ? "" : t.last ?? ""
+    let has = { (t: String, p: String) in t.range(of: p, options: [.regularExpression, .caseInsensitive]) != nil }
+    let words = parts.reversed().lazy.compactMap { p -> String? in
+        p.typed ? p.texts.last { !quietReply($0) }
+            : p.texts.isEmpty || has(p.texts[0], #"^\[quiet\]"#) || has(last ?? "", #"\[quiet\]$"#) ? nil : p.texts.last
+    }.first
+    if reason == "completed" { return words }
+    return reason == "error" ? nil : words ?? ""
 }
-/// The plain text of a notification: the first line that says something, without Markdown; an `onay` block alone is
-/// `approval`. The gateway's pushText (one table: test/fixtures/push-text.json).
+/// The plain text of a notification: the first line that says something, without Markdown; a code span keeps its text, `__`
+/// is bold only at word edges, only known HTML tags go; an `onay` block alone is `approval`. The gateway's pushText (one
+/// table: test/fixtures/push-text.json). Lines end only at `\n`, `\r\n` and `\r` (as on the Mac); each is cut to 2000
+/// code points first (the gateway's PUSH_LINE), so a long line costs no time.
 func pushText(_ text: String, approval: String) -> String {
     var fence = "", onay = false
     let sub = { (s: String, p: String, t: String) in s.replacingOccurrences(of: p, with: t, options: [.regularExpression, .caseInsensitive]) }
-    for raw in text.components(separatedBy: .newlines) {
-        let t = raw.trimmingCharacters(in: .whitespaces)
+    let html = #"</?(?:a|b|i|u|s|em|strong|br|p|div|span|code|pre|sub|sup|small|kbd|mark|del|ins|img|hr|details|summary|h[1-6]|ul|ol|li|blockquote)\b(?:\s[^<>]*)?/?>"#
+    let codeSpan = try! NSRegularExpression(pattern: #"(`+)(.+?)\1"#)
+    for raw in sub(text, "\r\n?", "\n").components(separatedBy: "\n") {
+        let t = String(String.UnicodeScalarView(raw.trimmingCharacters(in: .whitespaces).unicodeScalars.prefix(2000)))
+            .replacingOccurrences(of: "\u{E000}", with: "").replacingOccurrences(of: "\u{E001}", with: "")
         let f = t.range(of: #"^(`{3,}|~{3,})\s*[^\s`]*"#, options: .regularExpression).map { String(t[$0]) }
         let mark = f.map { m in String(m.prefix { $0 == m.first }) }
         let info = f.map { m in String(m.drop { $0 == m.first }).trimmingCharacters(in: .whitespaces) } ?? ""
@@ -1235,13 +1248,23 @@ func pushText(_ text: String, approval: String) -> String {
         if let mark { fence = mark; if info.lowercased() == "onay" { onay = true }; continue }
         var s = sub(sub(t, #"^(?:>\s*)+"#, ""), #"^\[quiet\]"#, "").trimmingCharacters(in: .whitespaces)
         if s.range(of: #"^\[!details\]"#, options: [.regularExpression, .caseInsensitive]) != nil { continue }
-        s = sub(sub(sub(sub(s, #"^\[![a-z]+\]"#, "").trimmingCharacters(in: .whitespaces), #"^#{1,6}\s+"#, ""), #"^(?:[-*+]|\d{1,3}[.)])\s+"#, ""), #"^\[[ xX]\]\s+"#, "")
-        if s.range(of: #"^(?:[-*_]\s*){3,}$"#, options: .regularExpression) != nil { continue }
+        s = sub(s, #"^\[![a-z]+\]"#, "").trimmingCharacters(in: .whitespaces)
+        if s.range(of: #"^(?:[-*_]\s*){3,}$"#, options: .regularExpression) != nil { continue } // before a list mark takes its `*`
+        s = sub(sub(sub(s, #"^#{1,6}\s+"#, ""), #"^(?:[-*+]|\d{1,3}[.)])\s+"#, ""), #"^\[[ xX]\]\s+"#, "")
+        // Code spans wait in placeholders, so no other rule changes their text (`mcp__aiproxy__bash`, `Promise<void>`).
+        var code: [String] = [], out = "", at = 0
+        let ns = s as NSString
+        for m in codeSpan.matches(in: s, range: NSRange(location: 0, length: ns.length)) {
+            out += ns.substring(with: NSRange(location: at, length: m.range.location - at)) + "\u{E000}\(code.count)\u{E001}"
+            code.append(ns.substring(with: m.range(at: 2))); at = NSMaxRange(m.range)
+        }
+        s = out + ns.substring(from: at)
         for (p, r) in [(#"!\[[^\]]*\]\([^)]*\)"#, ""), (#"<((?:https?|mailto):[^>\s]+)>"#, "$1"), (#"\[([^\]]+)\]\([^)]*\)"#, "$1"),
-                       (#"</?[a-z][a-z0-9-]*(?:\s[^<>]*)?/?>"#, ""), (#"(`+)(.+?)\1"#, "$2"), (#"(\*\*|__)(?=\S)(.+?)(?<=\S)\1"#, "$2"),
+                       (html, ""), (#"\*\*(?=\S)(.+?)(?<=\S)\*\*"#, "$1"), (#"(^|[^A-Za-z0-9_])__(?=\S)(.+?)(?<=\S)__(?![A-Za-z0-9_])"#, "$1$2"),
                        (#"~~(?=\S)(.+?)(?<=\S)~~"#, "$1"), (#"(^|[^A-Za-z0-9_*])\*(?=\S)([^*]+?)(?<=\S)\*(?![A-Za-z0-9_*])"#, "$1$2"),
-                       (#"(^|[^A-Za-z0-9_])_(?=\S)([^_]+?)(?<=\S)_(?![A-Za-z0-9_])"#, "$1$2"), (#"\s+"#, " ")] { s = sub(s, p, r) }
-        s = s.trimmingCharacters(in: .whitespaces)
+                       (#"(^|[^A-Za-z0-9_])_(?=\S)([^_]+?)(?<=\S)_(?![A-Za-z0-9_])"#, "$1$2")] { s = sub(s, p, r) }
+        for (i, c) in code.enumerated() { s = s.replacingOccurrences(of: "\u{E000}\(i)\u{E001}", with: c) }
+        s = sub(s, #"\s+"#, " ").trimmingCharacters(in: .whitespaces)
         if !s.isEmpty { return s }
     }
     return onay ? approval : ""
@@ -3063,9 +3086,9 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         if sid == current {
             if transcript.last?.kind != .error || transcript.last?.text != m { transcript.append(Line(kind: .error, text: m)) }
             UINotificationFeedbackGenerator().notificationOccurred(.error)
-        } else {
-            notify(String(localized: "DSH error"), m, session: sid)
         }
+        // Also for the open chat: its failed turn gives no Turn finished alert (one failure, one alert, as the Mac's push).
+        notify(String(localized: "DSH error"), m, session: sid)
     }
 
     func onWorkspace(_ v: J) {
@@ -3309,16 +3332,14 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
                                        end: (e["time"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }))
             if running, !replaying {
                 let kind = reason?["kind"] as? String
-                // Damon's chat reads the turn from its log (`events`, the Mac's rule): a completed turn whose every text is
-                // `[quiet]` gives no alert and no buzz (2026-11-19, quietRun); a turn with a real text notifies with it, also
-                // when its last reply is `[quiet]` (runReply). Other chats keep the drawn reply (lastReply), as before.
-                // Damon's turn uses the Mac's damonPushWords (damonWords): a `[quiet]` turn gives no alert, not even its first
-                // part, and no buzz (2026-11-24). Other chats keep the drawn reply (lastReply); a failed turn has the DSH
-                // error alert. ponytail: the buzz stays for a turn whose alert another rule (Damon only, the hours) drops.
+                // Damon's chat reads the turn from its log (`events`) with the Mac's damonPushWords (damonWords): a `[quiet]`
+                // turn gives no alert, not even its first part, and no buzz (2026-11-24). Other chats keep the drawn reply
+                // (lastReply). A failed turn: only the DSH error alert and its buzz (sessionError), one alert per failure.
+                // ponytail: the buzz stays for a turn whose alert another rule (Damon only, the hours) drops.
                 let bot = current != nil && current == botId
                 let words: String? = bot ? damonWords(events, reason: kind) : kind == "error" ? nil : { let r = lastReply(transcript); return quietTurn(reply: r, reason: kind) ? nil : quietReply(r) ? "" : r }()
                 if let words { notify(String(localized: "Turn finished"), words, session: current) }
-                if words != nil || (!bot && kind == "error") { UINotificationFeedbackGenerator().notificationOccurred(.success) }
+                if words != nil { UINotificationFeedbackGenerator().notificationOccurred(.success) }
             }
             running = false
             turnStartedAt = nil

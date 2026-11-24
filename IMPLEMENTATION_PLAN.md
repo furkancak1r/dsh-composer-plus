@@ -76,8 +76,24 @@ Decisions (Damon's shortest correct path, no owner question):
 Not checked by round 1: xcodebuild (run by lead: 122/0), real dsh, dsh 0.2.2-rc.5 agent-loop (lead read it: turn/start is
 appended synchronously right after the running status, lib/index.js 630-645 and 737-745).
 
+## Review round 1 fixes (2026-11-24 19:30): all 7 DONE
+- 1 steered: index.js damonPushWords + Swift damonWords cut a turn at each typed `user` message; table
+  test/fixtures/quiet-replies.json `steered` (7 cases; JS test/quiet-replies.test.mjs, iOS PushTextTests). Rule: the typed
+  part pushes its newest text that is not only `[quiet]`; another part: none when its first text starts with `[quiet]` or
+  the turn's last text ends with `[quiet]`. Events without turn/end and without text: none.
+- 2 names: pushText (gateway + Swift) keeps code spans in placeholders, `__` only at word edges, only known HTML tags.
+- 3 open chat's failure: sessionError also calls notify(DSH error); turn-end buzz only with words.
+- 4 fork: damonAbout(assistant, id, headerOf) follows only `origin: 'subagent'` links (as Swift damonAllows).
+- 5 long line: PUSH_LINE = 2000 code points per line first (JS 100k `[`: 3.3 s → <5 ms; Swift 60 s → <1 s).
+- 6 thematic break before the list-mark strip. 7 Swift splits only at \n, \r\n, \r.
+- Red on old code (detached worktree of 7e95fe10): JS push-text, push-words, quiet-replies, notify-per-mac all fail;
+  iOS PushTextTests 14 failures. Green on new: `npm test` exit 0; iOS 122 tests, 0 failures (2 skipped: SHOT_DIR);
+  build-docs --check ok; git diff --check ok.
+- Image re-rendered (two new rows: tool name, steered question):
+  /Users/furkancakir/Damon/Belgeler/Composer Plus/tether-bildirim-20261124/tether-bildirim-once-sonra.png
+
 ## Last checkpoint (2026-11-24 18:40) / open steps
-- Checkpoint: branch at the merge commit + this plan update. Review round 1 findings recorded above, NOT fixed yet.
+- Checkpoint: branch at the merge commit + this plan update. Review round 1 findings recorded above, fixed 19:30 (above).
 - Last passing: `npm test` (exit 0) after the origin/main merge; iOS `cd tether/ios && xcodebuild -project DSHMobile.xcodeproj
   -scheme DSHMobile -destination 'platform=iOS Simulator,id=A5766181-4A27-457E-81C2-DFDE4A0F018F' test CODE_SIGNING_ALLOWED=NO`
   (122 tests, 0 failures, before the merge; the merge changed no iOS file). Screenshot test: add `SHOT_DIR=<dir>`.

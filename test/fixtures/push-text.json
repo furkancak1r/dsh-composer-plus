@@ -1,5 +1,5 @@
 {
-  "about": "The plain text of a Tether notification (gateway pushText, Tether pushText): the first line that says something, without Markdown. An `onay` block is the approval word (here the English one). test/tether-push-text.test.mjs and the iOS PushTextTests read this table.",
+  "about": "The plain text of a Tether notification (gateway pushText, Tether pushText): the first line that says something, without Markdown. A code span and a tool name keep their text (review 2026-11-24). An `onay` block is the approval word (here the English one). test/tether-push-text.test.mjs and the iOS PushTextTests read this table.",
   "approval": "Approval waits",
   "cases": [
     { "text": "**Bitti:** main'e alındı ve push edildi.", "push": "Bitti: main'e alındı ve push edildi." },
@@ -24,6 +24,17 @@
     { "text": "[quiet]\nThe audit found 2 issues.", "push": "The audit found 2 issues." },
     { "text": "Ayrıntı: <https://acme.example/x>", "push": "Ayrıntı: https://acme.example/x" },
     { "text": "", "push": "" },
-    { "text": "```\nyalnız kod\n```", "push": "" }
+    { "text": "```\nyalnız kod\n```", "push": "" },
+    { "text": "mcp__aiproxy__bash", "push": "mcp__aiproxy__bash" },
+    { "text": "Onay: `mcp__aiproxy__bash` çalışsın", "push": "Onay: mcp__aiproxy__bash çalışsın" },
+    { "text": "`__init__.py` düzeltildi", "push": "__init__.py düzeltildi" },
+    { "text": "`Promise<void>` döner", "push": "Promise<void> döner" },
+    { "text": "**`a__b`** kalır", "push": "a__b kalır" },
+    { "text": "List<String> kalır", "push": "List<String> kalır" },
+    { "text": "__kalın__ söz", "push": "kalın söz" },
+    { "text": "* * *\nreal", "push": "real" },
+    { "text": "- - -\nreal", "push": "real" },
+    { "text": "Bitti\u2028Ayrıntı", "push": "Bitti Ayrıntı" },
+    { "text": "x \ue0000\ue001 `y`", "push": "x 0 y" }
   ]
 }

@@ -2663,16 +2663,25 @@ final class PushTextTests: XCTestCase {
         let cases = try XCTUnwrap(table["cases"] as? [J]), approval = try XCTUnwrap(table["approval"] as? String)
         XCTAssertGreaterThanOrEqual(cases.count, 20)
         for c in cases { XCTAssertEqual(pushText(c["text"] as? String ?? "", approval: approval), c["push"] as? String, c["text"] as? String ?? "") }
+        // A long line is cut first (the gateway's PUSH_LINE), so it costs no time (review 2026-11-24).
+        let start = Date(), long = pushText(String(repeating: "[", count: 100_000), approval: approval)
+        XCTAssertLessThan(Date().timeIntervalSince(start), 1); XCTAssertEqual(long.unicodeScalars.count, 2000)
     }
     func testDamonWordsMatchTheMac() throws {
         let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../test/fixtures/quiet-replies.json")
-        let turns = try XCTUnwrap((try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? J)?["turns"] as? [J])
+        let table = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? J)
+        let turns = try XCTUnwrap(table["turns"] as? [J]), steered = try XCTUnwrap(table["steered"] as? [J])
+        XCTAssertGreaterThanOrEqual(steered.count, 5)
         var seq = 0
         func ev(_ type: String, _ data: J = [:]) -> J { seq += 1; return ["seq": seq, "type": type, "data": data] }
-        for t in turns {
-            let steps = t["steps"] as? [[String]] ?? []
+        // A step is a list of blocks (one assistant message), or a string: a message that you typed into the running turn.
+        for t in turns + steered {
+            let steps = t["steps"] as? [Any] ?? []
             let log = [ev("turn/start"), ev("user/message", ["source": ["kind": "composer-plus-assistant-news"], "content": [["type": "text", "text": "news"]]])]
-                + steps.map { s in ev("assistant/message", ["message": ["content": s.map { b -> J in b == "tool" ? ["type": "tool-call", "id": "c", "name": "chats_list"] : b == "think" ? ["type": "reasoning", "text": "Look."] : ["type": "text", "text": b] }]]) }
+                + steps.map { step -> J in
+                    if let typed = step as? String { return ev("user/message", ["source": ["kind": "user", "rpcId": "r"], "content": [["type": "text", "text": typed]]]) }
+                    return ev("assistant/message", ["message": ["content": (step as? [String] ?? []).map { b -> J in b == "tool" ? ["type": "tool-call", "id": "c", "name": "chats_list"] : b == "think" ? ["type": "reasoning", "text": "Look."] : ["type": "text", "text": b] }]])
+                }
             XCTAssertEqual(damonWords(log, reason: "completed"), t["push"] as? String, "\(steps)")
         }
         // A failed turn: the DSH error alert only. A stopped turn: its words, never a partial text or [quiet].
