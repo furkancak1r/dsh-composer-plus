@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { damonAbout, lastReply, mobileGateway, projectOf, pushWords, quietTurn, ROLLBACK_SOURCE, REWIND_SOURCE } from '../index.js';
 
 const say = (seq, text) => ({ seq, type: 'assistant/message', data: { message: { content: [{ type: 'text', text }] } } });
-const tool = (seq) => ({ seq, type: 'assistant/message', data: { message: { content: [{ type: 'toolCall', id: 't', name: 'bash' }] } } });
+const tool = (seq) => ({ seq, type: 'assistant/message', data: { message: { content: [{ type: 'tool-call', id: 't', name: 'bash' }] } } });
 const user = (seq, text) => ({ seq, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text }] } });
 
 // The last reply of the last turn: not a tool call, not an older turn's reply.
@@ -85,7 +85,7 @@ assert.equal(pushWords(turnOf(1, NEWS, 'Deploy failed.'), 0), 'Deploy failed.');
 // Damon's [quiet] turn never pushes, not even its first part (2026-11-24, Furkan: "bazı [quiet] bildirimleri de ilk kısım
 // geliyor"). The three forms: only [quiet], a turn that starts with [quiet], a turn that ends with [quiet].
 const steps = (seq, kind, texts, end = 'completed') => [{ seq, type: 'turn/start' }, prompt(seq + 1, kind),
-  ...texts.map((t, i) => ({ seq: seq + 2 + i, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: t }, { type: 'toolCall', id: `t${i}`, name: 'chats_list' }] } } })),
+  ...texts.map((t, i) => ({ seq: seq + 2 + i, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: t }, { type: 'tool-call', id: `t${i}`, name: 'chats_list' }] } } })),
   { seq: seq + 2 + texts.length, type: 'turn/end', data: { reason: { kind: end } } }];
 for (const [texts, why] of [[['[quiet]'], 'only [quiet]'], [['[quiet]\nThe audit found 2 issues.'], 'starts with [quiet]'],
   [['[quiet]', 'Updated the list.'], 'first text [quiet], then text'], [['Checking the chats.', '[quiet]'], 'a progress text, then [quiet]'],
@@ -125,6 +125,14 @@ const mine = (texts, more = []) => [{ seq: 1, type: 'turn/start' }, typed(2, 'Te
 assert.equal(pushWords(mine(['Not aldım.', '[quiet]']), 0), undefined, 'Damon: your turn whose last text is [quiet]: no push');
 assert.equal(pushWords(mine(['Done. [quiet]']), 0), undefined, 'Damon: your turn whose last text ends with [quiet]: no push, never the raw mark');
 assert.equal(pushWords(mine(['Not aldım.'], [typed(20, 'ok'), say(21, '[quiet]')]), 0), undefined, 'Damon: a message typed into your own turn keeps the strict rule');
+// Review round 3: your answer, then a subagent's notice and a [quiet] reply to it: your answer still pushes.
+const settled = (seq) => ({ seq, type: 'user/message', data: { source: { kind: 'subagent-settled' }, content: [{ type: 'text', text: 'Subagent finished.' }] } });
+assert.equal(pushWords(mine(['Fixed the login. Tests pass.'], [settled(20), say(21, '[quiet]')]), 0), 'Fixed the login. Tests pass.', 'Damon: a notice after your answer does not hide it');
+assert.equal(pushWords([{ seq: 1, type: 'turn/start' }, typed(2, 'Check it.'), say(3, 'Checking.'), tool(4), settled(5), say(6, '[quiet]'), { seq: 7, type: 'turn/end', data: { reason: { kind: 'completed' } } }], 0), undefined, 'Damon: a progress text with a tool call, a notice, then [quiet]: no push');
+// A turn that a hidden note opened (Get summary, Continue, Resume): your message into it is steered and gets its answer.
+for (const kind of ['composer-plus-status-summary', 'composer-plus-continue', 'composer-plus-resume']) {
+  assert.equal(pushWords([{ seq: 1, type: 'turn/start' }, prompt(2, kind), say(3, '[quiet]'), tool(4), typed(5, 'Is the deploy done?'), say(6, 'Yes: acme-web is live.'), { seq: 7, type: 'turn/end', data: { reason: { kind: 'completed' } } }], 0), 'Yes: acme-web is live.', `Damon: a ${kind} turn, your question gets its answer`);
+}
 // The steered answer: a text that ends with [quiet] is never the words.
 assert.equal(pushWords([...steered.slice(0, -2), say(6, 'Yes. [quiet]'), steered.at(-1)], 0), undefined, 'Damon: a steered answer that ends with [quiet]: no push');
 // A queued second turn that stops: the first turn's real reply stays the words (not '').

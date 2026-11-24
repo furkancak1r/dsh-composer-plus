@@ -473,7 +473,8 @@ export const PUSH_LINE = 2000
 const HTML_TAG = /<\/?(?:a|b|i|u|s|em|strong|br|p|div|span|code|pre|sub|sup|small|kbd|mark|del|ins|img|hr|details|summary|h[1-6]|ul|ol|li|blockquote)\b(?:\s[^<>]*)?\/?>/gi
 export function pushText(text, approval = 'Approval waits') {
   let fence = '', onay = false
-  for (const raw of String(text ?? '').split(/\r\n?|\n/)) {
+  // VT, FF, NEL and BOM are spaces first: JS and Swift (ICU) read them differently.
+  for (const raw of String(text ?? '').replace(/[\u000b\u000c\u0085\ufeff]/g, ' ').split(/\r\n?|\n/)) {
     const t = [...raw.trim().slice(0, 2 * PUSH_LINE)].slice(0, PUSH_LINE).join('').replace(/[\uE000\uE001]/g, ''), f = /^(`{3,}|~{3,})\s*([^\s`]*)/.exec(t)
     if (fence) { if (f && f[1][0] === fence[0] && f[1].length >= fence.length && !f[2]) fence = ''; continue }
     if (f) { fence = f[1]; if (f[2].toLowerCase() === 'onay') onay = true; continue }

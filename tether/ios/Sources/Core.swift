@@ -1181,32 +1181,40 @@ func quietTurn(reply: String, reason: String?) -> Bool {
 func quietReply(_ text: String) -> Bool {
     text.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("[quiet]") == .orderedSame
 }
-/// The prompts of Damon's turns (the Mac's DAMON_PROMPTS): yours, a schedule, Assistant news, and a subagent's notice that
-/// dsh steers into the running turn.
-let damonPrompts: Set<String> = ["user", "schedule", "composer-plus-assistant-news", "subagent-settled", "agent-message"]
+/// The prompts of Damon's turns (the Mac's DAMON_PROMPTS): yours, a schedule, Assistant news, a subagent's notice that dsh
+/// steers into the running turn, and the hidden notes of Get summary, Continue and Resume.
+let damonPrompts: Set<String> = ["user", "schedule", "composer-plus-assistant-news", "subagent-settled", "agent-message",
+                                 "composer-plus-status-summary", "composer-plus-continue", "composer-plus-resume"]
 /// The words of Damon's Turn finished for its newest turn, or nil for none: the Mac's damonPushWords (index.js; one table:
 /// test/fixtures/quiet-replies.json `push` and `steered`). The turn is cut into parts at each prompt that comes into the
 /// running turn. The part of a message that you typed into a turn that you did not open answers you: its newest text that
-/// does not start or end with `[quiet]`. Another part: nil when its first text starts with `[quiet]` or the turn's last
-/// text ends with it (2026-11-24), else its newest text. A partial text that a stop cut (`interrupted`) does not count.
-/// Completed: the newest part's words, else nil. Failed: nil (the DSH error alert tells it). Stopped: those words or "".
+/// does not start or end with `[quiet]`. Another part: nil when its first text starts with `[quiet]` or its last text ends
+/// with it; the turn's last text decides while its newest message has a tool call or when your next message cut it
+/// (2026-11-24). Else its newest text. A
+/// partial text that a stop cut (`interrupted`) does not count. Completed: the newest part's words, else nil. Failed: nil
+/// (the DSH error alert tells it). Stopped: those words or "".
 func damonWords(_ events: [J], reason: String?) -> String? {
     let shown = withoutRolledBack(events)
     let start = shown.lastIndex { $0["type"] as? String == "turn/start" }.map { $0 + 1 } ?? 0
-    var parts: [(typed: Bool, texts: [String])] = [(false, [])], last: String?, opened: String?
+    var parts: [(typed: Bool, texts: [String], done: Bool)] = [(false, [], false)], last: String?, opened: String?
     for e in shown[start...] {
         let type = e["type"] as? String, data = e["data"] as? J, kind = (data?["source"] as? J)?["kind"] as? String
         if type == "user/message", let kind, damonPrompts.contains(kind) {
-            if opened == nil { opened = kind } else { parts.append((kind == "user" && opened != "user", [])) }
+            if opened == nil { opened = kind } else {
+                if kind == "user" { parts[parts.count - 1].done = false } // your new message: judged with the turn's end
+                parts.append((kind == "user" && opened != "user", [], false))
+            }
         } else if type == "assistant/message", data?["interrupted"] as? Bool != true {
-            let s = contentText((data?["message"] as? J)?["content"], imageMarker: false).trimmingCharacters(in: .whitespacesAndNewlines)
+            let content = (data?["message"] as? J)?["content"]
+            let s = contentText(content, imageMarker: false).trimmingCharacters(in: .whitespacesAndNewlines)
+            parts[parts.count - 1].done = !((content as? [J])?.contains { $0["type"] as? String == "tool-call" } ?? false)
             if !s.isEmpty { parts[parts.count - 1].texts.append(s); last = s }
         }
     }
     let has = { (t: String, p: String) in t.range(of: p, options: [.regularExpression, .caseInsensitive]) != nil }
     let words = parts.reversed().lazy.compactMap { p -> String? in
         p.typed ? p.texts.last { !has($0, #"^\[quiet\]|\[quiet\]$"#) }
-            : p.texts.isEmpty || has(p.texts[0], #"^\[quiet\]"#) || has(last ?? "", #"\[quiet\]$"#) ? nil : p.texts.last
+            : p.texts.isEmpty || has(p.texts[0], #"^\[quiet\]"#) || has((p.done ? p.texts.last : last) ?? "", #"\[quiet\]$"#) ? nil : p.texts.last
     }.first
     if reason == "completed" { return words }
     return reason == "error" ? nil : words ?? ""
@@ -1220,7 +1228,8 @@ func pushText(_ text: String, approval: String) -> String {
     let sub = { (s: String, p: String, t: String) in s.replacingOccurrences(of: p, with: t, options: [.regularExpression, .caseInsensitive]) }
     let html = #"</?(?:a|b|i|u|s|em|strong|br|p|div|span|code|pre|sub|sup|small|kbd|mark|del|ins|img|hr|details|summary|h[1-6]|ul|ol|li|blockquote)\b(?:\s[^<>]*)?/?>"#
     let codeSpan = try! NSRegularExpression(pattern: #"(`+)(.+?)\1"#)
-    for raw in sub(text, "\r\n?", "\n").components(separatedBy: "\n") {
+    // VT, FF, NEL and BOM are spaces first: JS and Swift (ICU) read them differently.
+    for raw in sub(sub(text, #"[\u000b\u000c\u0085\ufeff]"#, " "), "\r\n?", "\n").components(separatedBy: "\n") {
         let t = String(String.UnicodeScalarView(raw.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.prefix(2000)))
             .replacingOccurrences(of: "\u{E000}", with: "").replacingOccurrences(of: "\u{E001}", with: "")
         let f = t.range(of: #"^(`{3,}|~{3,})\s*[^\s`]*"#, options: .regularExpression).map { String(t[$0]) }
@@ -3070,7 +3079,9 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             UINotificationFeedbackGenerator().notificationOccurred(.error)
         }
         // Also for the open chat: its failed turn gives no Turn finished alert (one failure, one alert, as the Mac's push).
-        notify(String(localized: "DSH error"), m, session: sid)
+        // A Damon subagent's failure is Damon's news (the gateway's rule): no alert of its own with Notifications only from Damon.
+        let damonSubagent = notifyDamonOnly && botId != nil && sid != botId && damonAllows(sid)
+        if !damonSubagent { notify(String(localized: "DSH error"), m, session: sid) }
     }
 
     func onWorkspace(_ v: J) {

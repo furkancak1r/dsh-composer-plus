@@ -37,6 +37,10 @@
     { "text": "Bitti\u2028Ayrıntı", "push": "Bitti Ayrıntı" },
     { "text": "\u2028# Başlık", "push": "Başlık" },
     { "text": "\u000b**Kalın** iş\u000b", "push": "Kalın iş" },
+    { "text": "\u0085# Başlık", "push": "Başlık" },
+    { "text": "a\ufeff\ufeffb", "push": "a b" },
+    { "text": "**a\u000bb** c", "push": "a b c" },
+    { "text": "**a\u000cb**", "push": "a b" },
     { "text": "x \ue0000\ue001 `y`", "push": "x 0 y" }
   ]
 }

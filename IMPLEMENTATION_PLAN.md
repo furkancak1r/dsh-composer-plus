@@ -109,8 +109,16 @@ appended synchronously right after the running status, lib/index.js 630-645 and 
   turn counts as opened by `schedule`, so your prompt's part uses the lenient rule and can push its first part
   ("Not aldım." then `[quiet]`). Rare; it needs the scheduleChange guard (owner approval for that edit).
 
+## Review round 3 (2026-11-24, separate subagent review-guard-3): P1 0, P2 1, P3 1, P4 3 — fixed
+- P2 your answer, then a subagent notice and a [quiet] reply: the part's own last text decides when its newest message has
+  no tool call and a notice (not your message) cut it (`done` flag, both ports).
+- P3 hidden openers (Get summary, Continue, Resume) added to DAMON_PROMPTS / damonPrompts.
+- P4 pushText: VT, FF, NEL, BOM become spaces first (both ports; 4 table rows). P4 Swift sessionError: no local alert for a
+  Damon subagent's failure with Damon only (as the gateway). P4 quiet-replies.json `about` text.
+- Red on 25f1bd31: push-text, push-words, quiet-replies, notify-per-mac all fail; green now. `npm test` exit 0, iOS 122/0.
+
 ## Last checkpoint (2026-11-24) / open steps
-- Review 1 and 2 fixes done. Last passing: `npm test` exit 0 and iOS 122/0 after round 1 (round 2 checks: see the commit).
+- Review 1, 2 and 3 fixes done. Last passing: `npm test` exit 0 and iOS 122/0 after round 1 (round 2 checks: see the commit).
   iOS command: `cd tether/ios && xcodebuild -project DSHMobile.xcodeproj -scheme DSHMobile -destination
   'platform=iOS Simulator,id=A5766181-4A27-457E-81C2-DFDE4A0F018F' test CODE_SIGNING_ALLOWED=NO`. Screenshot: `SHOT_DIR=<dir>`.
 - Open, in order: review round 3 in a separate subagent (repeat until no P1/P2); merge origin/main again, merge into main
