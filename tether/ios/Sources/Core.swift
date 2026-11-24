@@ -2282,9 +2282,6 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     @Published var optionBusy = Set<String>()
     /// The answer that was picked in each chat: its buttons stay off until a newer turn (or a rollback of the pick).
     @Published var optionPicked: [String: OptionOffer] = [:]
-    /// The Mac's Assistant status panel is off (its answer says `on: false`): no cards, and the Approve button stays under
-    /// the reply as in other chats (the Mac shows no panel then). The card deck sets it at each read.
-    @Published var cardsOff = false
     /// The options of the open chat's last answer, when the chat is idle and they are not picked: nil otherwise.
     var optionOffer: OptionOffer? {
         guard let sid = current, currentSess?.parent == nil, !running, let from = optionsFrom, let o = chatOffer(events, from: from, quiet: sid == botId),
@@ -3427,26 +3424,12 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     /// language for the tasks' result lines (the Mac translates them). `fresh`: the chat list now (pull to refresh). Read
     /// only: the phone never removes an item or asks for a summary. Nil from a Mac without the route.
     func loadStatus(_ sid: String, fresh: Bool = false) async throws -> StatusView? {
-        try await loadStatusAnswer(sid, fresh: fresh).map { statusView($0, now: Date()) }
-    }
-    /// The same read as `loadStatus`, as the Mac's raw answer (the card deck groups it with `statusCards`; one GET for both).
-    func loadStatusAnswer(_ sid: String, fresh: Bool = false) async throws -> J? {
         guard plus.contains("assistant-todos") else { return nil }
         var q = ["sessionId": sid]
         if fresh { q["refresh"] = "1" }
         if let l = macLang { q["lang"] = l }
-        return try await plusCall("assistant-todos", query: q)
+        return statusView(try await plusCall("assistant-todos", query: q), now: Date())
     }
-    /// Card deck: the Bitti cards that you hid with Seen (`<task id>|<end ms>`, per Mac), and the time you last folded the
-    /// Bitti group (a card that ended later is new). A key whose end is older than 14 days is dropped when a new one is added.
-    func cardsSeen() -> Set<String> { Set(UserDefaults.standard.stringArray(forKey: key("cardsSeen")) ?? []) }
-    func markCardSeen(_ k: String, now: Date = Date()) {
-        let keep = now.timeIntervalSince1970 * 1000 - 14 * 86400000
-        let list = cardsSeen().union([k]).filter { (Double($0.split(separator: "|").last ?? "") ?? .infinity) > keep }
-        UserDefaults.standard.set(Array(list), forKey: key("cardsSeen"))
-    }
-    var cardsNewSince: Date { Date(timeIntervalSince1970: UserDefaults.standard.double(forKey: key("cardsNewSince"))) }
-    func cardsFolded(now: Date = Date()) { UserDefaults.standard.set(now.timeIntervalSince1970, forKey: key("cardsNewSince")) }
     /// One project's git branch and last commits (`&project=`, read-only git on the Mac).
     func loadStatusProject(_ sid: String, _ project: String) async throws -> (branch: String?, commits: [(hash: String, at: Date?, subject: String)]) {
         guard plus.contains("assistant-todos") else { return (nil, []) }
@@ -4713,14 +4696,4 @@ func statusQueue(_ cards: StatusCards, sentences: [String] = [], options: [Strin
         let x = rank(a.element), y = rank(b.element)
         return x != y ? x < y : a.offset < b.offset
     }.map(\.element)
-}
-/// A card's data for the message field (client.js `dataOf` in StatusPanel): its task's data (with the outage line when Resume
-/// after an AIProxy outage continued it: `outage`, its clock time), else an item of Damon's data (its title without the mark),
-/// else the title as a to-do line.
-func deckText(_ card: StatusCard, outage: String? = nil, span: (TimeInterval) -> String, now: Date = Date(), bundle: Bundle = uiStrings) -> String {
-    if let t = card.task { return statusInsert(.task(t, outage: outage), now: now, span: span, bundle: bundle) }
-    if let i = card.item, i.owner == "agent" {
-        return statusInsert(.item(StatusItem(id: i.id, text: card.title, owner: "agent", waiting: i.waiting, created: i.created), overdue: card.overdue), now: now, span: span, bundle: bundle)
-    }
-    return String(localized: "status.insert.item", defaultValue: "To-do: \(card.title)", bundle: bundle)
 }

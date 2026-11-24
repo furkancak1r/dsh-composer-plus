@@ -12994,23 +12994,6 @@
         }
       }
     },
-    "cards.doneMessage": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Done: %@"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Yaptım: %@"
-          }
-        }
-      }
-    },
     "cards.reply": {
       "extractionState": "manual",
       "localizations": {
