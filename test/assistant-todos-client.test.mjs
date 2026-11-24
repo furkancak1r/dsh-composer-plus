@@ -542,6 +542,160 @@ const groupBtn = (tr, g) => find(tr, (n) => n.t === 'button' && n.p['data-group'
   items = saved; await panelProps.store.load('s-assistant'); rt.clear(); tree = panel();
 }
 
+// Canvas view (tuval, Furkan 2026-11-24): a real button in the header opens it; the panel then draws only the canvas over
+// the whole chat body (the chat under it is hidden, not removed: a mark on the chat body); the canvas shows the same card
+// elements with the same handlers (one data path, one code path); Back to the chat and Esc close it; an action that
+// writes into the composer shows the chat first; the places are kept in this browser.
+{
+  const saved = items; const savedTasks = tasks;
+  items = [{ id: 'n1', text: 'Kırtasiye', owner: 'user', created: 1 }, { id: 's1', text: 'Senden: SAP alanını aç', owner: 'user', created: 2 },
+    { id: 'p1', text: 'Sorun: Gece denetimi hata verdi', owner: 'agent', created: NOW - 60000 }, { id: 'o1', text: 'Onay: rapor dalı birleştirilsin', owner: 'user', created: NOW - 5000 }];
+  tasks = [{ id: 'c-run', title: 'Research Rome', state: 'running', started: NOW - 125000 }, { id: 'c-done', title: 'Flights', state: 'done', started: NOW - 600000, ended: NOW - 60000 }];
+  mem.delete('dsh-composer-plus.status-canvas');
+  await panelProps.store.load('s-assistant'); rt.clear();
+  const offer = { seq: 9, latest: 9, options: [{ n: 1, text: 'Onaylıyorum: rapor dalı birleştirilsin.', label: 'Onaylıyorum: rapor dalı birleştirilsin.', message: 'Onaylıyorum: rapor dalı birleştirilsin.', from: 9 }] };
+  panelProps.offers.set('s-assistant', { offer, state: { busy: false, error: null }, empty: true });
+  const picked = []; const picks = { pick: (id, o, n) => { picked.push([id, o, n]); return Promise.resolve(true); }, of: () => ({ busy: false }) };
+  let keyListener = null; const realAdd = globalThis.document.addEventListener; const realRemove = globalThis.document.removeEventListener;
+  globalThis.document.addEventListener = (type, fn) => { if (type === 'keydown') keyListener = fn; };
+  globalThis.document.removeEventListener = (type, fn) => { if (type === 'keydown' && keyListener === fn) keyListener = null; };
+  // One draw: the panel, then (when it shows) its canvas with the same hook runtime.
+  const draw = () => { rt.reset(); const out = Panels({ ...panelProps, picks, useSessions, useSessionStatus, t }); const inner = out.c[0][0].portal; const tr = inner.t(inner.p);
+    const cv = find(tr, (n) => n.t?.name === 'StatusCanvas')[0]; return { tr, cv, cvTree: cv === undefined ? null : cv.t(cv.p) }; };
+  const effectsNow = () => runEffects(rt.effects()); // their cleanups (the running-task poll) run at the end
+  let { tr } = draw();
+  const openBtn = find(tr, (n) => n.t === 'button' && n.p['data-composer-plus-canvas-open'] !== undefined)[0];
+  assert.ok(openBtn, 'a canvas button in the header'); assert.equal(openBtn.p.type, 'button');
+  assert.equal(openBtn.p['aria-label'], 'canvas.open', 'its name'); assert.equal(openBtn.p.title, 'canvas.open', 'and its tooltip');
+  assert.equal(attrs.has('data-composer-plus-canvas'), false, 'closed: no mark on the chat body');
+  const listKeys = find(tr, (n) => n.t === 'li' && n.p.className === 'cp-cs-card').map((n) => n.p['data-key']).sort();
+  openBtn.p.onClick();
+  let r = draw(); effectsNow();
+  const root = find(r.tr, (n) => n.p?.['data-composer-plus-todos'] === '')[0];
+  assert.equal(root.p['data-canvas'], '', 'the panel draws the canvas');
+  assert.equal(attrs.get('data-composer-plus-canvas'), 'open', 'the chat body is marked: the chat and the composer are hidden under the canvas');
+  assert.match(find(r.tr, (n) => n.t === 'style')[0].c[0], /\[data-composer-plus-canvas="open"\]>:not\(\[data-composer-plus-todos\]\)\{visibility:hidden\}/, 'hidden, not removed (scroll and draft stay)');
+  assert.match(find(r.tr, (n) => n.t === 'style')[0].c[0], /\[data-composer-plus-todos\]\[data-canvas\]\{position:absolute;inset:0;/, 'over the whole chat body');
+  assert.equal(find(r.tr, (n) => n.p?.className === 'cp-td-head').length, 0, 'no panel header on the canvas');
+  assert.ok(r.cv, 'the canvas'); assert.ok(typeof keyListener === 'function', 'Esc listens while the canvas is open');
+  // The same data: every card of the list, the Onay card with its Approve, the notes.
+  const keys = r.cv.p.items.map((i) => i.key);
+  for (const k of listKeys) assert.ok(keys.some((x) => x.endsWith(`|${k}`)), `card ${k} on the canvas`);
+  assert.ok(keys.includes('onay'), 'the Onay card'); assert.ok(keys.includes('notes'), 'your notes: the Kararlar button');
+  const cards = find(r.cvTree, (n) => n.p?.['data-cv-key'] !== undefined);
+  assert.equal(cards.length, keys.length, 'one canvas card per item');
+  for (const c of cards) { assert.equal(c.p.tabIndex, 0, 'a card is focusable'); assert.equal(c.p.role, 'group'); assert.ok(c.p['aria-label'], 'a card has a name'); assert.ok(Number.isFinite(c.p.style.left) && Number.isFinite(c.p.style.top), 'a card has a place'); }
+  // No two new cards on the same place.
+  const places = cards.map((c) => `${c.p.style.left},${c.p.style.top}`); assert.equal(new Set(places).size, places.length, 'no two cards on one place');
+  const view = find(r.cvTree, (n) => n.p?.className === 'cp-cv-view')[0];
+  assert.equal(view.p.tabIndex, 0, 'the canvas is focusable'); assert.equal(view.p['aria-label'], 'canvas.help');
+  assert.ok(find(r.cvTree, (n) => n.t === 'button' && n.p['data-cv-fit'] !== undefined && text(n) === 'canvas.fit').length === 1, 'Fit all');
+  assert.ok(find(r.cvTree, (n) => n.t === 'button' && n.p['aria-label'] === 'canvas.zoomIn').length === 1 && find(r.cvTree, (n) => n.t === 'button' && n.p['aria-label'] === 'canvas.zoomOut').length === 1, 'zoom buttons');
+  // Approve on the canvas: the panel's own button (picks.pick, the same guard).
+  const approve = find(r.cvTree, (n) => n.t === 'button' && n.p['data-composer-plus-approve'] === 'card')[0];
+  assert.ok(approve, 'Onayla on the canvas'); approve.p.onClick();
+  assert.deepEqual(picked, [['s-assistant', offer, 1]], 'the same send path as the panel');
+  // On the canvas, A acts only while the focus is in the active card (a card out of view is not read; review 1).
+  {
+    r = draw(); await new Promise((res) => setTimeout(res, 850)); r = draw();
+    const rootNow = find(r.tr, (n) => n.p?.['data-composer-plus-todos'] === '')[0]; const n0 = picked.length;
+    rootNow.p.onKeyDown({ key: 'a', target: { closest: () => null }, preventDefault: () => {} });
+    assert.equal(picked.length, n0, 'A outside the active card does nothing');
+    rootNow.p.onKeyDown({ key: 'a', target: { closest: (sel) => (sel === '[data-cv-key]' ? { dataset: { cvKey: 'onay' } } : null) }, preventDefault: () => {} });
+    assert.equal(picked.length, n0 + 1, 'A in the active Onay card approves');
+  }
+  // Your notes on the canvas: the panel's Kararlar button; it opens the same decision dialog (portaled into the body).
+  {
+    const decideOnCanvas = find(r.cvTree, (n) => n.t === 'button' && /-decide$/.test(n.p.id ?? ''))[0];
+    assert.ok(decideOnCanvas, 'the Kararlar button on the canvas'); assert.equal(decideOnCanvas.p['aria-label'], 'decide.button:{"decisions":0,"notes":1}');
+    decideOnCanvas.p.onClick(); r = draw();
+    const dialog = find(r.tr, (n) => n.portal?.t?.name === 'DecisionDialog')[0];
+    assert.equal(dialog?.host, globalThis.document.body, 'the decision dialog opens over the canvas'); assert.ok(r.cv, 'the canvas stays open');
+    assert.deepEqual(dialog.portal.p.notes.map((i) => i.id), ['n1'], 'the same notes');
+    // × of an item: the store's remove (one action at a time), as in the panel.
+    const p0 = posts.length;
+    find(r.cvTree, (n) => n.t === 'button' && n.p['aria-label'] === 'todos.remove:{"item":"Senden: SAP alanını aç"}')[0].p.onClick(); await tick();
+    assert.deepEqual(posts.slice(p0), [{ sessionId: 's-assistant', id: 's1', action: 'remove' }], 'the item is removed through the store');
+    dialog.portal.p.onClose(); r = draw(); assert.equal(find(r.tr, (n) => n.portal?.t?.name === 'DecisionDialog').length, 0, 'closed');
+    await new Promise((res) => setTimeout(res, 5)); assert.equal(focused.at(-1), 'cp-td-s-assistant-decide', 'the focus goes back to the Kararlar button');
+    // No button any more (all answered): the focus goes to the canvas, not to the page (review 4).
+    const byId = globalThis.document.getElementById;
+    globalThis.document.getElementById = (id) => (id === 'cp-td-s-assistant-decide' ? null : byId(id));
+    find(r.cvTree, (n) => n.t === 'button' && /-decide$/.test(n.p.id ?? ''))[0].p.onClick(); r = draw();
+    find(r.tr, (n) => n.portal?.t?.name === 'DecisionDialog')[0].portal.p.onClose(); await new Promise((res) => setTimeout(res, 5));
+    globalThis.document.getElementById = byId; r = draw();
+    assert.equal(focused.at(-1), 'cp-td-s-assistant-view', 'the focus goes to the canvas when the button is gone');
+  }
+  // A task card's click opens its chat.
+  const o0 = opened.length;
+  find(r.cvTree, (n) => n.t === 'li' && n.p['data-key'] === 'c-run')[0].p.onClick({ target: { closest: () => null } });
+  assert.deepEqual(opened.slice(o0), ['c-run'], 'a task card opens its chat');
+  // The places are kept in this browser; a draw again does not move them.
+  r = draw(); const savedPos = JSON.parse(mem.get('dsh-composer-plus.status-canvas')).pos;
+  for (const k of r.cv.p.items.map((i) => i.key)) assert.ok(savedPos[k], `the place of ${k} is saved`);
+  assert.equal(savedPos['senden|s1'], undefined, 'the removed item\'s place is forgotten');
+  const before = JSON.stringify(savedPos); r = draw(); assert.equal(JSON.stringify(JSON.parse(mem.get('dsh-composer-plus.status-canvas')).pos), before, 'stable');
+  // → of a Sorun card writes into the composer: the chat shows first, then the text goes in (nothing sent).
+  composer.draft = ''; const ask = find(r.cvTree, (n) => n.t === 'button' && n.p['data-act'] === 'main' && /cards\.ask/.test(n.p['aria-label']))[0];
+  ask.p.onClick(); await new Promise((res) => setTimeout(res, 5));
+  assert.match(composer.draft, /Gece denetimi hata verdi/, 'the text is in the composer'); assert.equal(composer.submits, 0, 'nothing sent');
+  r = draw(); assert.equal(r.cv, undefined, 'the chat shows again for the composer');
+  // Open again; Esc closes; the focus goes back to the canvas button.
+  find(r.tr, (n) => n.p?.['data-composer-plus-canvas-open'] !== undefined)[0].p.onClick(); r = draw(); effectsNow();
+  let prevented = false; keyListener({ key: 'Escape', preventDefault: () => { prevented = true; } });
+  assert.equal(prevented, true, 'Esc is taken'); r = draw(); assert.equal(r.cv, undefined, 'Esc closes the canvas');
+  await new Promise((res) => setTimeout(res, 5)); assert.equal(focused.at(-1), 'cp-td-s-assistant-canvas', 'the focus goes back to the canvas button');
+  // Esc in an open menu or with a modifier: not ours.
+  find(r.tr, (n) => n.p?.['data-composer-plus-canvas-open'] !== undefined)[0].p.onClick(); r = draw(); effectsNow();
+  keyListener({ key: 'Escape', shiftKey: true, preventDefault: () => {} }); assert.ok(draw().cv, 'Shift+Esc does not close it');
+  const realQuery = globalThis.document.querySelector; globalThis.document.querySelector = (sel) => (/role="menu"/.test(sel) ? {} : null);
+  keyListener({ key: 'Escape', preventDefault: () => {} }); assert.ok(draw().cv, 'Esc closes an open menu first'); globalThis.document.querySelector = realQuery;
+  // dsh's own question or approval in the chat: the canvas closes, so that you see it (review 1), and the focus goes to
+  // the first visible control of the composer place (dsh keeps its hidden normal composer first; review 3).
+  {
+    const seen = []; const hiddenPlus = { checkVisibility: () => false, focus: () => seen.push('hidden') }; const card = { checkVisibility: () => true, focus: () => seen.push('card') };
+    body.querySelectorAll = (sel) => (/data-composer-seat/.test(sel) ? [hiddenPlus, card] : []);
+    statuses.set('s-assistant', { running: false, pendingInteraction: { kind: 'question', key: 'q1' } }); draw(); effectsNow();
+    const r2 = draw(); effectsNow();
+    assert.equal(r2.cv, undefined, 'a question of dsh closes the canvas');
+    assert.deepEqual(seen, ['card'], 'the focus goes to the visible question, not the hidden composer button');
+    assert.equal(find(r2.tr, (n) => n.p?.['data-composer-plus-canvas-open'] !== undefined).length, 0, 'no canvas button while dsh waits');
+    // The same with the Kararlar dialog open on the canvas: it is modal, so the focus goes into dsh's question after the
+    // dialog closes, not to the Kararlar button (review 4).
+    statuses.set('s-assistant', { running: false }); find(draw().tr, (n) => n.p?.['data-composer-plus-canvas-open'] !== undefined)[0].p.onClick(); draw(); effectsNow();
+    find(draw().cvTree, (n) => n.t === 'button' && /-decide$/.test(n.p.id ?? ''))[0].p.onClick(); draw(); effectsNow();
+    seen.length = 0; statuses.set('s-assistant', { running: false, pendingInteraction: { kind: 'question', key: 'q2' } }); draw(); effectsNow();
+    let r3 = draw(); effectsNow(); assert.equal(r3.cv, undefined, 'the question closes the canvas'); assert.deepEqual(seen, [], 'no focus while the dialog is open');
+    await new Promise((res) => setTimeout(res, 5)); // the canvas open's own focus timer
+    const f0 = focused.length; find(r3.tr, (n) => n.portal?.t?.name === 'DecisionDialog')[0].portal.p.onClose(); r3 = draw(); effectsNow();
+    await new Promise((res) => setTimeout(res, 5));
+    assert.deepEqual(seen, ['card'], 'after the dialog: the focus goes to dsh\'s question'); assert.deepEqual(focused.slice(f0), [], 'not to the Kararlar button');
+    delete body.querySelectorAll;
+  }
+  statuses.set('s-assistant', { running: false });
+  find(draw().tr, (n) => n.p?.['data-composer-plus-canvas-open'] !== undefined)[0].p.onClick(); draw(); effectsNow();
+  assert.ok(draw().cv, 'open again');
+  // The summary card shows whole on the canvas (no grip, no max-height).
+  {
+    // A new summary time: the same time as the stored one opens nothing.
+    summary = { at: NOW + 2, show: true, projects: [{ project: 'acme-web', text: 'Login page done.' }] }; await panelProps.store.load('s-assistant');
+    const sc = find(draw().cvTree, (n) => n.p?.className === 'cp-st-summary')[0];
+    assert.ok(sc, 'the summary card on the canvas'); assert.equal(sc.p.style, undefined, 'no max-height on the canvas');
+    assert.equal(find(draw().cvTree, (n) => n.p?.['data-composer-plus-summary-grip'] !== undefined).length, 0, 'no grip on the canvas');
+    panelProps.store.hideSummary('s-assistant'); summary = { at: NOW, projects: [{ project: 'acme-web', text: 'Login page done.' }] };
+  }
+  // Back to the chat: a real button with its text.
+  // React runs the cleanup of the open draw's layout effect when the canvas closes (this hook runtime keeps them).
+  layoutCleanups.length = 0; r = draw(); const back = find(r.cvTree, (n) => n.t === 'button' && n.p['data-composer-plus-canvas-close'] !== undefined)[0];
+  assert.equal(back.p.type, 'button'); assert.equal(text(back), 'canvas.close'); back.p.onClick();
+  r = draw(); assert.equal(r.cv, undefined, 'Back to the chat closes it');
+  for (const off of layoutCleanups.splice(0)) off();
+  assert.equal(attrs.has('data-composer-plus-canvas'), false, 'closed: the chat body has no mark');
+  globalThis.document.addEventListener = realAdd; globalThis.document.removeEventListener = realRemove;
+  panelProps.offers.set('s-assistant', undefined); mem.delete('dsh-composer-plus.status-canvas');
+  items = saved; tasks = savedTasks; await panelProps.store.load('s-assistant'); rt.clear(); tree = panel();
+}
+
 // Tasks: a running task is a Sürüyor card (İzle opens its chat), a waiting one a Senden card, a failed one a Sorun card
 // (× hides it), an ended one a Bugün bitti card in a folded group ("▸ Bugün bitti 2 · 1 yeni"); Gördüm hides it in this
 // browser (a new end of the same task shows it again). Folding the group marks its cards seen (no "new").
