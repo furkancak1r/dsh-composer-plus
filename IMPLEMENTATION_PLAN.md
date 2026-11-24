@@ -85,7 +85,28 @@ Checkpoint (2026-11-24 15:52, about 150 tool calls; the chat stops here, Damon c
   1-panel-butonu.png, 2-karar-karti.png, 3-bir-tiklamadan-sonra.png, 4-notlar-listesi.png, 5-hepsi-bitti.png.
 - Review: round 1 (review-guard, separate subagent, `git diff origin/main...HEAD`) started 14:50 and had no result at
   15:52. The change is large (more than 3 files): repeat rounds until one gives no P1/P2.
-- Open steps: 1) review-guard round(s) on `origin/main...HEAD` and fixes + `npm test` + browser test; 2) fetch and merge
+- Review round 1 result (review-guard-1 on 3e26bbde): P1 0, P2 1, P3 7, P4 4. To fix in the next chat:
+  - P2: test/browser-status-refresh.mjs:184-188 and test/browser-assistant-todos.mjs:176,197,211-212,225-226 still wait
+    for the old note rows, the notes fold button and → of a note: move those steps to the Kararlar button/dialog (or an
+    agent item for the Refresh "old content" check); README.md:552 test line ("→ writes Do this for me"); run both on
+    0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5.
+  - P3: client.js closeDecide: when the Kararlar button is gone (all done), focus the panel head `headId`.
+  - P3: DecisionDialog focus effect deps: add the notes phase (first shown note id / shownNotes.length), so Yaptım/Atla
+    and "Hepsi bitti" keep the focus in the dialog.
+  - P3: `later` (Sonra) without `ready()`: add the 400 ms guard.
+  - P3: a send that fails after the dialog closed calls setError on an unmounted component: report through the panel's
+    `notify(sessionId, 'error', …)` or keep the error in the panel's `decide` state.
+  - P3: `answered` stays until a reload even when Damon never removes the item (rollback, failed turn): drop an id when
+    a list read after the next finished Damon turn still has the item, or hide answered ids only while the dialog is open.
+  - P3: the panel has no × / → for a note now: Furkan's decision (listed in the report), or add remove to the dialog rows.
+  - P3: docs/features.json llms order sentence still says "the user's own notes (cards.notes, folded)": say "the
+    Kararlar button (decide.title)", then `npm run build:readme`.
+  - P4: `say` busy → "Gönderilemedi: busy": let `chain` wait until `busy` ends (or a localized text).
+  - P4: TODO_SECTION names only tr/en message forms; the client sends 13 UI languages: say "in the user's UI language".
+  - P4: a text selection from the field to the backdrop closes the dialog: close only when pointerdown and click are
+    both on the dialog.
+  - Round 2 after the fixes (the change is large: repeat until no P1/P2).
+- Open steps: 1) the round-1 fixes above + `npm test` + browser tests, then review-guard round 2 on `origin/main...HEAD`; 2) fetch and merge
   origin/main again if it moved; 3) `git switch main` in the main worktree, `git merge --no-ff feat/decision-cards-modal`,
   `git push origin main`; 4) delete the branch locally and on origin, `git worktree remove` this folder (no --force).
   Not allowed: live copy update (Furkan sees the screenshots and writes "tamam" first), release, DSH restart.
