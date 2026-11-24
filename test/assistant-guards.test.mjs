@@ -56,7 +56,15 @@ await check('item 1: a self-quote that is not in the chat log', async () => {
   // Review 1 (P2): "yazdım", "dedim" … without a self-reference in the same sentence is not a self-quote.
   for (const text of ['Hafızaya "Ayşe mail imzasını istemiyor" yazdım.', 'Alt ajana "testleri çalıştır ve raporla" dedim.', 'Mailin konusuna "Promes test sonuçları" yazdım.',
     "Taslaktaki 'Saygılarımla, Ayşe Yılmaz' cümlesini düzeltiyorum", 'Dal sohbetine "testleri çalıştır ve push et" dedim.',
-    'Önceki yanıtımda bir hata vardı. Alt ajana "testleri çalıştır ve raporla" dedim.']) assert.deepEqual(host.selfQuotes(text), [], `not a self-quote: ${text}`);
+    'Önceki yanıtımda bir hata vardı. Alt ajana "testleri çalıştır ve raporla" dedim.',
+    // Review 2 (P3): a self-reference with an addressee between it and the quote.
+    'Az önce alt ajana "testleri çalıştır ve raporla" dedim.', 'Daha önce hafızaya "Ayşe mail imzasını istemiyor" yazdım.',
+    'Az önce dal sohbetine "testleri çalıştır ve push et" dedim.', 'Önceki mesajımda alt ajana "testleri çalıştır ve raporla" dedim.',
+  ]) assert.deepEqual(host.selfQuotes(text), [], `not a self-quote: ${text}`);
+  // Review 2: "şunu yazdım:" between the reference and the quote, and "yanıtımdaki".
+  assert.deepEqual(host.selfQuotes('Önceki yanıtımda şunu yazdım: "yarın sabah sunucu kapanır"'), ['yarın sabah sunucu kapanır'], 'şunu yazdım:');
+  assert.deepEqual(host.selfQuotes('Az önce şöyle dedim: "rapor bu akşam hazır olur"'), ['rapor bu akşam hazır olur'], 'az önce şöyle dedim:');
+  assert.deepEqual(host.selfQuotes(`Önceki yanıtımdaki 'büyük olasılıkla hata çıkar' cümlesini geri alıyorum.`), ['büyük olasılıkla hata çıkar'], 'yanıtımdaki');
   // Review 1 (P4): a fenced code block is not the answer's own words.
   assert.deepEqual(host.selfQuotes('Örnek:\n```text\nÖnceki yanıtımda "bu bir kod örneğidir" yazdım.\n```\nBitti.'), [], 'inside a fenced code block');
   assert.deepEqual(host.selfQuotes('~~~\nÖnceki yanıtımda "bu da bir kod örneği" yazdım.\n~~~~\nÖnceki yanıtımda "bu cümle kodun dışında" yazdım.'), ['bu cümle kodun dışında'], 'only the text outside the fence');
@@ -86,6 +94,13 @@ await check('item 1: a self-quote that is not in the chat log', async () => {
   // 2026-11-23 16:44.
   say('damon', `Önceki mesajımdaki 'büyük olasılıkla hata çıkar' cümlesini geri alıyorum.`);
   assert.equal(notesOf(await step('damon')).length, 1, '2026-11-23: a note');
+  // Review 2 (P3): "yanıtımdaki" and "şunu yazdım:" give a note when the log does not have the quote.
+  say('damon', `Önceki yanıtımdaki 'sunucu yarın öğlen kapanacak' cümlesini geri alıyorum.`);
+  assert.equal(notesOf(await step('damon')).length, 1, 'yanıtımdaki: a note');
+  say('damon', 'Önceki yanıtımda şunu yazdım: "yedek dosyası masaüstünde duruyor"');
+  assert.equal(notesOf(await step('damon')).length, 1, 'şunu yazdım: a note');
+  say('damon', 'Az önce alt ajana "testleri çalıştır ve raporla" dedim.');
+  assert.deepEqual(notesOf(await step('damon')), [], 'a message to another agent: no note');
   // Review 1 (P3): typographic apostrophes and the end mark of a sentence do not matter.
   say('damon', "**Senden:** DSH'yi yeniden başlat");
   say('damon', 'Önceki yanıtımda "Senden: DSH\'yi yeniden başlat." yazmıştım, bu hâlâ geçerli.');
@@ -174,6 +189,19 @@ await check('item 4: an approval to-do for the user without an onay block', asyn
   assert.deepEqual(notesOf(await step('damon')), [], 'another mark: no note');
   turn({ text: 'Onay: x', owner: 'user' }, 'Tamam.', true);
   assert.deepEqual(notesOf(await step('damon')), [], 'a refused call added nothing: no note');
+  // Review 2 (P3): the block of the turn before does not count. Turn 1 (typed) has a block for A; turn 2 (news) adds
+  // B and has no block.
+  push('damon', 'turn/start', {});
+  typed('damon', 'A için onay iste');
+  say('damon', "**Onay gerekiyor.**\n\n```onay\nOnaylıyorum: A dalı main'e alınsın (canlı değil).\n```");
+  push('damon', 'turn/end', { reason: { kind: 'completed' } });
+  push('damon', 'turn/start', {});
+  push('damon', 'user/message', { content: [{ type: 'text', text: 'news' }], source: { kind: 'composer-plus-assistant-news' } });
+  push('damon', 'tool/call', { name: 'todo_list_add', callId: 'nb1', arguments: JSON.stringify({ text: 'Onay: B canlıya deploy', owner: 'user' }) });
+  push('damon', 'tool/result', result('nb1', 'Added 5e6f7a8b (owner user): "Onay: B canlıya deploy"'));
+  say('damon', '[quiet]');
+  push('damon', 'turn/end', { reason: { kind: 'completed' } });
+  assert.match(notesOf(await step('damon'))[0] ?? '', /"Onay: B canlıya deploy"/, 'a news turn without a block: a note');
 });
 
 for (const [name, state] of checks) console.log(`${name}: ${state}`);

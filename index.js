@@ -12082,13 +12082,16 @@ const guardMessage = (text) => Object.freeze({ id: randomUUID(), role: 'user', c
   source: Object.freeze({ kind: GUARD_SOURCE, form: 'snapshot' }) });
 // "…", “…”, '…' or ‘…’ on one line; an apostrophe before a letter (Bey'e, DSH’yi) is inside a single-quoted text.
 const QUOTED = String.raw`"([^"\n]{1,2000})"|“([^”\n]{1,2000})”|(?<![\p{L}\p{N}])'((?:[^'\n]|'(?=\p{L})){1,2000}?)'(?![\p{L}\p{N}])|‘((?:[^’\n]|’(?=\p{L})){1,2000}?)’(?![\p{L}\p{N}])`;
+// The self-reference stands directly before the quote: only white space, "," or ":" between, or "(şunu|şöyle) yazdım:"
+// (review 2: 'Az önce alt ajana "…" dedim.' is a message to another agent).
+const SAID = String.raw`(?:(?:şunu|şöyle)\s+)?(?:yazdım|yazmıştım|dedim|demiştim)\s*:\s*`;
 const SELF_QUOTE = [
-  new RegExp(String.raw`(?<![\p{L}\p{N}])önceki\s+(?:yanıtımda|mesajımda|mesajımdaki)(?![\p{L}\p{N}])(?:\s+[^\s"“'‘:.!?]{1,40}){0,4}?\s*:?\s*(?:${QUOTED})`, 'giu'),
-  new RegExp(String.raw`(?:${QUOTED})[ \t]*,?[ \t]*(?:yazdım|yazmıştım|dedim|demiştim|cümlesini\s+geri\s+alıyorum|cümlesini\s+düzeltiyorum)(?![\p{L}\p{N}])`, 'giu'),
+  // "önceki yanıtımda", "önceki yanıtımdaki", "önceki mesajımda", "önceki mesajımdaki" + the quote.
+  new RegExp(String.raw`(?<![\p{L}\p{N}])önceki\s+(?:yanıtımda|yanıtımdaki|mesajımda|mesajımdaki)(?![\p{L}\p{N}])[\s,:]*(?:${SAID})?(?:${QUOTED})`, 'giu'),
+  // "daha önce", "az önce" + the quote + yazdım …, or + şunu yazdım: + the quote ("Az önce "testler geçti" mesajı geldi" is
+  // not one).
+  new RegExp(String.raw`(?<![\p{L}\p{N}])(?:daha|az)\s+önce(?![\p{L}\p{N}])[\s,:]*(?:${SAID}(?:${QUOTED})|(?:${QUOTED})[ \t]*,?[ \t]*(?:yazdım|yazmıştım|dedim|demiştim|cümlesini\s+geri\s+alıyorum|cümlesini\s+düzeltiyorum)(?![\p{L}\p{N}]))`, 'giu'),
 ];
-/** The words that make a quote before "yazdım", "dedim" … the answer's own earlier words, in the same sentence before the
- * quote (review 1: 'Alt ajana "testleri çalıştır" dedim.' is a message to another agent). */
-const SELF_REF = /(?<![\p{L}\p{N}])(?:önceki\s+(?:yanıtımda|mesajımda|mesajımdaki)|daha\s+önce|az\s+önce)(?![\p{L}\p{N}])/iu;
 /** The comparison form of a quote: without the Markdown marks * _ and `, ’ and ‘ as ', white space folded, without the end
  * marks . , ; : ! ?, lower case. */
 const quoteFold = (s) => String(s ?? '').normalize('NFC').replace(/[*_`]/g, '').replace(/[‘’]/g, "'").replace(/\s+/g, ' ').trim()
@@ -12108,25 +12111,17 @@ const blankFences = (text) => {
 /** The self-quotes of `text` (selfQuotes) with their place: `{index, end, quote}`. */
 const selfQuoteMatches = (text) => {
   const plain = blankFences(String(text ?? '')); const out = [];
-  for (const [i, re] of SELF_QUOTE.entries()) {
-    let at = 0; let start = 0; // the start of the sentence of the match: after the last . ! ? or line break before it
-    for (const m of plain.matchAll(re)) {
-      if (i === 1) {
-        for (; at < m.index; at++) if ('.!?\n'.includes(plain[at])) start = at + 1;
-        if (!SELF_REF.test(plain.slice(Math.max(start, m.index - 300), m.index))) continue;
-      }
-      out.push({ index: m.index, end: m.index + m[0].length, quote: m.slice(1).find((g) => g !== undefined).trim() });
-    }
-  }
+  for (const re of SELF_QUOTE) for (const m of plain.matchAll(re)) out.push({ index: m.index, end: m.index + m[0].length, quote: m.slice(1).find((g) => g !== undefined).trim() });
   return out;
 };
-/** The texts that an answer quotes as its own earlier words: a quote after "önceki yanıtımda", "önceki mesajımda" or
- * "önceki mesajımdaki" (at most 4 words between), or before "yazdım", "yazmıştım", "dedim", "demiştim", "cümlesini geri
- * alıyorum" or "cümlesini düzeltiyorum" when the same sentence has one of those words, "daha önce" or "az önce" before
- * the quote (at most 300 characters before it). A fenced code block does not count. A quote of fewer than 12 characters
- * (quoteFold) is left out.
- * ponytail: these Turkish words only; "diye yazdım", English and a quote over two lines are not found, and a "." inside
- * an earlier quote of the same sentence ends that sentence (the quote is then not found). */
+/** The texts that an answer quotes as its own earlier words: a quote right after "önceki yanıtımda", "önceki yanıtımdaki",
+ * "önceki mesajımda" or "önceki mesajımdaki", or right after "daha önce" or "az önce" and before "yazdım", "yazmıştım",
+ * "dedim", "demiştim", "cümlesini geri alıyorum" or "cümlesini düzeltiyorum". Only white space, "," or ":" (or "şunu
+ * yazdım:", "şöyle dedim:" …) can stand between the reference and the quote. A fenced code block does not count. A quote
+ * of fewer than 12 characters (quoteFold) is left out.
+ * ponytail: these Turkish words only; "diye yazdım", English and a quote over two lines are not found. The reference must
+ * stand directly before the quote, so a word or a sentence end (".") between them ("Önceki yanıtımda bir cümle yanlıştı:
+ * "…"", "Az önce sana "…" dedim") hides the quote. Upgrade: a model check of the whole answer. */
 export function selfQuotes(text) {
   const out = [];
   for (const { quote } of selfQuoteMatches(text)) if (quoteFold(quote).length >= 12 && !out.includes(quote)) out.push(quote);
@@ -12192,7 +12187,8 @@ export function installAssistantGuards(ctx, assistant) {
     }
     if (items.size === 0) return [];
     const typed = events.findLastIndex((e, i) => i >= from && e.type === 'user/message' && typedPrompt(e.data) && !gone(e.seq));
-    const block = events.slice(Math.max(from, typed)).some((e) => e.type === 'assistant/message' && !gone(e.seq) && onayBlocks(textBlocks(e.data?.message?.content)).length > 0);
+    // Only the turn that added the item counts (review 2: a block of an earlier typed turn is not this approval's).
+    const block = events.slice(Math.max(start, typed)).some((e) => e.type === 'assistant/message' && !gone(e.seq) && onayBlocks(textBlocks(e.data?.message?.content)).length > 0);
     return block ? [] : [...items.values()];
   };
   ctx.on('session/event', (session, event) => {

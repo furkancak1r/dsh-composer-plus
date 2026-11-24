@@ -82,7 +82,22 @@ and a quote inside a fenced block. Green after the fixes: both test files exit 0
 6. [P4] missingQuotes reads the earlier answers newest first and folds each only while a quote is not found. Speed
    checks: selfQuotes worst cases and a log of 2000 answers stay under 1 s.
 
+## Review round 2 (independent subagent, head 4570ceb2): P1 0, P2 0, P3 3, P4 1. Clean of P1/P2: no third round.
+Red on 4570ceb2 (tests first): `node test/assistant-guards.test.mjs` exit 1: item 1 "not a self-quote: Az önce alt ajana
+… dedim.", item 4 "a news turn without a block: a note"; a direct run gave a quote for the four addressee rows and none
+for "Önceki yanıtımdaki …". Green after the fixes: both test files exit 0.
+1. [P3] The self-reference must stand directly before the quote (only white space, "," or ":", or "şunu|şöyle" +
+   "yazdım|yazmıştım|dedim|demiştim" + ":"). Two patterns: "önceki yanıtımda/yanıtımdaki/mesajımda/mesajımdaki" + quote;
+   "daha önce|az önce" + quote + yazdım …, or + şunu yazdım: + quote. SELF_REF and the sentence scan are gone. Four
+   addressee rows give no quote; "şunu yazdım:" and "şöyle dedim:" give one (note test).
+2. [P3] "yanıtımdaki" added (quote test and note test).
+3. [P3] approvalItems looks for the onay block only in the turn that added the item (Math.max(start, typed)). Test: a
+   typed turn with a block for A, then a news turn that adds "Onay: B canlıya deploy" without a block: note. The llms
+   text says "an answer of that turn after the user's newest message".
+4. [P4] The ponytail comment of selfQuotes names the limit: a word or a "." between the reference and the quote hides it.
+
 ## Last checkpoint
+- Review round 2 fixes committed on fix/assistant-reply-guards; then origin/main merged in, checks run, merge into main.
 - Review round 1 fixes committed and pushed on fix/assistant-reply-guards. Last passing test command: `npm test` (exit 0).
 - Items 1-4 implemented, tested, committed on fix/assistant-reply-guards.
 - Item 5 BLOCKED: Auto review denied the edit of test/approve-button.test.mjs (the test that pins the prompt text).
