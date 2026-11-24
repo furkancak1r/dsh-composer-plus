@@ -4109,11 +4109,18 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       }, [canvas, host]);
       // dsh's own question, approval or plan review shows in the chat's composer place: while one waits the canvas closes
       // (also one that waited before the canvas opened, and each new one), and the focus goes into it (reviews 1 and 2).
-      const asked = typeof useSessionStatus === 'function' ? useSessionStatus((s) => { const p = s?.get?.(sessionId)?.pendingInteraction; return p == null ? '' : String(p.key ?? p.kind ?? '?'); }) : '';
+      // An Auto Review ask that Allow for this chat answers by itself waits for nobody (review 3).
+      const asked = typeof useSessionStatus === 'function' ? useSessionStatus((s) => { const p = s?.get?.(sessionId)?.pendingInteraction; return p == null || (isAutoReviewAsk(p) && isGranted(sessionId, p.toolName)) ? '' : String(p.key ?? p.kind ?? '?'); }) : '';
+      const focusSeat = React.useRef(false);
       React.useEffect(() => {
-        if (asked === '' || !canvas) return;
-        setCanvas(false);
-        setTimeout(() => { const el = host.querySelector?.('[data-composer-seat] button, [data-composer-seat] [tabindex]:not([tabindex="-1"]), [data-composer-seat] input, [data-composer-seat] textarea'); if (el) el.focus?.(); else globalThis.document?.getElementById?.(`cp-td-${sessionId}-canvas`)?.focus?.(); }, 0);
+        if (asked !== '' && canvas) { focusSeat.current = true; setCanvas(false); return; }
+        if (canvas || !focusSeat.current) return;
+        // After the close is drawn: the first visible control of the composer place (dsh keeps its normal composer there,
+        // hidden, before the card), else the canvas button.
+        focusSeat.current = false;
+        const shown = [...(host.querySelectorAll?.('[data-composer-seat] button, [data-composer-seat] [tabindex]:not([tabindex="-1"]), [data-composer-seat] input, [data-composer-seat] textarea') ?? [])]
+          .find((e) => e.checkVisibility?.() ?? e.getClientRects?.().length > 0);
+        (shown ?? globalThis.document?.getElementById?.(`cp-td-${sessionId}-canvas`))?.focus?.();
       }, [asked, canvas]);
       // At the right, the panel makes the chat move left (SEAT_ATTR on the chat body), also while it is folded: the folded
       // panel still shows its header and the Onay card (review: a folded side panel covered messages).
@@ -4555,8 +4562,9 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
                 : state.at === null ? null : React.createElement('span', { className: 'cp-st-time', title: t('status.updatedHint') }, t('status.updated', { time: clockText(state.at, lang) })),
               React.createElement(TodoIcon, open ? { name: 'IconChevronDownOutlineRegular', glyph: '▾' } : { name: 'IconChevronUpOutlineRegular', glyph: '▴' }))),
             summarizeBtn, projectsBtn, refreshBtn,
-            // The canvas view: the chat area and the panel go, only the canvas shows.
-            React.createElement('button', { id: `${headId}-canvas`, type: 'button', className: 'cp-td-btn', 'data-composer-plus-canvas-open': '', 'aria-label': t('canvas.open'), title: t('canvas.open'),
+            // The canvas view: the chat area and the panel go, only the canvas shows. Not while dsh's own question, approval or
+            // plan review waits in the chat (it would close at once).
+            asked !== '' ? null : React.createElement('button', { id: `${headId}-canvas`, type: 'button', className: 'cp-td-btn', 'data-composer-plus-canvas-open': '', 'aria-label': t('canvas.open'), title: t('canvas.open'),
               onClick: () => { setCanvas(true); setTimeout(() => globalThis.document?.getElementById?.(`${headId}-view`)?.focus?.({ preventScroll: true }), 0); } },
               React.createElement('span', { 'aria-hidden': true }, '⊞')),
             // The place: at the right of the chat or above it (the button names where it moves the panel). ponytail: a text

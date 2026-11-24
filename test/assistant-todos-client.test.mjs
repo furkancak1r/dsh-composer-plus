@@ -592,12 +592,18 @@ const groupBtn = (tr, g) => find(tr, (n) => n.t === 'button' && n.p['data-group'
   keyListener({ key: 'Escape', shiftKey: true, preventDefault: () => {} }); assert.ok(draw().cv, 'Shift+Esc does not close it');
   const realQuery = globalThis.document.querySelector; globalThis.document.querySelector = (sel) => (/role="menu"/.test(sel) ? {} : null);
   keyListener({ key: 'Escape', preventDefault: () => {} }); assert.ok(draw().cv, 'Esc closes an open menu first'); globalThis.document.querySelector = realQuery;
-  // dsh's own question or approval in the chat: the canvas closes, so that you see it (review 1).
-  statuses.set('s-assistant', { running: false, pendingInteraction: { kind: 'question' } }); draw(); effectsNow();
-  assert.equal(draw().cv, undefined, 'a question of dsh closes the canvas');
-  // One that already waits when you open the canvas closes it too (review 2), and so does the next one of the same kind.
-  find(draw().tr, (n) => n.p?.['data-composer-plus-canvas-open'] !== undefined)[0].p.onClick(); draw(); effectsNow();
-  assert.equal(draw().cv, undefined, 'a question that waits before the open closes the canvas');
+  // dsh's own question or approval in the chat: the canvas closes, so that you see it (review 1), and the focus goes to
+  // the first visible control of the composer place (dsh keeps its hidden normal composer first; review 3).
+  {
+    const seen = []; const hiddenPlus = { checkVisibility: () => false, focus: () => seen.push('hidden') }; const card = { checkVisibility: () => true, focus: () => seen.push('card') };
+    body.querySelectorAll = (sel) => (/data-composer-seat/.test(sel) ? [hiddenPlus, card] : []);
+    statuses.set('s-assistant', { running: false, pendingInteraction: { kind: 'question', key: 'q1' } }); draw(); effectsNow();
+    const r2 = draw(); effectsNow();
+    assert.equal(r2.cv, undefined, 'a question of dsh closes the canvas');
+    assert.deepEqual(seen, ['card'], 'the focus goes to the visible question, not the hidden composer button');
+    assert.equal(find(r2.tr, (n) => n.p?.['data-composer-plus-canvas-open'] !== undefined).length, 0, 'no canvas button while dsh waits');
+    delete body.querySelectorAll;
+  }
   statuses.set('s-assistant', { running: false });
   find(draw().tr, (n) => n.p?.['data-composer-plus-canvas-open'] !== undefined)[0].p.onClick(); draw(); effectsNow();
   assert.ok(draw().cv, 'open again');

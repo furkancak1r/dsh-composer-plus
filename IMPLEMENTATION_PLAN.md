@@ -97,7 +97,22 @@ test/status-canvas.test.mjs, test/assistant-todos-client.test.mjs, test/browser-
   task after the close).
 - Last passing (after 18337ea9 + the test fix): `npm test` exit 0; unit tests ok; `git diff --check origin/main...HEAD`
   clean; browser-status-canvas PASS on dsh 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5; browser-card-stack PASS on the same three.
-- Open: review round 3 on the merged diff, then merge --no-ff into main, push, delete branch and worktree.
+- review-guard round 3 (separate subagent, HEAD 3dbc4510 vs origin/main 6ad16cb3): **P1 0, P2 0** (review loop done).
+  P3/P4 fixed after it: the focus after a dsh interaction closes the canvas goes to the first *visible* control of the
+  composer seat (dsh keeps its hidden normal composer first), after the close is drawn; the canvas button hides while a
+  dsh question/approval/plan review waits (docs say so in 13 languages); an Auto Review ask that Allow for this chat
+  answers by itself does not close the canvas. Unit checks added.
+- Last passing (2026-11-24 18:4x, after these fixes): `npm test` exit 0; `node test/status-canvas.test.mjs` and
+  `node test/assistant-todos-client.test.mjs` ok; `git diff --check` clean; `test/browser-status-canvas.mjs` and
+  `test/browser-card-stack.mjs` PASS on dsh 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5 (headless, chromiumSandbox true).
+  Command: `PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-status-canvas.mjs <bin>`
+  with bins ~/Documents/testdeepseekharness/work/dsh-0.2.0-rc.2|dsh-0.2.1-rc.2/node_modules/@deepseek-ai/dsh/lib/bin.js
+  and ~/ai-maintenance/dsh-composer-plus/dsh/0.2.2-rc.5/node_modules/@deepseek-ai/dsh/lib/bin.js.
+- Stopped here at about 150 tool calls (Damon's rule). Open steps for the next chat:
+  1. `git fetch origin`; if origin/main moved past 6ad16cb3: merge it, run the checks above, run one review-guard round.
+  2. From the main worktree: `git merge --no-ff feat/assistant-canvas-view`, `git push origin main`.
+  3. Delete the branch (local, and remote if it exists) and remove this worktree folder (`git worktree remove`, no --force).
+  4. Live copy only after Furkan sees the screenshots and writes "tamam". No release, no DSH restart.
 
 # Feature: resizable summary in the Damon status panel (branch feat/resizable-status-summary)
 
