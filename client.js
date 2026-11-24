@@ -4039,8 +4039,11 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const resumed = outage?.resumed ?? new Set();
       const outageNote = (outage?.others ?? 0) === 0 ? null : React.createElement('p', { key: 'outage', className: 'cp-td-empty', 'data-composer-plus-outage': 'note' },
         t('status.outageMore', { time: outageTime, count: outage.others }));
-      /** Gördüm (a Bitti card) and × (a task's Sorun card): hidden in this browser; a new end of the same task shows it. */
+      /** Gördüm (a Bitti card) and × (a task's Sorun card): the Host's dismiss list of this chat (every browser and Tether
+       * leave the card out) and this browser's list (it hides the card at once, and still while the Host call fails, for
+       * example an older Host). A new end of the same task shows it again. */
       const hide = (c) => {
+        fetch(TODOS_ROUTE, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId, action: 'dismiss', task: c.seenKey }) }).catch(() => {});
         // Only the keys of today's ended tasks stay (the stored list does not grow); another window's keys are merged.
         const ended = new Set(parts.ended.map((task) => `${task.id}|${task.ended ?? task.started}`));
         const next = new Set([...readDismissed(), ...dismissed].filter((k) => ended.has(k))); next.add(c.seenKey);
