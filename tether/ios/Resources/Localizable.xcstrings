@@ -5694,6 +5694,40 @@
         }
       }
     },
+    "Notifications only from Damon": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications only from Damon"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildirimler yalnız Damon’dan"
+          }
+        }
+      }
+    },
+    "Only Damon's replies, approvals, questions and errors come. Damon tells you when your other chats and tasks end, so each event gives one notification.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only Damon's replies, approvals, questions and errors come. Damon tells you when your other chats and tasks end, so each event gives one notification."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yalnız Damon’ın yanıtları, onayları, soruları ve hataları gelir. Diğer sohbetlerin ve görevlerin bittiğini Damon söyler, böylece her olay tek bildirim verir."
+          }
+        }
+      }
+    },
     "Notifications while Tether is closed do not work on this iPhone: %@": {
       "extractionState": "manual",
       "localizations": {
