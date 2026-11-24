@@ -100,7 +100,7 @@ try {
   const assistant = { ready: Promise.resolve(), isOn: () => assistantIsOn.on, id: () => 'chat-a', folder };
   const fresh = join(root, 'fresh'); await mkdir(fresh);
   const freshConfig = join(root, 'fresh.json');
-  installAssistantSetup(ctx, { ...assistant, folder: fresh }, mem, { home, apps: [join(root, 'none.app')], configs: [freshConfig] });
+  installAssistantSetup(ctx, { ...assistant, folder: fresh }, mem, { home, dir: join(root, 'setup-dsh'), apps: [join(root, 'none.app')], configs: [freshConfig] });
   const call = async (body) => { const r = await routes.get(ASSISTANT_SETUP_PATH).fetch(new Request(`http://h${ASSISTANT_SETUP_PATH}`, body === undefined ? undefined : { method: 'POST', body: JSON.stringify(body) })); return { status: r.status, body: await r.json() }; };
   let r = await call();
   assert.equal(r.status, 200); assert.equal(r.body.ready, false); assert.equal(r.body.steps.obsidian, false, 'a new user without Obsidian');
@@ -141,6 +141,12 @@ try {
     assert.equal((await req({ importEnded: true })).status, 200);
     req = host(cardDir); // a dsh restart
     assert.equal((await req()).body.importEnded, true, 'Start or Hide is kept after a restart');
+    assert.equal((await lstat(join(cardDir, 'memory-import-card.json'))).mode & 0o777, 0o600, 'owner-only');
+    for (const broken of ['{"ended":"yes"}', '[]', '{broken']) {
+      await writeFile(join(cardDir, 'memory-import-card.json'), broken);
+      assert.equal((await host(cardDir)()).body.importEnded, false, `a broken file reads as not ended: ${broken}`);
+    }
+    assert.throws(() => installAssistantSetup(ctx, assistant, mem, { home }), /dir is required/, 'no default dsh home');
     const oldDir = join(root, 'card-old'); await mkdir(oldDir);
     await writeFile(join(oldDir, 'memory-import.json'), JSON.stringify({ done: {} }));
     assert.equal((await host(oldDir)()).body.importEnded, false, 'no finished file: the card may show');
@@ -172,7 +178,7 @@ try {
   // All or none: when writing AGENTS.md fails, the folder setting and the switch go back and no AGENTS.md stays.
   { const home4 = join(root, 'dsh4'); const mem4 = installMemory({ ...ctx, inject: undefined, connection: { fetch: { register: () => {} } } }, home4); await mem4.ready;
     const f4 = join(root, 'f4'); await mkdir(f4);
-    const s4 = installAssistantSetup({ ...ctx, connection: { fetch: { register: () => {} } } }, { ...assistant, folder: f4 }, mem4, { home, apps: [], configs: [] });
+    const s4 = installAssistantSetup({ ...ctx, connection: { fetch: { register: () => {} } } }, { ...assistant, folder: f4 }, mem4, { home, dir: join(root, 'setup-dsh'), apps: [], configs: [] });
     // AGENTS.md is the user's link to a missing file: Set up says why, changes nothing and keeps the link.
     await symlink(join(root, 'missing-dir', 'x'), join(f4, 'AGENTS.md'));
     await assert.rejects(s4.fix('Memory'), /AGENTS\.md is a link to a missing or empty file/);
@@ -187,7 +193,7 @@ try {
     const f5 = join(root, 'f5'); await mkdir(f5);
     const home5 = join(root, 'dsh5'); const mem5 = installMemory({ ...ctx, inject: undefined, connection: { fetch: { register: () => {} } } }, home5); await mem5.ready;
     const failing = { ...mem5, setup: (plan) => mem5.setup(async (m) => ({ ...(await plan(m)), rules: { path: join(root, 'no-such-dir', 'AGENTS.md'), text: 'x' } })) };
-    const s5 = installAssistantSetup({ ...ctx, connection: { fetch: { register: () => {} } } }, { ...assistant, folder: f5 }, failing, { home, apps: [], configs: [] });
+    const s5 = installAssistantSetup({ ...ctx, connection: { fetch: { register: () => {} } } }, { ...assistant, folder: f5 }, failing, { home, dir: join(root, 'setup-dsh'), apps: [], configs: [] });
     await assert.rejects(s5.fix('Memory'));
     assert.deepEqual(mem5.state(), { on: false, folder: '', folderActive: '' }, 'the folder setting and the switch went back');
     assert.equal(await readFile(join(home5, 'storages/dsh-composer-plus/memory.json'), 'utf8').then((t) => JSON.parse(t).on, () => false), false);
@@ -195,19 +201,19 @@ try {
     // An empty AGENTS.md and a Set up that the memory refuses (review 2026-11-12): the empty file stays, nothing is lost.
     const f6 = join(root, 'f6'); await mkdir(f6); await writeFile(join(f6, 'AGENTS.md'), '');
     const refusing = { ...mem5, setup: async () => { throw Error('the notes are not in the folder yet'); } };
-    const s6 = installAssistantSetup({ ...ctx, connection: { fetch: { register: () => {} } } }, { ...assistant, folder: f6 }, refusing, { home, apps: [], configs: [] });
+    const s6 = installAssistantSetup({ ...ctx, connection: { fetch: { register: () => {} } } }, { ...assistant, folder: f6 }, refusing, { home, dir: join(root, 'setup-dsh'), apps: [], configs: [] });
     await assert.rejects(s6.fix('Memory'), /not in the folder yet/);
     assert.equal(await readFile(join(f6, 'AGENTS.md'), 'utf8'), '', 'the empty AGENTS.md is still there');
     // An empty AGENTS.md and a failure after its write: it goes back to empty (not removed).
     const failAfter = { ...mem5, setup: (plan) => mem5.setup(async (m) => { const step = await plan(m); return { ...step, rules: { ...step.rules, text: (async function* () { yield 'half a file'; throw Error('disk full'); })() } }; }) };
-    const s6b = installAssistantSetup({ ...ctx, connection: { fetch: { register: () => {} } } }, { ...assistant, folder: f6 }, failAfter, { home, apps: [], configs: [] });
+    const s6b = installAssistantSetup({ ...ctx, connection: { fetch: { register: () => {} } } }, { ...assistant, folder: f6 }, failAfter, { home, dir: join(root, 'setup-dsh'), apps: [], configs: [] });
     await assert.rejects(s6b.fix('Memory'));
     assert.equal(await readFile(join(f6, 'AGENTS.md'), 'utf8'), '', 'a failed Set up leaves the empty file as it was');
     // AGENTS.md is a FIFO, or a link swapped in after Set up's own check (AGENTS.md rule 6): the rules step neither blocks
     // nor writes through the link. A red run ends: after 5 s a writer opens the FIFO.
     const f7 = join(root, 'f7'); await mkdir(f7);
     const { execFileSync } = await import('node:child_process'); execFileSync('mkfifo', [join(f7, 'AGENTS.md')]);
-    const s7 = installAssistantSetup({ ...ctx, connection: { fetch: { register: () => {} } } }, { ...assistant, folder: f7 }, mem5, { home, apps: [], configs: [] });
+    const s7 = installAssistantSetup({ ...ctx, connection: { fetch: { register: () => {} } } }, { ...assistant, folder: f7 }, mem5, { home, dir: join(root, 'setup-dsh'), apps: [], configs: [] });
     let unblock; const guard = new Promise((r) => { unblock = setTimeout(async () => { const w = await open(join(f7, 'AGENTS.md'), constants.O_RDONLY | constants.O_NONBLOCK).catch(() => undefined); await w?.close(); r('blocked'); }, 5000); });
     const fifoRun = await Promise.race([s7.fix('Memory').then(() => 'done', () => 'done'), guard]);
     clearTimeout(unblock);
@@ -216,19 +222,19 @@ try {
     const outside = join(root, 'outside.md'); await writeFile(outside, '');
     const f8 = join(root, 'f8'); await mkdir(f8); await writeFile(join(f8, 'AGENTS.md'), '');
     const swapping = { ...mem5, setup: (plan) => mem5.setup(async (m) => { const step = await plan(m); await rm(join(f8, 'AGENTS.md')); await symlink(outside, join(f8, 'AGENTS.md')); return step; }) };
-    const s8 = installAssistantSetup({ ...ctx, connection: { fetch: { register: () => {} } } }, { ...assistant, folder: f8 }, swapping, { home, apps: [], configs: [] });
+    const s8 = installAssistantSetup({ ...ctx, connection: { fetch: { register: () => {} } } }, { ...assistant, folder: f8 }, swapping, { home, dir: join(root, 'setup-dsh'), apps: [], configs: [] });
     await s8.fix('Memory').catch(() => {});
     assert.equal(await readFile(outside, 'utf8'), '', 'nothing is written through a swapped-in link'); }
   // A saved memory folder that is already in the vault is kept (the owner's Hafıza): Set up changes nothing.
   const ownerPlan = []; const owner = { state: () => ({ on: true, folder: join(folder, 'Hafıza'), folderActive: join(folder, 'Hafıza') }), setup: async (plan) => { ownerPlan.push(await plan({ ...owner.state(), names: (at, w) => memoryNamesOf(at, w) })); } };
-  const keep = installAssistantSetup({ ...ctx, connection: { fetch: { register: () => {} } } }, assistant, owner, { home, apps: [app], configs: [config] });
+  const keep = installAssistantSetup({ ...ctx, connection: { fetch: { register: () => {} } } }, assistant, owner, { home, dir: join(root, 'setup-dsh'), apps: [app], configs: [config] });
   assert.equal((await keep.fix('Memory')).ready, true, 'the owner\'s setup passes without a change');
   assert.equal(ownerPlan[0].folder, undefined, 'the owner\'s memory folder stays');
   assert.equal(await readFile(join(folder, 'AGENTS.md'), 'utf8'), '# My rules\n');
   // A saved folder in the vault that cannot hold the notes (a symlink) is replaced by <vault>/<name>.
   { const linkPlan = []; await symlink(join(root, 'other'), join(folder, 'Linked'));
     const bad = { state: () => ({ on: true, folder: join(folder, 'Linked'), folderActive: '', folderProblem: 'is a symbolic link' }), setup: async (plan) => { linkPlan.push(await plan({ ...bad.state(), names: (at, w) => memoryNamesOf(at, w) })); } };
-    await installAssistantSetup({ ...ctx, connection: { fetch: { register: () => {} } } }, assistant, bad, { home, apps: [app], configs: [config] }).fix('Memory');
+    await installAssistantSetup({ ...ctx, connection: { fetch: { register: () => {} } } }, assistant, bad, { home, dir: join(root, 'setup-dsh'), apps: [app], configs: [config] }).fix('Memory');
     assert.equal(linkPlan[0].folder, join(await realpath(folder), 'Memory'), 'a symlinked memory folder is not kept');
     await rm(join(folder, 'Linked')); }
   // Folder names (owner, 2026-11-12): a new memory folder uses the saved (UI language) names; a folder that has its
@@ -294,7 +300,7 @@ try {
     const vCtx = { ...ctx, connection: { fetch: { register: () => {} } }, inject: (deps, setup) => { setup({ tools: { register: (t) => vTools.set(t.name, t) }, systemPrompt: { section: () => {} } }); return { dispose: () => vTools.clear() }; } };
     const vMem = installMemory(vCtx, vHome); await vMem.ready;
     await vaults([vault]);
-    const vSetup = installAssistantSetup(vCtx, { ...assistant, folder: vault }, vMem, { home, apps: [app], configs: [config] });
+    const vSetup = installAssistantSetup(vCtx, { ...assistant, folder: vault }, vMem, { home, dir: join(root, 'setup-dsh'), apps: [app], configs: [config] });
     assert.equal((await vSetup.check()).ready, true, 'the vault is ready');
     assert.match(await vTools.get('memory_remember').execute({ text: 'The user likes tea' }, exec('chat-a', vault)), /^Saved/, 'ready: the assistant chat saves');
     assert.match(await vTools.get('memory_remember').execute({ text: 'The user walks at 7' }, exec('s-sub', vault, 'chat-a')), /^Saved/, 'ready: its subagent saves');
