@@ -224,6 +224,9 @@ const MENTIONS_MERGE_MAIN = [
   "Push feat/a, feat/b and main.",
   "Push the tag, the branch and main.",
   "Push the branch, and main.",
+  // A word with a colon between merge and main (review of 2026-11-13, round 7: the colon stopped the English path).
+  "Merge PR #42 (fix: footer color) into main.",
+  "Merge https://github.com/acme/web/pull/42 into main.",
   // Accepted false positives: a comma does not stop the words between merge or push and main (review of 2026-11-13).
   "Merge the two PRs, then go back to main.",
   "Push the changes, then update main.",
