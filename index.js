@@ -12220,12 +12220,16 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
   const summaries = summaryStore(join(dir, 'assistant-summary.json'));
   const dismissed = dismissStore(join(dir, 'assistant-dismissed.json'));
   const midnight = () => { const d = new Date(now()); d.setHours(0, 0, 0, 0); return d.getTime(); };
+  // ponytail: the same key as the panel's localStorage key. A chat task that the bot keeps (dsh's quit, an outage) takes
+  // its end time from the newest source (live log, saved log, dsh's list time): when that source changes, the key changes
+  // and the card shows again. Upgrade: store the end time once per kept task.
   const endKey = (t) => `${t.id}|${t.ended ?? t.started}`;
   const isOpen = (t) => t.state === 'running' || t.state === 'waiting';
   /** todo_list_remove with `task`: the ended task of chat `id` with that id, else the one ended task with that title (case,
    * accents and spaces left out). A running or waiting task, a title of more than one ended task: refused. */
   const dismissTask = async (id, wanted, reason, signal) => {
     if (!isText(wanted, 200)) throw refused('task is the task id or its title (1 to 200 characters).', 400);
+    // ponytail: the same read as the panel's GET (one read per dismiss), so the tool sees the cards that the user sees.
     const tasks = (await status(id, signal)).tasks ?? [];
     const fold = (s) => foldName(s).replace(/ı/g, 'i').replace(/\s+/g, ' ').trim();
     const byId = tasks.filter((t) => t.id === wanted);
@@ -12277,7 +12281,7 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
         const reason = todoText(args?.reason);
         if (!isText(reason, TODO_LIMITS.reason)) throw refused(`reason is 1 to ${TODO_LIMITS.reason} characters.`, 400);
         // A model can send an empty field that it does not use: "" counts as left out.
-        const given = (v) => v != null && todoText(v) !== '';
+        const given = (v) => typeof v === 'string' && todoText(v) !== '';
         if (given(args?.id) === given(args?.task)) throw refused('Give id (a to-do item) or task (a task card), not both.', 400);
         if (given(args?.task)) return dismissTask(id, todoText(args.task), reason, exec?.signal);
         keepShown(id);

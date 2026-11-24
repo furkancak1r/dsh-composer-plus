@@ -16,7 +16,12 @@ başlatınca sen sil kartı". A failed subagent (HTTP 400) stayed in "Sorun"; Da
 - Code, unit tests, docs committed on the branch. `npm test` exit 0; `node --check`; `git diff --check` clean; no lint script.
 - `test/browser-dismiss-task.mjs` PASS on dsh 0.2.2-rc.5 (headless, chromiumSandbox true). Screenshots:
   ~/Damon/Belgeler/Composer Plus/sorun-karti-20261124/.
-- Open: merge main, review-guard, merge to main + push, delete branch and worktree. No live copy (Furkan "tamam" first).
+- origin/main merged into the branch (conflicts: docs/features.json, llms.txt, tether/FEATURES.md; main removed Tether's
+  card deck, so the Tether row says the Status sheet reads the same GET and needs no change).
+- review-guard round 1 (separate subagent, `git diff origin/main...HEAD`): P1 0, P2 0. P3 fixed: a `chat: true` dismiss
+  test, `task`/`id` must be text, the nudge test with object arguments, `ponytail:` notes (one status read per dismiss; a
+  kept chat task's end time can change source). P4: no change needed.
+- Open: merge to main + push, delete branch and worktree. No live copy (Furkan "tamam" first).
 
 # Fix: Improve prompt "Mesaj iyileştirilirken değişti" (branch fix/prompt-improve-change-warning)
 

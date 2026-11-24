@@ -554,6 +554,14 @@ try {
   assert.equal(assistant.endedTasks.has('s-kept'), false);
   outageLeft('s-kept', 'gone');
   assert.deepEqual((await rowsOf('s-kept')).map((t) => [t.state, t.started, t.result]), [['failed', NOW - 1000, 'outage']], 'the outage feature did not continue it: failed, with the time of its last turn');
+  // A failed delegated chat (chat: true) is dismissed the same way, by its title; it stays out at each next read.
+  {
+    const end = (await rowsOf('s-kept'))[0].ended;
+    assert.match(await assistantAgent.registered.get('todo_list_remove').execute({ task: 'Deploy', reason: 'replacement started' }, { agent: assistantAgent }), /"Deploy" \(failed/);
+    for (let i = 0; i < 2; i++) assert.deepEqual(await rowsOf('s-kept'), [], `a dismissed chat task stays out (read ${i + 1})`);
+    assert.ok(JSON.parse(await readFile(join(dir, 'assistant-dismissed.json'), 'utf8')).chats['s-a'].includes(`s-kept|${end}`), 'its key');
+    await assert.rejects(assistantAgent.registered.get('todo_list_remove').execute({ task: 123, reason: 'x' }, { agent: assistantAgent }), (e) => e.status === 400, 'not a text');
+  }
   // The next day: the ended rows go.
   clock = NOW + 86400000;
   r = await call('?sessionId=s-a');

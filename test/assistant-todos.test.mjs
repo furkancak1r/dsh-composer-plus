@@ -207,6 +207,12 @@ assert.match(STATUS_SECTION, /decision queue[^\n]*bold line "Seçenekler:" \(Eng
   event({ id: 's-a' }, { type: 'tool/call', data: { name: 'todo_list_remove', callId: 'c2', arguments: JSON.stringify({ task: 'Build', reason: 'replacement started' }) } });
   event({ id: 's-a' }, { type: 'turn/end', data: { reason: { kind: 'completed' } } });
   assert.equal(ctxEntry.text({ agent: assistantAgent }), TODO_NUDGE, 'a task dismiss is no list change');
+  // The arguments as an object (not a JSON string) too.
+  event({ id: 's-a' }, { type: 'turn/start' });
+  event({ id: 's-a' }, { type: 'tool/call', data: { name: 'subagent', callId: 'c3' } });
+  event({ id: 's-a' }, { type: 'tool/call', data: { name: 'todo_list_remove', callId: 'c4', arguments: { task: 'Build', reason: 'reported' } } });
+  event({ id: 's-a' }, { type: 'turn/end', data: { reason: { kind: 'completed' } } });
+  assert.equal(ctxEntry.text({ agent: assistantAgent }), TODO_NUDGE, 'object arguments: no list change either');
   turn({ id: 's-a' }, []);
   turn({ id: 's-a' }, ['chats_list', 'memory_recall']);
   assert.equal(ctxEntry.text({ agent: assistantAgent }), '', 'no work started: no nudge');
