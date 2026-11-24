@@ -80,6 +80,31 @@ test/status-canvas.test.mjs, test/assistant-todos-client.test.mjs, test/browser-
 - Screenshots: /Users/furkancakir/Damon/Belgeler/Composer Plus/tuval-20261124/{1-chat-before,2-canvas-open,3-canvas-pan-zoom,4-chat-after}.png
 - Open: phase 2 (merge main, review loop, merge --no-ff, push, delete branch and worktree).
 
+# Fix: Damon clears a failed task card; X is kept across browsers (branch fix/dismiss-failed-status-task)
+
+Furkan 2026-11-24: "ben sana bunu gönderdim hala listede duruyor imdat" and "ben bu görevi sana verince sen görevi
+başlatınca sen sil kartı". A failed subagent (HTTP 400) stayed in "Sorun"; Damon had no way to remove it.
+
+## Decision
+- Tool: an optional `task` field on `todo_list_remove` (id or task, not both), not a new tool: no new entry in TODO_TOOLS,
+  the free allowlist, the subagent deny list or the prompt tool list. `task` = task id, or the exact title from the
+  "Görev:"/"Task:" line that statusInsert writes (one ended task must match). No id is added to statusInsert's text: its
+  table (test/fixtures/status-insert.json, Tether XCTest) says "never an id", and the title is enough.
+- Host list: `assistant-dismissed.json` `{chats: {<chat>: ["<task id>|<end>"]}}`, today's keys only, ≤ 200 per chat; GET
+  leaves those ended tasks out. `POST {sessionId, action: "dismiss", task}` for the panel's ×. localStorage stays as fallback.
+- Tether reads the same GET: dismissed cards are gone there too; its own Seen stays per phone (gap row in tether/FEATURES.md).
+
+## Last checkpoint (2026-11-24)
+- Code, unit tests, docs committed on the branch. `npm test` exit 0; `node --check`; `git diff --check` clean; no lint script.
+- `test/browser-dismiss-task.mjs` PASS on dsh 0.2.2-rc.5 (headless, chromiumSandbox true). Screenshots:
+  ~/Damon/Belgeler/Composer Plus/sorun-karti-20261124/.
+- origin/main merged into the branch (conflicts: docs/features.json, llms.txt, tether/FEATURES.md; main removed Tether's
+  card deck, so the Tether row says the Status sheet reads the same GET and needs no change).
+- review-guard round 1 (separate subagent, `git diff origin/main...HEAD`): P1 0, P2 0. P3 fixed: a `chat: true` dismiss
+  test, `task`/`id` must be text, the nudge test with object arguments, `ponytail:` notes (one status read per dismiss; a
+  kept chat task's end time can change source). P4: no change needed.
+- Open: merge to main + push, delete branch and worktree. No live copy (Furkan "tamam" first).
+
 # Fix: Improve prompt "Mesaj iyileştirilirken değişti" (branch fix/prompt-improve-change-warning)
 
 Owner report 2026-11-23: the wand says "The message changed while it was improved, so it was not replaced." although the
@@ -3592,3 +3617,65 @@ Checkpoint 2026-11-23 ~16:10 (new chat):
 - origin/main 6361c44 merged into the branch (74bac53, no conflict). test/browser-agentbox-ideas.mjs now launches Chromium with `headless: true, chromiumSandbox: true`.
 - Last passing (after the merge): `npm test` exit 0; `PLAYWRIGHT=<playwright 1.58> node test/browser-<name>.mjs <dsh 0.2.2-rc.5 bin>` PASS for card-stack, assistant-todos, assistant-chat-tasks, status-refresh, agentbox-ideas; card-stack also PASS on 0.2.0-rc.2 and 0.2.1-rc.2 (before the merge). No SHOT run; no asset changed. Screenshots not taken again: no fix of rounds 2–3 changes the panel view.
 - Next: merge this branch into main (merge commit after this commit) and push main. No live copy, no release, no npm publish; the branch and the worktree stay.
+
+# Fix: Tether, no status cards in the Damon chat (branch fix/tether-remove-status-cards, base main 5f6d852)
+
+Request (Furkan, 2026-11-24, Assistant chat): "tetherdaki kartları kaldırsana ekran görünmüyor kartlardan dolayı ya".
+Damon's decision: remove the card stack from the Tether Damon chat; approval from the phone keeps working; the desktop
+status panel does not change; the difference goes into tether/FEATURES.md.
+
+Verified before the change: the deck was `CardDeck` in the top `safeAreaInset` of `ConversationView` (UI.swift:645 at
+5f6d852). In the Damon chat the inline `ApproveButtons` were off only because of `approval: damonChat ? nil : approval`
+(UI.swift:798). So the Approve button did not need a new bar: without that condition the Damon chat uses the same inline
+button as every chat (`Client.approve`, testApproveClient, test/tether-approve.test.mjs).
+
+Change: CardDeck removed from the screen and deleted (with `cardsOff`, `cardsSeen`, `markCardSeen`, `cardsNewSince`,
+`cardsFolded`, `deckText`); DeckView, statusCards, statusQueue stay (XCTests and tables shared with client.js). Status
+sheet: title menu → Status (Damon chat, `assistant-todos`). New XCTest `testDamonChatScreen` (PNG only with SHOT_DIR).
+Docs: tether/FEATURES.md (assistantTodos row, gaps), tether/README.md, docs/features.json + llms.txt.
+
+Checks (last passing): `npm test` exit 0; `cd tether/ios && xcodebuild -project DSHMobile.xcodeproj -scheme DSHMobile
+-destination 'platform=iOS Simulator,id=A5766181-4A27-457E-81C2-DFDE4A0F018F' -derivedDataPath ../build/DerivedData test
+CODE_SIGNING_ALLOWED=NO` 117 tests, 0 failures; `node scripts/build-docs.mjs --check`; `git diff --check`. Red first:
+test/tether-status.test.mjs failed on `CardDeck(` before the change.
+Screenshots (headless XCTest render, TEST_RUNNER_SHOT_DIR): ~/Damon/Belgeler/Composer Plus/tether-kartlar-20261124/.
+Review round 1 (separate subagent): P1 0, P2 1 (stale llms sentence), P3 2, P4 2; all fixed.
+Auto review denied the first `git commit` on the branch (not retried).
+
+Last checkpoint (2026-11-24 14:05, after Furkan's approval of the commit, merge and push):
+- Review round 2 (separate subagent, as the branch chat reported it): P1 0, P2 0, one P4: the Tether string
+  `cards.doneMessage` had no use after CardDeck was deleted. Fixed: the key is removed from
+  tether/ios/Resources/Localizable.xcstrings (its en and tr values). Grep: Tether Swift, Tether tests and Tether docs
+  have no other use. The web UI key of the same name (client.js `sendenAct`, locales/*.json, the Mac tests) stays: the
+  Mac status panel still uses it.
+- Checks after this fix (all pass): `npm test` exit 0; the xcodebuild command above: 117 tests, 1 skipped
+  (testCardDeckScreenshots without SHOT_DIR), 0 failures, TEST SUCCEEDED; `node scripts/build-docs.mjs --check`
+  (15 files); `git diff --check`.
+- Open items: none in this branch. Not in this work: the live desktop copy, a Tether build or install on the iPhone,
+  a release (each needs its own approval).
+- Next: commit on the branch, merge into main (--no-ff), push main, then remove the branch and its worktree.
+
+## Fix: memory import card comes back at each switch (2026-11-24, fix/memory-import-card-persist)
+
+- Report (Furkan, Damon chat): "her geçişte şu hafıza olayı geliyor yapmama rağmen geliyor düzelt". Screenshot: the card "Önceki hafızanızı aktarın" (Başlat, Gizle) in the Damon chat, picker on "Furkan MacB..." (remote Mac).
+- Cause: the only done record was browser localStorage (client.js `IMPORT_DONE_KEY`, `createFlag`). The remote Mac's page is a `<webview>` with partition `dsh-sidebar-browser-${randomUUID()}` (DSH 0.2.2-rc.5 app.asar lib/main.js line 18109, `DesktopBrowserGuests.acquire`; no `persist:`, new at each DSH start) and the origin `http://127.0.0.1:<listen(0) port>` (tether/gateway/server.mjs createRelay). Its storage starts empty, so the card shows again.
+- Fix: the Host keeps the end (`POST /api/composer-plus.assistant-setup {importEnded: true}` → memory-import-card.json; GET `importEnded`, also true when memory-import.json has a finished file). The client hides the card on `importEnded`, and sends Start, Hide or an older local click to the Host.
+- Tether: no memory import card on the phone; gap row in tether/FEATURES.md.
+- Last checkpoint: commit 5d7bf053 on the branch. Screenshots: ~/Damon/Belgeler/Composer Plus/hafiza-karti-20261124/once-yeni-sayfa.png (card shows on a page with new storage, old code) and sonra-yeni-sayfa.png (no card, new code).
+- Last passing checks: `npm test` exit 0; `PLAYWRIGHT=<Mergen>/node_modules/playwright node test/browser-assistant-welcome.mjs <dsh bin>` PASS on 0.2.2-rc.5, 0.2.0-rc.2, 0.2.1-rc.2 (step 3b red on the old code: "a page with new storage: Hide stays", 1 !== 0).
+- Review: round 1 (review-guard, separate subagent): P1 0, P2 0; P3 fixed (required dir, README limits in 13 languages), P4 fixed (MEMORY_IMPORT_FILE, tests). Round 2: P1 0, P2 0, P3 0; P4 fixed (one JSDoc block). Not done here (round 2 P4, pre-existing): the setup card Hide is still kept only in browser storage (setupHidden).
+- Merged origin/main 3b13f9db (conflicts in IMPLEMENTATION_PLAN.md and tether/FEATURES.md: both sides kept).
+- Open: merge --no-ff into main, push, delete branch and worktree. Live copy only after Furkan sees the screenshots and writes "tamam".
+
+## Sürüyor filter: running work vs Damon's to-dos (2026-11-24, feat/status-running-todo-filter, from main 5f6d852; main 3b13f9db merged in)
+
+Objective (Furkan, 2026-11-24): "sürüyor kısmında damonın yapacağı ve aktif devam eden işler birleşik görünüyor bir şekilde filtre gibi ayrılması lazım"; later "tümü seçeneğine gerek yok". Both kinds stay in Sürüyor; Furkan must see the difference at once.
+
+- Invariants: the split uses only the state that the status answer has (`card.task.state === 'running'`; an item with a running task's words is that card, statusCards). No text guess. Waiting items stay in Senden. The other groups, the count bar, statusCards and its shared table (`test/fixtures/status-cards.json`) do not change. Tether does not change (gap row in `tether/FEATURES.md`).
+- Done: client.js `RUN_FILTER_KEY` (`dsh-composer-plus.status-running-filter`: running | todo, default running), two chips (`cp-cs-chip`, aria-pressed, role=group), header "Sürüyor 3 · sırada 6" (`cards.queued`), running mark ● that pulses (still with reduced motion), texts `cards.queue`/`cards.queued` in en, zh and 11 locales; docs/features.json (13 languages, llms) + build:readme.
+- Tests: test/assistant-todos-client.test.mjs (filter block + old checks on the new default), test/browser-running-filter.mjs (new; fixture through page.route: 3 running, 6 to-dos), test/browser-assistant-todos.mjs starts on "todo".
+- Checks (last good): `npm test` exit 0; `git diff --check` ok; `PLAYWRIGHT=<Mergen playwright 1.58> node test/browser-running-filter.mjs <0.2.0-rc.2> <0.2.1-rc.2> <0.2.2-rc.5>` PASS ×3; browser-assistant-todos, browser-assistant-chat-tasks, browser-card-stack PASS on 0.2.2-rc.5.
+- Screenshots: ~/Damon/Belgeler/Composer Plus/suruyor-filtre-20261124/suruyor-calisiyor.png, suruyor-damonin-sirasi.png.
+- Open steps: merge main into the branch, review-guard loop (diff > 3 files: until no P1/P2), merge --no-ff into main, push, delete the branch and the worktree. Live copy only after Furkan's "tamam".
+- Review round 1 (review-guard subagent, main...HEAD): P1 0, P2 0, P3 3, P4 6. Fixed: the count bar counts only what runs, then "sırada N" (P3); an empty chip shows cards.filterEmpty (P3); fr/ja/vi cards.queued no longer read as "waits for you" (P3); functional folds update, one predicate, a brighter cp-cs-run pulse, hi wording, the plan's base (P4). Kept: "· sırada 0" in the group header (the spec example); fr/de chip label = group label (accurate).
+- Last checkpoint: review fixes committed; after them `npm test` exit 0, browser-running-filter PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5; browser-card-stack, browser-assistant-todos, browser-assistant-chat-tasks PASS on 0.2.2-rc.5. Next: merge --no-ff into main and push.

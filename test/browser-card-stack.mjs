@@ -1,7 +1,7 @@
 // Real-app check of the Damon card stack on each dsh given (scripts/demo-card-stack.mjs: a throwaway DSH_HOME and HOME,
 // a fake model on 127.0.0.1, made-up projects and items). Headless, with Chromium's sandbox. Never the user's dsh home.
 // 1. The Damon chat shows the card stack at the right of the chat by default (inside dsh's chat body, over no message,
-//    not in dsh's right sidebar): the count bar "1 onay · 1 sorun · 2 senden · 3 sürüyor · 2 bitti" (Turkish UI), then Onay, Sorun, Senden,
+//    not in dsh's right sidebar): the count bar "1 onay · 1 sorun · 2 senden · 2 sürüyor · sırada 1 · 2 bitti" (Turkish UI), then Onay, Sorun, Senden,
 //    Sürüyor, Bugün bitti (folded) and Notların (folded), in that order.
 // 2. The Onay card shows the whole approval sentence with one Onayla; there is no Approve button under Damon's reply,
 //    and the sentence stays in the reply as gray text (no code block).
@@ -120,7 +120,8 @@ try {
       assert.deepEqual(await sideFaults(page, sessionId), [], 'at the right of the chat, over no message');
       const counts = stack.locator('[data-composer-plus-counts]');
       // dsh before 0.2.2 has no background subagents: the two long tasks of the seed end at once there.
-      const want = background ? '1 onay · 1 sorun · 2 senden · 3 sürüyor · 2 bitti' : '1 onay · 1 sorun · 2 senden · 1 sürüyor · 4 bitti';
+      // Sürüyor counts what runs; Damon's item without a task is "sırada" (the Sürüyor filter, 2026-11-24).
+      const want = background ? '1 onay · 1 sorun · 2 senden · 2 sürüyor · sırada 1 · 2 bitti' : '1 onay · 1 sorun · 2 senden · sırada 1 · 4 bitti';
       await until(async () => (await counts.innerText()).trim() === want, `the count bar (${await counts.innerText()})`, 20000);
       const order = await stack.evaluate((el) => [...el.querySelectorAll('[data-card="onay"][role="region"], section[data-group]')].map((n) => n.dataset.card ?? n.dataset.group));
       assert.deepEqual(order, ['onay', 'sorun', 'senden', 'suruyor', 'bitti', 'notes'], 'the order of the stack');

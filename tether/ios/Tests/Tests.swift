@@ -1727,6 +1727,35 @@ final class AgentboxIdeasTests: XCTestCase {
         XCTAssertEqual(assistantName, "Damon")
     }
 
+    /// The Damon chat with a waiting approval (made-up data, Turkish words): a smoke test that the screen draws with the
+    /// offer. test/tether-status.test.mjs guards that no card deck shows and that the Damon chat passes the approval to its
+    /// rows (the Onayla button under the reply). With SHOT_DIR set (run with TEST_RUNNER_SHOT_DIR=<dir>,
+    /// TEST_RUNNER_SHOT_NAME=<file>), it writes the whole screen as a PNG.
+    @MainActor func testDamonChatScreen() throws {
+        let c = Client(), strings = uiStrings
+        c.macLang = "tr"; defer { c.macLang = nil; uiStrings = strings }
+        c.plus = ["assistant-todos", "assistant-status"]; c.setAssistantIdForTest("damon")
+        c.sessions = [Sess(["sessionId": "damon", "projections": ["values": ["title": "Damon"]]])!]
+        c.state = .connected; c.current = "damon"; c.path = ["damon"]
+        let ask = "Onaylıyorum: acme-web dalını main'e al ve push et, canlı değil."
+        c.replaySnapshot(turn(1, "acme-web testleri ne durumda?", "acme-web testleri geçti. Dal main'e alınmaya hazır.")
+            + turn(10, "Tamam, main'e al.", "Birleştirme için onayın gerekiyor.\n\n```onay\n\(ask)\n```\n"))
+        c.optionsFrom = 0
+        XCTAssertEqual(c.approvalOffer?.sentences, [ask])
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let w = UIWindow(windowScene: scene)
+        defer { w.isHidden = true }
+        w.overrideUserInterfaceStyle = .light
+        w.rootViewController = UIHostingController(rootView: NavigationStack { ConversationView() }.environmentObject(c).environment(\.locale, Locale(identifier: "tr_TR")))
+        w.makeKeyAndVisible(); RunLoop.main.run(until: Date().addingTimeInterval(2))
+        // ponytail: a unit test gets no accessibility tree from SwiftUI, so it cannot read the button; the screenshot shows it.
+        guard let dir = ProcessInfo.processInfo.environment["SHOT_DIR"], !dir.isEmpty else { return }
+        let img = UIGraphicsImageRenderer(bounds: w.bounds).image { _ in _ = w.drawHierarchy(in: w.bounds, afterScreenUpdates: true) }
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let name = ProcessInfo.processInfo.environment["SHOT_NAME"] ?? "tether-damon.png"
+        try XCTUnwrap(img.pngData()).write(to: URL(fileURLWithPath: dir).appendingPathComponent(name))
+    }
+
     /// Assistant callouts: a quote that starts with a marker is one box (its later quote lines too); [!DETAILS] keeps its
     /// summary; an unknown marker, a marker after text and a plain quote stay quotes.
     func testCallouts() {

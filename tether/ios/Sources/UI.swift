@@ -631,8 +631,8 @@ struct ConversationView: View {
     private var macSubtitle: String { c.pairings.count > 1 ? c.pairing?.title ?? "" : "" }
     /// Damon's chat: the Mac switch takes the place of Back.
     private var damon: Bool { c.current != nil && c.current == c.assistantId }
-    /// Damon's chat with the card deck (it has the Approve button; other chats keep it under the reply).
-    private var damonChat: Bool { damon && c.plus.contains("assistant-todos") && !c.cardsOff }
+    /// Damon's Status sheet (title menu → Status).
+    @State private var showStatus = false
     var body: some View {
         // no stale chat while unreachable: the Mac is the source of truth and every action would fail anyway
         Group { if c.state == .connected || c.state == .connecting { transcript } else { OfflineView() } }
@@ -641,8 +641,7 @@ struct ConversationView: View {
                     if c.state == .connecting { ConnBanner() }
                     // Branch per chat: the chat's git branch, its changes and push state; a tap opens Changes.
                     if let b = c.branch { BranchBar(state: b) { if c.plus.contains("changes") { showChanges = true } } }
-                    // Damon's card stack (the Mac's Durum panel as cards): the Status sheet opens from its count bar.
-                    if damon, c.plus.contains("assistant-todos"), c.state == .connected, let id = c.current { CardDeck(sessionId: id, typing: !(text.isEmpty && images.isEmpty && files.isEmpty)) }
+                    // No card deck here (Furkan, 2026-11-24: the cards covered the chat). The Approve button is under the reply.
                 }
             }
             .navigationTitle(c.currentSess?.title ?? String(localized: "Conversation"))
@@ -676,6 +675,7 @@ struct ConversationView: View {
                             Button { c.run { try await c.revokeGrants(id) } } label: { Label("\(g.count) tool(s) allowed · Revoke", systemImage: "checkmark.shield") }
                         }
                         Button { finding = finding ?? ""; findAt = 0; findFocused = true } label: { Label("Find in chat", systemImage: "magnifyingglass") }
+                        if damon, c.plus.contains("assistant-todos") { Button { showStatus = true } label: { Label(String(localized: "status.title", defaultValue: "Status", bundle: uiStrings), systemImage: "checklist") } }
                         if c.plus.contains("changes") { Button { showChanges = true } label: { Label("Changes", systemImage: "plusminus") } }
                         if c.plus.contains("ideas") { Button { showIdeas = true } label: { Label("Feature ideas", systemImage: "lightbulb") } }
                         if c.plus.contains("memory-edit") { Button { showMemory = true } label: { Label("Project memory", systemImage: "brain") } }
@@ -710,6 +710,7 @@ struct ConversationView: View {
             .sheet(isPresented: $showSide) { if let id = c.current { SideChatSheet(sessionId: id) } }
             .sheet(isPresented: $showContext) { if let id = c.current { ContextSheet(sessionId: id) } }
             .sheet(isPresented: $showBoard) { BoardSheet(project: boardProjectOf(c.current ?? "", workspaces: c.workspaces)) }
+            .sheet(isPresented: $showStatus) { if let id = c.current { StatusSheet(sessionId: id) } }
             // Task board → +: the new chat opened here; its first message went, so the board opens again.
             .onChange(of: c.boardBack) { _, back in if back { c.boardBack = false; showBoard = true } }
             .sheet(item: $rollingBack) { l in RollbackSheet(line: l) { t in if text.isEmpty { put(t, focus: true) } } }
@@ -794,8 +795,7 @@ struct ConversationView: View {
                             switch row {
                             // A Section with its own header id: no modifier here, or each part of the Section gets it.
                             case .steps(let ls, let live): StepsView(lines: ls, live: live && !c.answering) { keepHeader(proxy, $0) }
-                            // Damon's chat: the card deck holds the Approve button, so no button here and the sentence stays plain gray text.
-                            default: lineRow(row, findIndex, hits.count, approval: damonChat ? nil : approval)
+                            default: lineRow(row, findIndex, hits.count, approval: approval)
                             }
                         }
                         // A message on its way to the Mac: shown at once, faded, until the Mac's copy replaces it.
@@ -4594,7 +4594,10 @@ struct StatusSheet: View {
 
 // MARK: - Damon card stack (Composer Plus `statusCards`)
 
-/// What a tap in the deck asks for; `CardDeck` does it (the pure `DeckView` only draws).
+/// What a tap in the deck asks for (the pure `DeckView` only draws).
+/// ponytail: the deck is not on screen since 2026-11-24 (Furkan: the cards covered the chat); its stateful CardDeck view
+/// is deleted (git history has it). DeckView stays only for testCardDeckScreenshots; statusCards and statusQueue keep the
+/// tables shared with client.js. Delete DeckView too when no phone card view comes back.
 enum DeckAction { case ask(StatusCard), done(StatusCard), reply(StatusCard), watch(StatusCard), seen(StatusCard), write(StatusCard), approve(String), projects, pick(Int), later(String) }
 
 /// The deck as the Mac's Durum panel shows it, drawn from data (no Client): the count bar, the Onay card (at most one),
@@ -4985,103 +4988,3 @@ struct DeckView: View {
         .accessibilityElement(children: .contain)
     }
 }
-
-/// The deck in Damon's chat: reads the status answer (the same GET as StatusSheet), keeps what the phone remembers (Seen,
-/// the time the Bitti group was folded) and does what a tap asks for. One approval path: the confirmation of
-/// `ApproveButtons`, then `Client.approve`.
-struct CardDeck: View {
-    @EnvironmentObject var c: Client
-    let sessionId: String
-    /// You type: the deck closes and the Onay card is one line.
-    let typing: Bool
-    @State private var answer: J?
-    @State private var open = false
-    @State private var doneOpen = false
-    @State private var notesOpen = false
-    @State private var seq = 0
-    @State private var seen = Set<String>()
-    @State private var newSince = Date(timeIntervalSince1970: 0)
-    @State private var showProjects = false
-    /// The chat, the offer on screen and the sentence of the tap: a newer block or a news turn while the confirmation shows
-    /// sends nothing (`Client.approve` compares the offer), as with `ApproveButtons`.
-    @State private var asking: (sid: String, offer: ApprovalOffer, sentence: String)?
-    @State private var tick = Date()
-    /// Phase 2: the open deck's view ("stack", "queue", "brief"), the entry on screen, the keys that you moved to the end
-    /// with Later (not stored), and the entry keys that showed while the deck was on screen (for "x/y answered").
-    @AppStorage("cardView") private var view = "stack"
-    @State private var queueIndex = 0
-    @State private var later: [(key: String, ident: String)] = []
-    @State private var queueSeen = Set<String>()
-
-    private var offer: ApprovalOffer? { c.approvalOffer }
-    private var cards: StatusCards { statusCards(answer ?? [:], now: tick, approvals: offer?.sentences.count ?? 0, seen: seen, newSince: newSince) }
-    private var choice: OptionOffer? { c.optionOffer }
-    private var queue: [QueueEntry] { statusQueue(cards, sentences: offer?.sentences ?? [], options: (choice?.options ?? []).map(\.label), later: later.filter { identOf($0.key) == $0.ident }.map(\.key)) }
-    /// What an entry says now: a new sentence or a new option list is a new entry for Later (client.js identOf).
-    private func identOf(_ key: String) -> String {
-        switch key {
-        // The answer that holds the block (`from`), not the offer's seq: a [quiet] news turn moves the seq, not the entry.
-        case "onay": "onay|\(offer.map { String($0.from) } ?? "")|\((offer?.sentences ?? []).joined(separator: "\n"))"
-        case "karar": "karar|\(choice.map { String($0.seq) } ?? "")|\((choice?.options ?? []).map(\.text).joined(separator: "\n"))"
-        default: key
-        }
-    }
-    /// One count per entry; a newer option list is a new entry (client.js countKey).
-    private func countKey(_ e: QueueEntry) -> String { e.kind == "karar" ? "karar|\(choice?.seq ?? 0)" : e.key }
-    var body: some View {
-        let w = approveWords(macLang: c.macLang)
-        let q = queue, keys = Set(q.map(countKey))
-        DeckView(cards: cards, sentences: offer?.sentences ?? [], loaded: answer != nil, off: c.cardsOff, now: tick, b: uiStrings, locale: c.uiLocale, compact: typing,
-                 busy: c.optionBusy.contains(sessionId), maxHeight: UIScreen.main.bounds.height * 0.7,
-                 mode: $view, queue: q, options: choice?.options ?? [], answered: queueSeen.subtracting(keys).count, answeredTotal: queueSeen.union(keys).count, index: $queueIndex,
-                 open: $open, doneOpen: $doneOpen, notesOpen: $notesOpen, act: act)
-            .background(.bar)
-            .onChange(of: keys, initial: true) { _, k in queueSeen.formUnion(k) }
-            .onChange(of: typing) { _, t in if t { open = false } }
-            .onChange(of: doneOpen) { _, o in if !o { c.cardsFolded(); newSince = c.cardsNewSince } }
-            .sheet(isPresented: $showProjects) { StatusSheet(sessionId: sessionId) }
-            .confirmationDialog(Text(verbatim: w.confirm), isPresented: Binding(get: { asking != nil }, set: { if !$0 { asking = nil } }), titleVisibility: .visible, presenting: asking) { a in
-                Button(w.button) { c.run(waits: false) { try await c.approve(a.sid, a.offer, a.sentence) } }
-                Button(w.cancel, role: .cancel) {}
-            } message: { a in Text(verbatim: a.sentence) }
-            .task(id: sessionId) { answer = nil; later = []; queueSeen = []; queueIndex = 0; c.cardsOff = false; seen = c.cardsSeen(); newSince = c.cardsNewSince; await load() }
-            .onDisappear { c.cardsOff = false }
-            // The same reads as StatusSheet: every 5 s while a task runs, and once after a turn ends.
-            .task(id: running) {
-                while !Task.isCancelled, running {
-                    try? await Task.sleep(for: .seconds(5))
-                    if Task.isCancelled { return }
-                    await load()
-                }
-            }
-            .onChange(of: c.running) { was, now in if was && !now { Task { await load() } } }
-            // Wait times, Overdue, the approval's age and the day's end change while nothing runs: draw again once a minute.
-            .task { while !Task.isCancelled { try? await Task.sleep(for: .seconds(60)); if !Task.isCancelled { tick = Date() } } }
-    }
-    private var running: Bool { (answer?["tasks"] as? [J] ?? []).contains { $0["state"] as? String == "running" } }
-    private func load() async {
-        seq += 1; let mine = seq
-        guard let a = try? await c.loadStatusAnswer(sessionId), mine == seq else { return }
-        answer = a; tick = Date(); c.cardsOff = a["on"] as? Bool == false
-    }
-    private func act(_ a: DeckAction) {
-        let locale = c.uiLocale
-        let span = { (t: TimeInterval) in Duration.seconds(max(0, t)).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .abbreviated, maximumUnitCount: 1).locale(locale)) }
-        switch a {
-        case .projects: showProjects = true
-        case .later(let key): later = later.filter { $0.key != key } + [(key, identOf(key))]
-        case .pick(let n): if let o = choice { UISelectionFeedbackGenerator().selectionChanged(); c.run(waits: false) { try await c.pickOption(o, n) } }
-        case .approve(let s): if let o = offer { UISelectionFeedbackGenerator().selectionChanged(); asking = (sessionId, o, s) }
-        case .ask(let card), .reply(let card), .write(let card):
-            // The outage line, as on the Mac: today's newest outage continued this card's task (statusView's rule).
-            let out = answer.flatMap { statusView($0, now: Date()).outage }
-            let time = card.task.flatMap { t in out.flatMap { $0.resumed.contains(t.id) ? $0.at.formatted(date: .omitted, time: .shortened) : nil } }
-            c.writeDraft(deckText(card, outage: time, span: span), sessionId)
-        case .done(let card):
-            c.writeDraft(String(localized: "cards.doneMessage", defaultValue: "Done: \(card.title)", bundle: uiStrings), sessionId)
-        case .watch(let card): if let t = card.task { c.open(t.id) }
-        case .seen(let card): if let k = card.seenKey { c.markCardSeen(k); seen = c.cardsSeen() }
-        }
-    }
-}
-// END CardDeck
