@@ -370,19 +370,43 @@ find(dTree, (n) => n.t === 'button' && n.p.className === 'cp-st-link')[0].p.onCl
   // A broken or too small saved value: the default, or the minimum.
   mem.set(KEY, 'abc'); rt.clear(); assert.equal(cardOf(panel()).p.style.maxHeight, 126, 'not a number: the default');
   mem.set(KEY, '5'); rt.clear(); assert.equal(cardOf(panel()).p.style.maxHeight, 92, 'too small: the minimum');
-  // The room: the panel's max-height (a huge height is cut to it) less its other parts and up to 96 px of the cards. A
-  // drag stops there, and a saved height that does not fit shows at the room's size (it stays saved).
+  // The room: the panel's max-height (a hidden probe with the panel's max-height in the panel's parent) less the panel's
+  // other parts and up to 96 px of the cards; measured after each draw. A drag and a key stop there, a saved height that
+  // does not fit shows at the room's size (it stays saved), and a change of 1 px or less draws nothing again.
   {
-    const panelEl = { style: {}, get offsetHeight() { return this.style.height === '9999px' ? 600 : 400; } };
-    const fixedEl = { offsetHeight: 250, scrollHeight: 250 }; const bodyEl = { offsetHeight: 149, scrollHeight: 500 };
-    panelEl.querySelector = (sel) => (sel === '.cp-st-body' ? bodyEl : null);
-    Object.assign(handle, { parentElement: fixedEl, closest: (sel) => (sel === '[data-composer-plus-todos]' ? panelEl : null) });
-    el.offsetHeight = 120; down(0); on.pointermove({ type: 'pointermove', clientY: 2000 }); on.pointerup({ type: 'pointerup' });
-    assert.equal(mem.get(KEY), '373', 'at most the room: 600 - (400 - 250 - 149 + 250 - 120 + 96)'); assert.equal(panelEl.style.height, undefined, 'the panel height is put back');
-    mem.set(KEY, '500'); rt.clear(); gripOf(panel()).p.onFocus({ currentTarget: handle }); tr = panel();
+    const parent = { append: (el) => { el.parent = parent; } };
+    const panelEl = { offsetHeight: 400, parentElement: parent }; const fixedEl = { offsetHeight: 250, scrollHeight: 250, parentElement: panelEl };
+    const bodyEl = { offsetHeight: 149, scrollHeight: 500 }; fixedEl.nextElementSibling = bodyEl;
+    const probes = [];
+    globalThis.getComputedStyle = (el) => ({ maxHeight: el === panelEl ? 'calc(100% - 180px)' : 'none' });
+    document.createElement = () => { const probe = { style: {}, remove() { probe.removed = true; }, get offsetHeight() { return /max-height:calc\(100% - 180px\)/.test(probe.style.cssText) ? 600 : 0; } }; probes.push(probe); return probe; };
+    Object.assign(handle, { parentElement: fixedEl });
+    el.offsetHeight = 120;
+    gripOf(panel()).p.ref.current = handle; tr = panel(); // the layout effect measures after the draw
+    assert.ok(probes.length > 0 && probes.every((x) => x.removed && x.parent === parent && /position:absolute;visibility:hidden/.test(x.style.cssText)), 'a hidden probe, removed at once');
+    tr = panel(); const room = gripOf(tr).p['aria-valuemax'];
+    assert.equal(room, 373, 'the room: 600 - (400 - 250 - 149 + 250 - 120 + 96)');
+    down(0); on.pointermove({ type: 'pointermove', clientY: 2000 }); on.pointerup({ type: 'pointerup' });
+    assert.equal(mem.get(KEY), '373', 'a drag stops at the room');
+    key('ArrowDown'); assert.equal(mem.get(KEY), '373', 'Down stops at the room');
+    mem.set(KEY, '500'); rt.clear(); gripOf(panel()).p.ref.current = handle; panel(); tr = panel();
     assert.equal(cardOf(tr).p.style.maxHeight, 373, 'a saved height that does not fit: the room'); assert.equal(mem.get(KEY), '500', 'it stays saved');
-    assert.equal(gripOf(tr).p['aria-valuemax'], 373); assert.equal(gripOf(tr).p['aria-valuenow'], 373);
-    Object.assign(handle, { parentElement: undefined, closest: () => null });
+    assert.equal(gripOf(tr).p['aria-valuenow'], 373);
+    // The card is 1 px taller (rounding): the room stays (no new value, no loop).
+    el.offsetHeight = 121; tr = panel(); assert.equal(gripOf(tr).p['aria-valuemax'], 373, 'a 1 px change keeps the room');
+    // The Onay card grows by 60 px: the next draw gives a smaller room.
+    fixedEl.scrollHeight = 310; fixedEl.offsetHeight = 310; panelEl.offsetHeight = 460; tr = panel(); tr = panel();
+    assert.equal(gripOf(tr).p['aria-valuemax'], 314, 'a taller Onay card: less room'); assert.equal(cardOf(tr).p.style.maxHeight, 314);
+    // A lost pointer capture puts the old height back, as a cancel.
+    el.style.maxHeight = '200px'; down(0); on.pointermove({ type: 'pointermove', clientY: 30 }); on.lostpointercapture({ type: 'lostpointercapture' });
+    assert.equal(el.style.maxHeight, '200px', 'a lost capture: the old height'); assert.deepEqual(drags(), [], 'no drag listener stays');
+    // The window resize listener goes when the panel goes (AGENTS.md rule 1).
+    const resizes = new Set(); const realAdd = window.addEventListener; const realRemove = window.removeEventListener;
+    window.addEventListener = (k, f) => { if (k === 'resize') resizes.add(f); }; window.removeEventListener = (k, f) => { if (k === 'resize') resizes.delete(f); };
+    layoutCleanups.length = 0; panel(); assert.ok(resizes.size > 0, 'a resize listener');
+    for (const off of layoutCleanups.splice(0)) off();
+    assert.equal(resizes.size, 0, 'unmounted: no resize listener'); window.addEventListener = realAdd; window.removeEventListener = realRemove;
+    delete document.createElement; delete globalThis.getComputedStyle; Object.assign(handle, { parentElement: undefined });
   }
   mem.delete(KEY); rt.clear();
   // The panel takes the room that it has (no fixed 40vh cap on the count bar, summary and Onay part): the cards get the

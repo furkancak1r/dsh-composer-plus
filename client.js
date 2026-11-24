@@ -3477,22 +3477,25 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
     const readPlace = () => { try { return localStorage.getItem(STATUS_PLACE_KEY) === 'top' ? 'top' : 'side'; } catch { return 'side'; } };
     // The summary card's height (Furkan, 2026-11-24: the summary was too short): the separator under the card sets its
     // max-height in px (a drag, Up/Down by one line); a double-click forgets it (the default: 14vh, as before). At least the
-    // title and about 3 lines; a set height at most the panel's room. Kept in this browser, so a chat switch and a reload
-    // keep it.
+    // title and about 3 lines, at most the panel's room. Kept in this browser, so a chat switch and a reload keep it.
     const SUMMARY_HEIGHT_KEY = 'dsh-composer-plus.status-summary-height';
-    const SUMMARY_MIN = 92; const SUMMARY_STEP = 18; // px: the title (26) + 3 lines of 18 + padding; one line
+    // ponytail: px for the panel's 13px/18px text: the title row (26) + 3 lines of 18 + padding; one line. Upgrade: read
+    // the line height when the panel's font changes.
+    const SUMMARY_MIN = 92; const SUMMARY_STEP = 18;
     const summaryDefault = () => Math.max(SUMMARY_MIN, Math.round((globalThis.innerHeight || 900) * 0.14));
     const readSummaryHeight = () => { try { const v = Number.parseInt(localStorage.getItem(SUMMARY_HEIGHT_KEY) ?? '', 10); return Number.isFinite(v) ? Math.max(SUMMARY_MIN, v) : null; } catch { return null; } };
-    // The most that the summary card can take: the panel's max-height (measured: a huge height is cut to it), less its
-    // border, the rest of the fixed part and the cards (up to SUMMARY_KEEP px of them stay in view). ponytail: measured when
-    // the card shows, on a window resize and at a focus, a drag or a key on the separator; when the Onay card grows later,
-    // the cards shrink first and the fixed part scrolls in itself. Upgrade: a ResizeObserver on the fixed part.
+    // The most that the summary card can take: the panel's max-height, less its border, the rest of the fixed part (count
+    // bar, Onay card) and the cards (up to SUMMARY_KEEP px of them stay in view). The card's own height drops out, so a new
+    // max-height gives the same room. The max-height comes from a hidden absolute probe with the panel's max-height in the
+    // panel's parent (the same containing block): the panel itself and the chat do not move.
     const SUMMARY_KEEP = 96;
     const summaryRoomOf = (grip) => {
-      const card = grip.previousElementSibling; const fixed = grip.parentElement; const panel = grip.closest?.(`[${TODOS_ATTR}]`); const body = panel?.querySelector?.('.cp-st-body');
-      if (!card || !fixed || !panel || !body) return null;
+      const card = grip.previousElementSibling; const fixed = grip.parentElement; const panel = fixed?.parentElement; const body = fixed?.nextElementSibling;
+      if (!card || !panel?.parentElement || !body) return null;
+      const probe = globalThis.document.createElement('div');
+      probe.style.cssText = `position:absolute;visibility:hidden;height:99999px;max-height:${getComputedStyle(panel).maxHeight}`;
+      panel.parentElement.append(probe); const max = probe.offsetHeight; probe.remove();
       const used = panel.offsetHeight - fixed.offsetHeight - body.offsetHeight + fixed.scrollHeight - card.offsetHeight + Math.min(body.scrollHeight, SUMMARY_KEEP);
-      const was = panel.style.height; panel.style.height = '9999px'; const max = panel.offsetHeight; panel.style.height = was;
       return Math.max(SUMMARY_MIN, Math.floor(max - used));
     };
     // Issue #6: an item of the assistant that waits for the user longer than this shows as overdue (the panel only shows
@@ -3999,18 +4002,14 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         setSummaryHeightState(v);
         try { if (v === null) localStorage.removeItem(SUMMARY_HEIGHT_KEY); else localStorage.setItem(SUMMARY_HEIGHT_KEY, String(v)); } catch { /* this page only */ }
       };
-      // The summary card's room (px): measured when the card shows, when the window size changes, and at a focus, a drag or a
-      // key on the separator. A saved height that does not fit (a smaller window) shows at this size and stays saved.
+      // The summary card's room (px): measured after each draw (a new Onay sentence, a folded group, the place) and when the
+      // window size changes. A saved height that does not fit (a smaller window) shows at the room's size and stays saved.
       const [summaryRoom, setSummaryRoom] = React.useState(null);
       const gripRef = React.useRef(null);
-      const fitSummary = (grip) => { const room = summaryRoomOf(grip); setSummaryRoom(room); return room; };
-      React.useLayoutEffect(() => {
-        const grip = gripRef.current;
-        if (grip === null) return undefined;
-        const fit = () => fitSummary(grip);
-        fit(); globalThis.addEventListener?.('resize', fit);
-        return () => globalThis.removeEventListener?.('resize', fit);
-      }, [open, state.shown, place, summaryHeight]);
+      // A change of 1 px or less keeps the old value: rounded layout sizes must not draw the panel again and again.
+      const fitSummary = () => { if (gripRef.current === null) return; const v = summaryRoomOf(gripRef.current); setSummaryRoom((r) => (r !== null && v !== null && Math.abs(r - v) <= 1 ? r : v)); };
+      React.useLayoutEffect(fitSummary);
+      React.useLayoutEffect(() => { window.addEventListener('resize', fitSummary); return () => window.removeEventListener('resize', fitSummary); }, []);
       // At the right, the panel makes the chat move left (SEAT_ATTR on the chat body), also while it is folded: the folded
       // panel still shows its header and the Onay card (review: a folded side panel covered messages).
       React.useLayoutEffect(() => { host.setAttribute?.(SEAT_ATTR, place === 'side' ? 'open' : 'closed'); return () => host.removeAttribute?.(SEAT_ATTR); }, [host, place]);
@@ -4281,32 +4280,34 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const closeCard = () => { store.hideSummary(sessionId); globalThis.document?.getElementById?.(`${headId}-summarize`)?.focus?.(); };
       // The separator under the summary card: a drag with the main button sets the card's max-height (the card follows the
       // pointer; saved when the drag ends; a cancelled drag puts it back), Up/Down one line, a double-click the default.
-      const summaryMax = summaryHeight === null ? summaryDefault() : Math.min(summaryHeight, summaryRoom ?? Infinity);
+      const room = summaryRoom ?? Infinity;
+      const summaryMax = Math.min(summaryHeight ?? summaryDefault(), room);
       const dragSummary = (ev) => {
         const grip = ev.currentTarget; const card = grip.previousElementSibling;
         if (ev.button !== 0 || !card) return;
         ev.preventDefault();
-        const room = fitSummary(grip) ?? Infinity; const y0 = ev.clientY; const h0 = card.offsetHeight; const was = card.style.maxHeight;
+        const y0 = ev.clientY; const h0 = card.offsetHeight; const was = card.style.maxHeight;
         let h = null;
         const move = (e) => { h = Math.min(room, Math.max(SUMMARY_MIN, Math.round(h0 + e.clientY - y0))); card.style.maxHeight = `${h}px`; };
+        // pointerup saves; pointercancel or a lost capture (another capture) puts the old height back.
+        const ends = ['pointerup', 'pointercancel', 'lostpointercapture'];
         const end = (e) => {
-          grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', end); grip.removeEventListener('pointercancel', end);
-          if (e.type === 'pointercancel' || h === null) card.style.maxHeight = was; else setSummaryHeight(h);
+          grip.removeEventListener('pointermove', move); for (const k of ends) grip.removeEventListener(k, end);
+          if (e.type !== 'pointerup' || h === null) card.style.maxHeight = was; else setSummaryHeight(h);
         };
         grip.setPointerCapture?.(ev.pointerId);
-        grip.addEventListener('pointermove', move); grip.addEventListener('pointerup', end); grip.addEventListener('pointercancel', end);
+        grip.addEventListener('pointermove', move); for (const k of ends) grip.addEventListener(k, end);
       };
       const keySummary = (ev) => {
         const step = ev.key === 'ArrowDown' ? SUMMARY_STEP : ev.key === 'ArrowUp' ? -SUMMARY_STEP : 0;
         if (step === 0) return;
         ev.preventDefault(); // also keeps the panel's keys and the page scroll out
-        const room = fitSummary(ev.currentTarget) ?? Infinity;
         setSummaryHeight(Math.min(room, Math.max(SUMMARY_MIN, summaryMax + step)));
       };
       const summaryGrip = !state.shown ? null : React.createElement('div', { ref: gripRef, className: 'cp-st-grip', role: 'separator', tabIndex: 0, 'aria-orientation': 'horizontal',
         'aria-controls': `${headId}-summary-card`, 'aria-label': t('status.resizeSummary'), title: t('status.resizeSummaryHint'), 'data-composer-plus-summary-grip': '',
         'aria-valuemin': SUMMARY_MIN, 'aria-valuemax': Math.max(summaryRoom ?? 0, summaryMax), 'aria-valuenow': summaryMax,
-        onPointerDown: dragSummary, onKeyDown: keySummary, onDoubleClick: () => setSummaryHeight(null), onFocus: (ev) => { fitSummary(ev.currentTarget); } });
+        onPointerDown: dragSummary, onKeyDown: keySummary, onDoubleClick: () => setSummaryHeight(null) });
       const summaryCard = !state.shown ? null : React.createElement('div', { id: `${headId}-summary-card`, className: 'cp-st-summary', role: 'region', 'aria-labelledby': `${headId}-summary`, 'aria-busy': asking,
         style: { maxHeight: summaryMax } },
         React.createElement('h3', { id: `${headId}-summary` },

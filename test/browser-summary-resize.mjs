@@ -8,6 +8,7 @@
 // 3. A chat switch and a reload keep the height.
 // 4. Down/Up change it by one line, a double-click gives the default back, a drag far down stops at the panel's room
 //    (Onayla and some cards stay in view).
+// 5. No draw loop while the panel is idle. 6. Above the chat (40vh) and in a 900 px window the card fits the room.
 // SHOTS=<folder> writes 1-default.png, 2-taller.png and 3-after-reload.png (the panel and 34 px around it).
 // PLAYWRIGHT=/path/to/playwright node test/browser-summary-resize.mjs /path/to/dsh/lib/bin.js [...]
 import assert from 'node:assert/strict';
@@ -117,6 +118,25 @@ try {
       assert.ok(g3.card <= g3.max + 1 && g3.body >= 40, `a long drag stops at the room; some cards stay in view (${JSON.stringify(g3)})`);
       assert.ok(g3.approveBottom <= g3.panelBottom + 1, 'Onayla stays in view');
       note(`4: Down/Up by 18 px, a double-click gives the default, a long drag stops at ${g3.card} px (max ${g3.max}); ${Math.round(g3.body)} px of cards in view`);
+      // 5. No draw loop: the room's hidden probe goes in and out of the chat body only when the panel draws (idle: a few).
+      const probes = await page.evaluate(() => new Promise((done) => {
+        let n = 0; const mo = new MutationObserver((list) => { for (const m of list) n += m.addedNodes.length; });
+        mo.observe(document.querySelector('[data-composer-plus-todos]').parentElement, { childList: true });
+        setTimeout(() => { mo.disconnect(); done(n); }, 3000);
+      }));
+      assert.ok(probes <= 4, `no draw loop (${probes} nodes added to the chat body in 3 s)`);
+      // 6. Above the chat (40vh) and in a 900 px window: the saved height is cut to the room; Onayla and some cards stay in
+      // view; the panel stays above the messages.
+      await stack.locator('[data-place-button]').click(); await until(async () => (await stack.getAttribute('data-place')) === 'top', 'above the chat');
+      for (const width of [1360, 900]) {
+        await page.setViewportSize({ width, height: 900 }); await pause(600);
+        const t = await geo();
+        assert.ok(t.panelBottom - t.panelTop <= t.win * 0.4 + 2, `${width}: at most 40% high (${t.panelBottom - t.panelTop})`);
+        assert.ok(t.card <= t.max + 1 && t.approveBottom <= t.panelBottom + 1 && t.body >= 40, `${width}: the card fits the room, Onayla and some cards in view (${JSON.stringify(t)})`);
+      }
+      await page.setViewportSize({ width: 1360, height: 900 });
+      await stack.locator('[data-place-button]').click(); await until(async () => (await stack.getAttribute('data-place')) === 'side', 'at the right again');
+      note(`5-6: no draw loop (${probes} nodes in 3 s idle); above the chat at 1360 and 900 px the card fits the room, Onayla and cards in view`);
       assert.deepEqual(errors, [], 'no page errors');
       passed = true; console.log(`PASS dsh ${version}`);
     } finally {
