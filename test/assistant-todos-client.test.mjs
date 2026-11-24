@@ -27,7 +27,7 @@ let items = [{ id: 'aaaaaaaa', text: 'Prosolocal\'i internete açmak', owner: 'u
 let tasks = [{ id: 'c-run', title: 'Research Rome', state: 'running', started: NOW - 125000 }, { id: 'c-done', title: 'Flights', state: 'done', started: NOW - 600000, ended: NOW - 60000, result: 'Flights found: 3 options' }];
 let projects = [{ id: 'w-web', title: 'acme-web', count: 2, updated: NOW, chats: [{ id: 's-web', title: 'Login page', updated: NOW - 1000, running: true }] }, { id: 'w-cli', title: 'weather-cli', count: 1, updated: NOW - 5000, chats: [{ id: 's-cli', title: 'Weather', updated: NOW - 5000, running: false }] }];
 let summary = { at: NOW, projects: [{ project: 'acme-web', text: 'Login page done.' }, { project: 'other-proj', text: 'Not in the list.' }] };
-const posts = []; const gets = []; let gate = null; let failNext = null;
+const posts = []; const gets = []; let gate = null; let failNext = null; let dismissFail = false;
 // Refresh's summary request: the Host's open request time (`asked`), a refused request, a read that fails.
 let askedAt = null; let askFail = null; let missed = false; let readFail = null; let askGate = null;
 let outage; // the Host's `outage` (Resume after an AIProxy outage): {at, chats: [{id, title}]}
@@ -43,6 +43,8 @@ globalThis.fetch = async (url, init) => {
         if (askFail) return Response.json({ error: askFail }, { status: 502 });
         askedAt ??= Date.now(); return Response.json({ asked: askedAt });
       }
+      // × of a task card (the Host's dismiss list): `dismissFail` answers as an older Host or a failed write.
+      if (body.action === 'dismiss') return dismissFail ? Response.json({ error: 'bad request' }, { status: 400 }) : Response.json({ ok: true });
       if (gate) await gate;
       if (failNext) { const error = failNext; failNext = null; return Response.json({ error, on: true, items }, { status: 502 }); }
       if (body.action === 'remove') items = items.filter((i) => i.id !== body.id);
@@ -426,7 +428,8 @@ const groupBtn = (tr, g) => find(tr, (n) => n.t === 'button' && n.p['data-group'
   assert.equal(seen.p['aria-label'], 'cards.seen: Flights', '×: Gördüm');
   const p0 = posts.length; seen.p.onClick(); assert.equal(focused.at(-1), 'cp-td-s-assistant', 'the focus goes to the stack title');
   assert.deepEqual(find(doneList(), (n) => n.t === 'li' && n.p.className === 'cp-cs-card').map((n) => n.p['data-key']), ['c-stop'], 'Gördüm: the card is gone');
-  assert.equal(posts.length, p0, 'nothing sent to the Host');
+  // Furkan, 2026-11-24: the × goes to the Host's list too (every browser and Tether), and this browser keeps it.
+  assert.deepEqual(posts.slice(p0), [{ sessionId: 's-assistant', action: 'dismiss', task: `c-done|${NOW - 60000}` }], 'the Host gets the key');
   assert.equal(mem.get('dsh-composer-plus.status-tasks-dismissed'), JSON.stringify([`c-done|${NOW - 60000}`]), 'kept in this browser');
   rt.clear(); assert.equal(cardsOf(panel(), 'bitti').length, 1, 'still hidden after the panel opens again');
   // The same task ends again (a new end time): it shows again, and the old key goes.
@@ -434,7 +437,13 @@ const groupBtn = (tr, g) => find(tr, (n) => n.t === 'button' && n.p['data-group'
   tr = panel(); assert.match(text(groupBtn(tr, 'bitti')), /cards\.bitti\s+2/, 'a new end shows the card again');
   // × on a failed task's Sorun card (in its Ayrıntı) hides it the same way.
   const x = find(cardsOf(tr, 'sorun')[0], (n) => n.t === 'button' && n.p['aria-label'] === 'status.dismiss:{"task":"Crash"}')[0];
+  // The Host call fails (an older Host, a failed write): this browser's list still hides the card.
+  dismissFail = true; const p1 = posts.length;
   assert.ok(x, 'an × with an aria-label'); x.p.onClick(); assert.equal(cardsOf(panel(), 'sorun').length, 0, 'the failed card is hidden');
+  assert.deepEqual(posts.slice(p1), [{ sessionId: 's-assistant', action: 'dismiss', task: `c-fail|${NOW - 200000}` }]);
+  await tick(); rt.clear(); assert.equal(cardsOf(panel(), 'sorun').length, 0, 'the Host refused it: localStorage keeps it hidden');
+  assert.ok(JSON.parse(mem.get('dsh-composer-plus.status-tasks-dismissed')).includes(`c-fail|${NOW - 200000}`));
+  dismissFail = false;
   // Two windows: the other one hid Hotels after this panel read the list; this Gördüm keeps that key (it reads the list again).
   mem.set('dsh-composer-plus.status-tasks-dismissed', '[]'); rt.clear(); tr = panel();
   mem.set('dsh-composer-plus.status-tasks-dismissed', JSON.stringify([`c-stop|${NOW - 300000}`]));

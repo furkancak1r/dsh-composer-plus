@@ -1,3 +1,28 @@
+# Fix: Damon clears a failed task card; X is kept across browsers (branch fix/dismiss-failed-status-task)
+
+Furkan 2026-11-24: "ben sana bunu gönderdim hala listede duruyor imdat" and "ben bu görevi sana verince sen görevi
+başlatınca sen sil kartı". A failed subagent (HTTP 400) stayed in "Sorun"; Damon had no way to remove it.
+
+## Decision
+- Tool: an optional `task` field on `todo_list_remove` (id or task, not both), not a new tool: no new entry in TODO_TOOLS,
+  the free allowlist, the subagent deny list or the prompt tool list. `task` = task id, or the exact title from the
+  "Görev:"/"Task:" line that statusInsert writes (one ended task must match). No id is added to statusInsert's text: its
+  table (test/fixtures/status-insert.json, Tether XCTest) says "never an id", and the title is enough.
+- Host list: `assistant-dismissed.json` `{chats: {<chat>: ["<task id>|<end>"]}}`, today's keys only, ≤ 200 per chat; GET
+  leaves those ended tasks out. `POST {sessionId, action: "dismiss", task}` for the panel's ×. localStorage stays as fallback.
+- Tether reads the same GET: dismissed cards are gone there too; its own Seen stays per phone (gap row in tether/FEATURES.md).
+
+## Last checkpoint (2026-11-24)
+- Code, unit tests, docs committed on the branch. `npm test` exit 0; `node --check`; `git diff --check` clean; no lint script.
+- `test/browser-dismiss-task.mjs` PASS on dsh 0.2.2-rc.5 (headless, chromiumSandbox true). Screenshots:
+  ~/Damon/Belgeler/Composer Plus/sorun-karti-20261124/.
+- origin/main merged into the branch (conflicts: docs/features.json, llms.txt, tether/FEATURES.md; main removed Tether's
+  card deck, so the Tether row says the Status sheet reads the same GET and needs no change).
+- review-guard round 1 (separate subagent, `git diff origin/main...HEAD`): P1 0, P2 0. P3 fixed: a `chat: true` dismiss
+  test, `task`/`id` must be text, the nudge test with object arguments, `ponytail:` notes (one status read per dismiss; a
+  kept chat task's end time can change source). P4: no change needed.
+- Open: merge to main + push, delete branch and worktree. No live copy (Furkan "tamam" first).
+
 # Fix: Improve prompt "Mesaj iyileştirilirken değişti" (branch fix/prompt-improve-change-warning)
 
 Owner report 2026-11-23: the wand says "The message changed while it was improved, so it was not replaced." although the
