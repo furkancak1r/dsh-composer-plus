@@ -99,7 +99,7 @@ try {
       let l = await layout(page);
       const keys = l.cards.map((c) => c.key);
       for (const k of listKeys) assert.ok(keys.some((x) => x.endsWith(`|${k}`)), `card ${k} on the canvas (${JSON.stringify(keys)})`);
-      assert.ok(keys.includes('onay'), 'the Onay card'); assert.ok(keys.some((k) => k.startsWith('note|')), 'your notes');
+      assert.ok(keys.includes('onay'), 'the Onay card'); assert.ok(keys.includes('notes'), 'your notes: the Kararlar button');
       assert.deepEqual(overlaps(l.cards), [], 'no two cards overlap');
       for (const c of l.cards) assert.ok(c.x >= l.view.x - 1 && c.y >= l.view.y - 1 && c.x + c.w <= l.view.x + l.view.w + 1 && c.y + c.h <= l.view.y + l.view.h + 1, `the first open fits all: ${c.key}`);
       assert.equal(await canvas.locator('[data-cv-key]').evaluateAll((els) => els.every((e) => e.tabIndex === 0 && e.getAttribute('aria-label'))), true, 'cards are focusable and named');
@@ -131,7 +131,7 @@ try {
       for (const c of l.cards) assert.ok(c.x >= l.view.x - 1 && c.y >= l.view.y - 1 && c.x + c.w <= l.view.x + l.view.w + 1 && c.y + c.h <= l.view.y + l.view.h + 1, `Fit all: ${c.key} in view`);
       note(`3: drag and wheel move the canvas; Ctrl+wheel ${pctBefore} → ${pctPinch}; − zooms out; Fit all shows every card (${l.pct})`);
       // 4. Drag a card by its label: saved; after a reload the card and the zoom are where they were.
-      const noteCard = canvas.locator('[data-cv-key^="note|"]').first(); const noteKey = await noteCard.getAttribute('data-cv-key');
+      const noteCard = canvas.locator('[data-cv-key="notes"]'); const noteKey = await noteCard.getAttribute('data-cv-key');
       const label = noteCard.locator('.cp-cv-kind'); const lb = await label.boundingBox();
       await page.mouse.move(lb.x + 10, lb.y + 5); await page.mouse.down(); await page.mouse.move(lb.x + 10 + 200, lb.y + 5 + 150, { steps: 8 }); await page.mouse.up();
       await pause(400);

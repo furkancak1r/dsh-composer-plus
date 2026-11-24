@@ -51,6 +51,27 @@ assert.equal(todoList.handover, undefined, '→ only writes in the composer: the
   assert.match(todoContext(w.list), /- abababab \(owner agent, waiting for the user since [^)]*: "needs the game folder path"\): "Install ANR"/);
   assert.match(TODO_SECTION, /When an item of owner "agent" needs the user[^\n]*todo_list_add with the same text and waiting/, 'the prompt line');
 }
+// Kararlar (2026-11-24): an item can carry 2 to 5 short options (the decision dialog shows them as buttons). The same text
+// again keeps them, new options replace them, [] removes them; bad options are refused and change nothing.
+{
+  const first = todoList.add([], { text: 'Karar ver: rapor şablonu', options: [' Kısa şablon (Önerilen) ', 'Uzun  şablon'] }, { id: 'adadadad', now: 1 });
+  assert.deepEqual(first.item, { id: 'adadadad', text: 'Karar ver: rapor şablonu', owner: 'user', created: 1, options: ['Kısa şablon (Önerilen)', 'Uzun şablon'] }, 'trimmed, one line each');
+  assert.deepEqual(todoList.add(first.list, { text: 'karar ver: RAPOR şablonu' }).item.options, ['Kısa şablon (Önerilen)', 'Uzun şablon'], 'left out: kept');
+  assert.deepEqual(todoList.add(first.list, { text: 'Karar ver: rapor şablonu', owner: 'user' }).item.options, ['Kısa şablon (Önerilen)', 'Uzun şablon'], 'an owner change keeps them');
+  const changed = todoList.add(first.list, { text: 'Karar ver: rapor şablonu', options: ['A', 'B', 'C'] });
+  assert.equal(changed.added, false); assert.deepEqual(changed.item.options, ['A', 'B', 'C'], 'the same text updates the options');
+  assert.equal('options' in todoList.add(first.list, { text: 'Karar ver: rapor şablonu', options: [] }).item, false, '[] removes them');
+  assert.equal('options' in todoList.add([], { text: 'Süt al' }).item, false, 'no options: no field');
+  for (const bad of [['tek'], ['a', 'b', 'c', 'd', 'e', 'f'], ['a', ''], ['a', '   '], ['a', 5], ['a', 'x'.repeat(TODO_LIMITS.option + 1)], ['Aynı', 'aynı'], 'a, b', { a: 1 }]) {
+    assert.throws(() => todoList.add(first.list, { text: 'Karar ver: rapor şablonu', options: bad }), (e) => e.status === 400 && /options/.test(e.message), JSON.stringify(bad).slice(0, 40));
+  }
+  assert.equal(first.list[0].options.length, 2, 'the given list does not change');
+  assert.match(todoContext(changed.list), /- adadadad \(owner user, options: \["A","B","C"\]\): "Karar ver: rapor şablonu"/, 'the context shows the options');
+  // The prompt: options for each decision, and what the two messages of the dialog mean (Damon removes the item).
+  assert.match(TODO_SECTION, /asks for a decision[^\n]*"Karar ver"[^\n]*2 to 4 short answers, the recommended one first with "\(Önerilen\)"/);
+  assert.match(TODO_SECTION, /"Karar: <item text> → <answer>"[^\n]*remove the item/);
+  assert.match(TODO_SECTION, /"Not tamam: <item text>"[^\n]*remove it/);
+}
 
 // The prompt context.
 assert.equal(todoContext([]), ''); assert.equal(todoContext(undefined), '');
@@ -102,6 +123,12 @@ await writeFile(join(brokenDir, 'd.json'), JSON.stringify({ lists: { 's-a': [{ i
 const waits = todoStore(join(brokenDir, 'd.json')); await waits.ready;
 assert.deepEqual(waits.of('s-a').map((i) => [i.id, i.waiting]), [['88888888', { reason: 'needs the path', since: 2 }], ['99999999', undefined], ['12121212', undefined], ['13131313', undefined]], 'only a valid waiting state of an agent item');
 assert.doesNotThrow(() => todoContext(waits.of('s-a')), 'a time past the last valid date does not break the context');
+// Options are read again; broken options are left out, the item stays.
+await writeFile(join(brokenDir, 'e.json'), JSON.stringify({ lists: { 's-a': [{ id: '14141414', text: 'Karar ver: a', owner: 'user', created: 1, options: ['Evet', 'Hayır'] },
+  { id: '15151515', text: 'Karar ver: b', owner: 'user', created: 1, options: ['tek'] }, { id: '16161616', text: 'Karar ver: c', owner: 'user', created: 1, options: 'Evet' },
+  { id: '17171717', text: 'Karar ver: d', owner: 'user', created: 1, options: ['a', 7] }] } }));
+const opts = todoStore(join(brokenDir, 'e.json')); await opts.ready;
+assert.deepEqual(opts.of('s-a').map((i) => [i.id, i.options]), [['14141414', ['Evet', 'Hayır']], ['15151515', undefined], ['16161616', undefined], ['17171717', undefined]], 'only valid options');
 const odd = todoStore(join(brokenDir, 'c.json')); await odd.ready;
 assert.deepEqual([odd.of('s-a').map((i) => i.id), odd.of('s-b').map((i) => i.id)], [['66666666'], ['77777777']], 'an object id is left out');
 assert.ok(!(await readdir(brokenDir)).some((n) => n.startsWith('c.json.broken-')), 'and the file is not kept aside');
@@ -246,6 +273,18 @@ await assert.rejects(tool('todo_list_add').execute({ text: 'Ece Hanım ile Excel
 assert.match(await tool('todo_list_add').execute({ text: 'ANR kur', waiting: '' }, { agent: assistantAgent }), /^Already on the list: [0-9a-f]{8} \(owner agent\)/, '"" clears it');
 assert.equal((await call('GET', undefined, '?sessionId=s-a')).body.items.find((i) => i.text === 'ANR kur').waiting, undefined);
 await tool('todo_list_remove').execute({ id: (await call('GET', undefined, '?sessionId=s-a')).body.items.find((i) => i.text === 'ANR kur').id, reason: 'test' }, { agent: assistantAgent });
+// Options: the tool takes them (a list of strings), the result counts them, the GET answer carries them.
+{
+  const p = tool('todo_list_add').parameters.properties.options;
+  assert.equal(p?.type, 'array'); assert.equal(p.items?.type, 'string');
+  assert.match(tool('todo_list_add').description, /"Karar ver"[^.]*2 to 4 options, the recommended one first with "\(Önerilen\)"/, 'the tool says how to give options');
+  assert.match(await tool('todo_list_add').execute({ text: 'Karar ver: yedek saati', options: ['Gece 02:00 (Önerilen)', 'Öğlen', 'Hafta sonu'] }, { agent: assistantAgent }), /^Added [0-9a-f]{8} \(owner user, 3 options\): "Karar ver: yedek saati"$/);
+  assert.deepEqual((await call('GET', undefined, '?sessionId=s-a')).body.items.find((i) => i.text === 'Karar ver: yedek saati').options, ['Gece 02:00 (Önerilen)', 'Öğlen', 'Hafta sonu']);
+  assert.match(await tool('todo_list_add').execute({ text: 'karar ver: yedek saati', options: ['Gece', 'Sabah'] }, { agent: assistantAgent }), /^Already on the list: [0-9a-f]{8} \(owner user, 2 options\)/, 'the same text updates them');
+  await assert.rejects(tool('todo_list_add').execute({ text: 'Karar ver: yedek saati', options: ['tek'] }, { agent: assistantAgent }), (e) => e.status === 400);
+  assert.match(await tool('todo_list_add').execute({ text: 'Karar ver: yedek saati', options: [] }, { agent: assistantAgent }), /^Already on the list: [0-9a-f]{8} \(owner user\)/, '[] removes them');
+  await tool('todo_list_remove').execute({ id: todos.store.of('s-a').find((i) => i.text === 'Karar ver: yedek saati').id, reason: 'test' }, { agent: assistantAgent });
+}
 let items = (await call('GET', undefined, '?sessionId=s-a')).body.items;
 assert.deepEqual(items.map((i) => [i.text, i.owner]), [['Prosolocal\'i internete açmak', 'user'], ['Ece Hanım ile Excel doldurmak', 'user'], ['Rapor yaz', 'user']]);
 assert.match(ctxEntry.text({ agent: assistantAgent }), /Ece Hanım ile Excel doldurmak/, 'the context has the list');
