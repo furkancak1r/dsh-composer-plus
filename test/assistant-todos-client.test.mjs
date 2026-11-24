@@ -344,18 +344,18 @@ find(dTree, (n) => n.t === 'button' && n.p.className === 'cp-st-link')[0].p.onCl
   assert.ok(Number.isFinite(grip.p['aria-valuenow']) && Number.isFinite(grip.p['aria-valuemax']) && grip.p['aria-valuemax'] >= grip.p['aria-valuenow'], 'now and max');
   assert.equal(card.p.style.maxHeight, 126, 'the default: 14vh as before (no window here: 900 px)'); assert.equal(grip.p['aria-valuenow'], 126); assert.equal(mem.has(KEY), false);
   // A fake DOM: the card is 120 px high, the handle catches the pointer.
-  const el = { offsetHeight: 120, style: {} }; const on = {};
+  const el = { offsetHeight: 60, style: {} }; const on = {}; // a short summary: lower than its max-height (126)
   const handle = { previousElementSibling: el, setPointerCapture: (id) => { on.captured = id; }, addEventListener: (k, f) => { on[k] = f; }, removeEventListener: (k) => { delete on[k]; }, closest: () => null };
   const down = (y, button = 0) => gripOf(panel()).p.onPointerDown({ button, clientY: y, pointerId: 7, currentTarget: handle, preventDefault() {} });
   const drags = () => Object.keys(on).filter((k) => k !== 'captured');
   down(100); assert.equal(on.captured, 7, 'the handle catches the pointer');
-  on.pointermove({ type: 'pointermove', clientY: 140 }); assert.equal(el.style.maxHeight, '160px', 'the card follows the pointer');
-  on.pointermove({ type: 'pointermove', clientY: 300 }); assert.equal(el.style.maxHeight, '320px');
+  on.pointermove({ type: 'pointermove', clientY: 110 }); assert.equal(el.style.maxHeight, '136px', 'the drag starts from the max-height, not from a short card (review 3)');
+  on.pointermove({ type: 'pointermove', clientY: 300 }); assert.equal(el.style.maxHeight, '326px', 'the card follows the pointer');
   assert.equal(mem.has(KEY), false, 'saved only when the drag ends');
-  on.pointerup({ type: 'pointerup' }); assert.equal(mem.get(KEY), '320', 'kept in this browser');
+  on.pointerup({ type: 'pointerup' }); assert.equal(mem.get(KEY), '326', 'kept in this browser');
   assert.deepEqual(drags(), [], 'the drag listeners go');
-  tr = panel(); assert.equal(cardOf(tr).p.style.maxHeight, 320); assert.equal(gripOf(tr).p['aria-valuenow'], 320);
-  el.offsetHeight = 320; down(300); on.pointermove({ type: 'pointermove', clientY: -500 }); on.pointerup({ type: 'pointerup' });
+  tr = panel(); assert.equal(cardOf(tr).p.style.maxHeight, 326); assert.equal(gripOf(tr).p['aria-valuenow'], 326);
+  el.offsetHeight = 326; down(300); on.pointermove({ type: 'pointermove', clientY: -500 }); on.pointerup({ type: 'pointerup' });
   assert.equal(mem.get(KEY), '92', 'not shorter than the title and about 3 lines');
   el.offsetHeight = 92; down(50); on.pointerup({ type: 'pointerup' }); assert.equal(mem.get(KEY), '92', 'a click without a move changes nothing');
   down(50); on.pointermove({ type: 'pointermove', clientY: 150 }); on.pointercancel({ type: 'pointercancel' });

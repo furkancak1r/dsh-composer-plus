@@ -4314,7 +4314,9 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         const grip = ev.currentTarget; const card = grip.previousElementSibling;
         if (ev.button !== 0 || !card) return;
         ev.preventDefault();
-        const y0 = ev.clientY; const h0 = card.offsetHeight; const was = card.style.maxHeight;
+        // From the max-height, as the keys (review 3): a short summary is lower than its max-height, and a drag down must
+        // not save a smaller value.
+        const y0 = ev.clientY; const h0 = summaryMax; const was = card.style.maxHeight;
         let h = null;
         const move = (e) => { h = Math.min(room, Math.max(SUMMARY_MIN, Math.round(h0 + e.clientY - y0))); card.style.maxHeight = `${h}px`; };
         // pointerup saves; pointercancel or a lost capture (another capture) puts the old height back.
