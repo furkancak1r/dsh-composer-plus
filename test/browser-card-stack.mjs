@@ -10,10 +10,10 @@
 // 4. Typing in the composer hides Onayla; the card stays.
 // 5. Özet getir, Projeler and Yaptım of a Senden card still work (nothing sent by Yaptım).
 // 6. No page errors.
-// 7. One list (Furkan, 2026-11-23): no Kartlar/Kuyruk/Brifing switch; the Onay card is the active item (the only card with
-//    a left line); the choice (the option list of the newest answer) is the first Senden card, its → focuses the buttons
-//    under the answer (one set on screen) and the answer's numbered list is hidden while they show; J makes the choice
-//    active and 2 sends "Option 2: …" once.
+// 7. One list (Furkan, 2026-11-23): no Kartlar/Kuyruk/Brifing switch; after the send the Onay card and its count go (no
+//    Onayla: Furkan, 2026-11-25); the choice (the option list of the newest answer) is the first Senden card and the
+//    active item (the only card with a left line), its → focuses the buttons under the answer (one set on screen) and the
+//    answer's numbered list is hidden while they show; 2 sends "Option 2: …" once.
 // 8. The cards have icon buttons (each with its name as the tooltip) and no İzle.
 // 9. The place button (Furkan, 2026-11-20): Enter and Space move the stack above the chat and back, the focus stays on the
 //    button, a reload keeps the choice. At 1360x770 and at 900 px, in both places: the page and the stack do not scroll
@@ -179,16 +179,19 @@ try {
       assert.equal(calls.slice(sent).filter((c) => c.newest === APPROVAL && c.step === 0).length, 1, `one user message: ${JSON.stringify(calls.slice(sent).map((c) => [c.newest.slice(0, 40), c.step]))}`);
       await until(async () => (await approve.count()) === 0, 'the button goes after the send');
       note('3: Onayla sent the exact sentence once as the user\'s message; the model got it; the button went');
-      // 7. One list: the Onay card stays active (its items still wait); the answer to the approval ends with an option
-      // list: the choice is the first Senden card; its buttons are only under the answer, and the answer's list is hidden.
+      // 7. One list: the sentence went, so the Onay card goes with its button (Furkan, 2026-11-25: its "Onay:" items show
+      // nothing without a button); the answer to the approval ends with an option list: the choice is the first Senden
+      // card and the active item; its buttons are only under the answer, and the answer's list is hidden.
       assert.equal(await stack.locator('[data-view-button], section[data-view]').count(), 0, 'one list: no view switch');
       const activeOf = () => stack.locator('[data-active]').evaluateAll((els) => els.map((e) => e.dataset.card));
       await until(async () => (await stack.locator('[data-card="karar"]').count()) === 1, 'the choice card', 20000);
-      assert.deepEqual(await activeOf(), ['onay'], 'the Onay card is the active item');
+      await until(async () => (await onay.count()) === 0, 'no Onayla: no Onay card');
+      assert.doesNotMatch(await counts.innerText(), /onay/, 'no "onay" in the count bar');
+      assert.deepEqual(await activeOf(), ['karar'], 'the choice is the active item');
       const lines = await stack.locator('.cp-cs-card').evaluateAll((els) => els.filter((e) => e.offsetParent !== null).map((e) => [e.dataset.card, getComputedStyle(e).borderLeftColor]));
-      const clear = lines.filter(([card]) => card !== 'onay').map(([, c]) => c);
+      const clear = lines.filter(([card]) => card !== 'karar').map(([, c]) => c);
       assert.ok(clear.every((c) => c === 'rgba(0, 0, 0, 0)'), `only the active item has a left line (${JSON.stringify(lines)})`);
-      assert.notEqual(lines.find(([card]) => card === 'onay')[1], 'rgba(0, 0, 0, 0)', 'the active item has its line');
+      assert.notEqual(lines.find(([card]) => card === 'karar')[1], 'rgba(0, 0, 0, 0)', 'the active item has its line');
       const picks = page.locator('[data-composer-plus-option-picks] button');
       assert.equal(await picks.count(), 2, 'the option buttons under the answer');
       assert.equal(await stack.locator('[data-composer-plus-choice]').count(), 0, 'no second set in the panel');
@@ -200,10 +203,9 @@ try {
       if ((await sendenHead.getAttribute('aria-expanded')) !== 'true') await sendenHead.click();
       await stack.locator('[data-card="karar"] [data-act="main"]').click();
       assert.equal(await page.evaluate(() => document.activeElement?.closest('[data-composer-plus-option-picks]') !== null), true, '→ focuses the buttons under the answer');
-      // J makes the choice active; after 800 ms, 2 sends "Option 2: …" once.
+      // The choice is active; after 800 ms, 2 sends "Option 2: …" once.
       await stack.locator('.cp-td-head').focus();
-      await page.keyboard.press('j');
-      await until(async () => JSON.stringify(await activeOf()) === '["karar"]', 'J: the choice is active');
+      assert.deepEqual(await activeOf(), ['karar'], 'the choice is still active');
       await pause(1000);
       const before7 = calls.length;
       await page.keyboard.press('2'); await page.keyboard.press('2');
@@ -211,7 +213,7 @@ try {
       await pause(1500);
       assert.equal(calls.slice(before7).filter((c) => c.newest === 'Option 2: Yarın sabah denensin' && c.step === 0).length, 1, 'one message for the choice');
       await until(async () => (await stack.locator('[data-card="karar"]').count()) === 0, 'the choice left the list');
-      note('7: one list: Onay active (the only left line); the choice is the first Senden card; its buttons only under the answer, whose list is hidden; J + 2 sent "Option 2" once');
+      note('7: one list: after the send no Onay card and no "onay" count; the choice is the first Senden card and active (the only left line); its buttons only under the answer, whose list is hidden; 2 sent "Option 2" once');
       // 8. Icon buttons: each has a name and the same tooltip; no İzle.
       const unnamed = await stack.locator('.cp-cs-card button.cp-td-btn').evaluateAll((els) => els.filter((b) => !b.getAttribute('aria-label') || b.title !== b.getAttribute('aria-label')).length);
       assert.equal(unnamed, 0, 'each icon button has its name as its tooltip');

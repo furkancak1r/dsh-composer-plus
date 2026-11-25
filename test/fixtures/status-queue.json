@@ -26,12 +26,12 @@
     },
     {
       "name": "a live entry goes first: a live Senden card before the Onay card and the choice",
-      "now": 1794993000000, "approvals": 0,
+      "now": 1794993000000, "approvals": 1,
       "data": {"items": [
         {"id": "b0000001", "text": "Onay: dalı main'e al", "owner": "user", "created": 1794992400000},
         {"id": "b0000002", "text": "Senden: Ece Hanım'ın cevabını ilet", "owner": "user", "created": 1794990000000},
         {"id": "b0000003", "text": "Senden: canlı sunucuda servisi yeniden başlat", "owner": "user", "created": 1794991200000}]},
-      "sentences": [], "options": ["Kendisi alsın", "Bana sorsun"], "later": [],
+      "sentences": ["Onaylıyorum (canlı değil): dal main'e alınsın."], "options": ["Kendisi alsın", "Bana sorsun"], "later": [],
       "want": [
         {"kind": "senden", "key": "senden|b0000003", "live": true},
         {"kind": "onay", "key": "onay", "live": false},
@@ -48,17 +48,26 @@
     },
     {
       "name": "Sonra: the later keys go to the end, in the order you moved them; a key that is gone does nothing",
-      "now": 1794993000000, "approvals": 0,
+      "now": 1794993000000, "approvals": 1,
       "data": {"items": [
         {"id": "b0000001", "text": "Onay: dalı main'e al", "owner": "user", "created": 1794992400000},
         {"id": "b0000002", "text": "Senden: Ece Hanım'ın cevabını ilet", "owner": "user", "created": 1794990000000},
         {"id": "b0000003", "text": "Senden: canlı sunucuda servisi yeniden başlat", "owner": "user", "created": 1794991200000}]},
-      "sentences": [], "options": ["Kendisi alsın", "Bana sorsun"], "later": ["senden|b0000003", "senden|gone", "onay"],
+      "sentences": ["Onaylıyorum (canlı değil): dal main'e alınsın."], "options": ["Kendisi alsın", "Bana sorsun"], "later": ["senden|b0000003", "senden|gone", "onay"],
       "want": [
         {"kind": "karar", "key": "karar", "live": false},
         {"kind": "senden", "key": "senden|b0000002", "live": false},
         {"kind": "senden", "key": "senden|b0000003", "live": true},
         {"kind": "onay", "key": "onay", "live": false}]
+    },
+    {
+      "name": "an Onay item without an offer (no block, no Approve button): no Onay entry",
+      "now": 1794993000000, "approvals": 0,
+      "data": {"items": [
+        {"id": "e0000001", "text": "Onay: dalı main'e al", "owner": "user", "created": 1794992400000},
+        {"id": "e0000002", "text": "Senden: Ece Hanım'ın cevabını ilet", "owner": "user", "created": 1794990000000}]},
+      "sentences": [], "options": [], "later": [],
+      "want": [{"kind": "senden", "key": "senden|e0000002", "live": false}]
     },
     {
       "name": "only a choice: no Onay card, no Senden card",

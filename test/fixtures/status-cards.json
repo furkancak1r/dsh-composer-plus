@@ -470,6 +470,39 @@
    }
   },
   {
+   "name": "Onay items without an offer (no block, so no Approve button): no Onay card, no count; the items stay in the data",
+   "now": 1794993000000,
+   "data": {
+    "items": [
+     {"id": "d0000001", "text": "Onay: montaj testi main'e alınır", "owner": "user", "created": 1794992160000},
+     {"id": "d0000002", "text": "Senden: test sunucusunu aç", "owner": "user", "created": 1794992400000}
+    ]
+   },
+   "opts": {
+    "approvals": 0
+   },
+   "want": {
+    "approval": null,
+    "groups": {
+     "sorun": [],
+     "senden": [
+      {"key": "d0000002", "title": "test sunucusunu aç", "item": "d0000002", "task": null, "since": 1794992400000, "overdue": false, "fresh": false}
+     ],
+     "suruyor": [],
+     "bitti": []
+    },
+    "notes": [],
+    "counts": {
+     "onay": 0,
+     "sorun": 0,
+     "senden": 1,
+     "suruyor": 0,
+     "bitti": 0,
+     "fresh": 0
+    }
+   }
+  },
+  {
    "name": "item and task of one topic: an error, then a wait, then the task state",
    "now": 1794993000000,
    "data": {

@@ -2833,7 +2833,6 @@
     "cards.queue": "Liste von {name}",
     "cards.queued": "{count} offen",
     "cards.filterEmpty": "Gerade nichts hier.",
-    "cards.approveAgain": "Die Genehmigen-Schaltfläche kommt zurück, wenn {name} den Genehmigungssatz neu schreibt.",
     "queue.later": "Später",
     "queue.keys": "Tasten: A genehmigen / erledigt · 1–9 Auswahl · S später · J / K weiter / zurück · R antworten",
     "queue.choiceTitle": "{name} bittet dich zu wählen",

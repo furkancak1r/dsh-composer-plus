@@ -2833,7 +2833,6 @@
     "cards.queue": "Hàng đợi của {name}",
     "cards.queued": "{count} trong hàng đợi",
     "cards.filterEmpty": "Hiện chưa có gì ở đây.",
-    "cards.approveAgain": "Nút Phê duyệt sẽ quay lại khi {name} viết lại câu phê duyệt.",
     "queue.later": "Để sau",
     "queue.keys": "Phím: A phê duyệt / đã làm · 1–9 lựa chọn · S để sau · J / K sau / trước · R trả lời",
     "queue.choiceTitle": "{name} nhờ bạn chọn",

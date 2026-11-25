@@ -217,6 +217,39 @@ assets/features/assistantReplyCards.webp (new), index.js only for SHOTS if a sho
   4739-4762, 4794-4917; reply cards: a new pure parser + feed component + the toggle, registered as feature
   `assistantReplyCards`), then phase 3 (tests, screenshots), phase 4 (review loop, report).
 
+# Onay card only with its button (branch fix/hide-buttonless-approval-card, 2026-11-25)
+
+Source: Furkan, 2026-11-25: "onay butonu gelince görüyorum zaten … bu uyarıyı kaldır". Standing main approval: after a
+clean independent review, merge into main, push, delete the branch and its worktree. No live copy, no release, no DSH
+restart, no iPhone install.
+
+## Objective
+An "Onay:" to-do without an active `onay` block (no Approve button) shows no Onay card, no hint ("… Onayla gelir"), no
+"onay" count and no queue entry. The item stays in the Host's list. The card with its button does not change.
+
+## Root cause
+client.js `statusCards` (and its Swift port) made the Onay card when `onay.length > 0 || approvals > 0`; the card then
+showed `cards.approveAgain` because `offer === undefined`.
+
+## Changes (commit ce6a5f86)
+- client.js statusCards: `approval` only when `approvals > 0`; the hint, its key and `createCardOffers` active/publish
+  are gone. Tether Core.swift/UI.swift the same; key removed from locales/*.json, client.js en/zh, Localizable.xcstrings.
+- index.js STATUS_SECTION one clause; docs/features.json llms; llms.txt; tether/FEATURES.md gap row.
+- Tests: status-cards.json, status-queue.json, approve-button.test.mjs (red on 8f1723fb), browser-card-stack step 7,
+  new test/browser-approval-card.mjs (screenshots: SHOTS/PREFIX/SCHEME, OLD=1 for the old code).
+
+- Review fixes: 84c4f57e (unit test: a running chat has no card; Host guard comment), 95a8383e (README `how` clause in
+  13 languages, build:readme).
+
+## Last checkpoint (2026-11-25 11:45): done, merged into main
+- Review: round 1 no P1/P2 (P3 1, P4 4: fixed, or no change needed); round 2 no P1/P2 (P4 3: plan updated; the `how`
+  wording "has its button" kept: typing hides only the button, the approveButton row says so).
+- Last passing: `npm test` exit 0; iOS `xcodebuild … test` 122 tests, 0 failures; browser-approval-card, card-stack,
+  running-filter, status-canvas, summary-resize PASS on 0.2.2-rc.5; card-stack and approval-card PASS on 0.2.0-rc.2 and
+  0.2.1-rc.2.
+- Screenshots: /Users/furkancakir/Damon/Belgeler/Composer Plus/onay-karti-20261125/ (once-8f1723fb-*, sonra-ce6a5f86-*).
+- Not done (separate approval): live copy, release, DSH restart, iPhone install.
+
 # Assistant reply guards (branch fix/assistant-reply-guards, 2026-11-24)
 
 Source: Damon's daily error review of 2026-11-24 (Furkan's standing request of 2026-11-11: fix each mistake of the day
