@@ -24,14 +24,16 @@ const SAMPLES = {
     items: ["Onay: montaj testi dalı main'e alınır", 'Onay: servis betiği test servisinde denenir', 'Sorun: Gece denetimi hata verdi (acme-web)', 'Senden: Test sunucusunda Gerekli Tarih alanını aç',
       'Rapor hizası için karar', 'TR ve ENG raporlarından hangisi örnek alınsın?', 'Fatura şablonunu gözden geçir', 'Kırtasiye siparişini ver', 'Toplantı notlarını oku'],
     tasks: ['Satınalma Gerekli Tarih sorguları', 'Haftalık stok raporu', 'Montaj testi dalı', 'Hava durumu CLI güncellemesi'],
-    extra: ['Damon paneli: sade görünüm, simge butonlar, otomasyonlar panelde görünmesin', "Onay: deploy paketi test dalı main'e alınsın (canli degil)"] },
+    extra: ['Damon paneli: sade görünüm, simge butonlar, otomasyonlar panelde görünmesin', "Onay: deploy paketi test dalı main'e alınsın (canli degil)"],
+    card: `**Montaj testi dalı hazır.** Testler geçti; main'e alınmayı ve servis betiğinin denenmesini bekliyor.\n\nSenden: test sunucusunda Gerekli Tarih alanını aç.\n\n> [!DETAILS] Test çıktısı\n> 412 test geçti, 0 hata.\n\n\`\`\`onay\n${APPROVAL}\n\`\`\`\n\nServis betiği ne zaman denensin?\n\n**Seçenekler:**\n1. Hemen denensin (Önerilen)\n2. Yarın sabah denensin` },
   en: { seed: 'Load the sample data', approval: 'Approve: merge the login-fix branch of acme-web into main and run the build script on the test server.',
     ready: '**Sample data is ready.** The status panel is at the right of the chat.\n\nTwo tasks wait for your approval:', approved: '**Approved.** The login-fix branch goes into main (a demo: nothing real runs).\n\nWhen does the build script run?\n\n**Options:**\n1. Run it now\n2. Run it tomorrow morning',
     other: 'OK. (This is a demo model; it does no real work.)', done: ['Tests pass, merged into main.', 'The report is ready and shared.'], ran: 'The update is done.',
     items: ['Onay: merge the login-fix branch of acme-web', 'Onay: run the build script on the test server', 'Sorun: Nightly check of acme-web failed', 'Senden: Turn on the due-date field on the test server',
       'Choose the report layout', 'Which report is the template: the short or the long one?', 'Review the invoice template', 'Order office supplies', 'Read the meeting notes'],
     tasks: ['Due-date queries of acme-web', 'Weekly stock report', 'Login-fix branch', 'weather-cli update'],
-    extra: ['Status panel: a plain look, icon buttons, no automations in the panel', 'Approval: merge the deploy package test branch (not live)'] },
+    extra: ['Status panel: a plain look, icon buttons, no automations in the panel', 'Approval: merge the deploy package test branch (not live)'],
+    card: '**The login-fix branch is ready.** Tests pass; it waits to go into main.\n\nFor you: turn on the due-date field on the test server.\n\n> [!DETAILS] Test output\n> 412 tests passed, 0 failed.\n\n```onay\nApprove: merge the login-fix branch of acme-web into main and run the build script on the test server.\n```\n\nWhen does the build script run?\n\n**Options:**\n1. Run it now (Recommended)\n2. Run it tomorrow morning' },
 };
 /** Kararlar demo: decision notes (made up), with the options that Damon gives (the recommended one first). */
 export const DECISIONS = [
@@ -118,6 +120,9 @@ export async function fakeModel(calls = [], lang = 'tr') {
       // user, three with options and one without. A message that starts with "Karar:" or "Not tamam:" is the dialog's.
       if (damonStep && newest.trim() === 'DEMO-DECISIONS') return step === 0 ? tools(DECISIONS.map(([text, options]) => ['todo_list_add', { text, owner: 'user', ...(options ? { options } : {}) }])) : say('[quiet]');
       if (/^(Karar|Not tamam|Decision|Note done):/.test(newest.trim())) return say('[quiet]');
+      // Damon reply cards (test/browser-status-canvas.mjs): "DEMO-REPLY-CARD" gets one answer with a bold title, a Senden
+      // line, a closed details section, an `onay` block and an option list (one card with Onayla and option buttons).
+      if (damonStep && newest.trim() === 'DEMO-REPLY-CARD') return say(S.card);
       if (damonStep && newest.trim() === 'DEMO-AUTO-SETUP') {
         const at = new Date(Date.now() + 8000).toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
         // The answer repeats the `onay` block: a block counts only after your newest message.

@@ -1,3 +1,280 @@
+# Damon canvas like the HTML mockup + reply cards (branch feat/canvas-match-html-mockup, 2026-11-25)
+
+Source: Furkan in the Assistant chat, 2026-11-25 (relayed by Damon):
+- "canva olmamış bi ara html yapmıştın oradaki gibi istiyorum composer plusta": the canvas (tuval) must look and work
+  like the "Sonsuz tuval" tab of the HTML mockup.
+- Scope update (same day): "şu sohbet yapısından kurtulmak istiyorum input alanı aynı kalsın ama güncellemeleri bana kart
+  olarak göster karardaki gibi olsun … sohbet göster gizle seçeneği olsun ama canvas da kartlarla yönetelim": in the
+  Damon chat, the replies show as cards (the style of the Kararlar dialog cards), the transcript is hidden by default
+  with a show/hide toggle, the composer stays as it is, and the canvas manages the same cards.
+
+Mockup: `/Users/furkancakir/Damon/Belgeler/Damon arayüzü/damon-yonetim-secenekleri-2026-11-19.html` (the only `.html` under
+Belgeler with "tuval"; the other hit is a Playwright report). Main at start: 8f1723fb.
+
+## Phases
+1. [done 2026-11-25 10:2x] Analysis: mockup behaviors, differences with file:line, design. Mockup screenshots.
+2. [done 2026-11-25 12:3x] Implement: canvas like the mockup (Damon hub, groups as islands, lines, zoom detail levels, minimap, side
+   panel, only-mine filter, home). Reply cards + chat toggle. Texts (en, zh, 11 locales), docs, tether/FEATURES.md.
+3. [done 2026-11-25 12:4x] Tests (unit, red on the old client.js; browser on dsh 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5), screenshots.
+4. [done 2026-11-25 18:5x at 8a65e931; waits for "main'e al"] Zoom-button fix, merges of origin/main, review loop (separate subagent each round,
+   until no P1/P2), screenshots of the final commit, report. No merge into main before Damon sends "main'e al".
+
+## 1. Mockup canvas behaviors (mockup file:line)
+1. Bar above the canvas: Tuval / Liste switch (376), "Yalnız bana bekleyenler" filter (377, 697), "Damon'a dön" (378,
+   692), a hint "Sürükle: gez · Tekerlek: yakınlaş · Ok tuşları, + ve −" (380).
+2. Canvas: dotted background (102), grab cursor (102, 104), focusable with an aria-label (382).
+3. World: Damon circle in the center (110-114, 570) with "N iş sürüyor" and "N seni bekliyor"; project islands around it
+   (121-127, 564-568, 575-583): a fixed layout (columns left and right, one above, one below), not free placement.
+4. Island: header button (name + subtitle) that zooms to the island (122, 567, 615, 643); its cards in state order
+   (128-137, 466, 565); "Bugün hareket yok" when empty (127, 567).
+5. Card: colored left border by state (129, 14-15), state icon (131), title, meta line with the state label and a
+   "Canlı" tag (133-135, 462), the "why" line only at close zoom (136, 138); a done card is compact (116); the selected
+   card has an outline (137).
+6. Lines from Damon to each island (curved SVG paths with an end dot, 106-108, 117-119, 587-595); a dashed, moving line
+   for each running item (108, 119, 592-593); reduced motion stops the animation (97).
+7. Zoom detail levels (604, 607, 139-144): far (<50%): islands show only counts per state (140-143) and no cards;
+   near (50-95%): cards; close (>=95%): cards with their "why" line.
+8. Pan: drag with one pointer (664-680), arrow keys 60 px (645-649), shift+wheel or horizontal wheel (687); a drag is no
+   click (682); a card focused by keyboard pans into view (656-662).
+9. Zoom: wheel and trackpad pinch zoom at the pointer (683-689), two-finger touch pinch (669, 673), + and − buttons with
+   the zoom percent (384, 690-691), keys + − and 0 (home) (650-652); range 25%-160% (612).
+10. Minimap at the bottom right (150-152, 598-602, 693-696): island rectangles, a dot in the color of the most urgent
+    state, Damon as a dot, the viewport rectangle (610-611); a click centers the view there; Enter/Space goes home.
+11. Zoom buttons at the bottom left (147-149, 384).
+12. Side panel at the right (153-155, 631-642): a card click opens it with the state, live tag, project and time, the
+    title, "Neden önemli" and the text, the last answer, and the answer buttons (Onayla / options / Yaptım / Damon
+    çözsün, Sonra, a short reply field) (469-477); Esc or × closes it and the focus goes back to the card (646, 642).
+13. "Yalnız bana bekleyenler": only the cards that wait for you show; islands without such cards dim (145-146).
+14. Liste view (620-630): the same data as a list; on a phone (<600 px) it starts in the list (617).
+15. Colors: one color per state, light and dark (9-15); the legend is outside the canvas (317, 552).
+
+## 2. Differences: mockup vs. main's canvas (client.js on 8f1723fb)
+- Layout: main puts cards in group columns (Onay, Sorun, Senden, Sürüyor, Bitti, Notlar) with free drag of each card and
+  saved places (client.js:3509-3518, 3640-3656, 4739-4755, 4801-4830). Mockup: Damon in the center, islands around it,
+  fixed layout, no card drag (575-585).
+- No Damon hub circle, no lines, no running dashed line in main (client.js:4903-4916 draws only cards).
+- No zoom detail levels in main: every card shows at every zoom (client.js:4912-4915). Mockup: far/near/close (604).
+- No minimap in main ("No minimap" is a decision of 2026-11-24: the "Decisions" list of the canvas section below,
+  "Damon canvas view (tuval)" section, "Decisions").
+- No side detail panel in main: the card itself holds its buttons (client.js:4487-4508); "→" writes into the composer and
+  closes the canvas (client.js:4399-4402).
+- No "Yalnız bana bekleyenler" filter and no "Damon'a dön" in main (bar: client.js:4904-4908 has Back to the chat,
+  counts, summary, projects, refresh, −, %, +, Fit all).
+- Plain wheel pans in main, Ctrl/Cmd+wheel zooms (client.js:4836-4841); mockup: wheel zooms, shift/horizontal pans.
+- Zoom range: main 10%-200% (client.js:3516); mockup 25%-160% (612).
+- Card look: main reuses the panel's flat list cards (2 px left line only on the active card, 13 px text:
+  client.js:3547-3557, 3620-3621); mockup: a card with a 5 px state-colored left border, a state icon, 19 px title.
+- Group label: main labels each card with its group (client.js:3621, 4913-4915); mockup labels the island.
+- Background: both dotted (client.js:3618; mockup 102). Full-screen over the chat: main yes (client.js:3614).
+- Liste view: main has none on the canvas (the panel itself is the list, "Sohbete dön" goes back).
+- Keyboard: both have arrows, + − and 0 (client.js:4881-4890; mockup 645-653).
+
+## 3. Design (decisions; the simplest option that matches the mockup and the real data)
+- Islands are the panel's real groups, not projects: Onay (approval + choice), Sorun, Senden, Sürüyor, Bugün bitti,
+  Kararlar (your notes, decisions), Özet (the summary) and Güncellemeler (the reply cards). Reason: the status data has
+  no project per item (todoItem: index.js:12351-12355; a task has only `result: "project · branch"` text:
+  index.js:12751), and a second data path is not allowed (2026-11-24 decision). The canvas shows the Projeler island
+  only while Projects is open (as now).
+- Fixed layout around the Damon hub, as the mockup: left column, right column, one island above, one below. No card drag
+  and no saved card places any more (the mockup has none). The saved view (x, y, zoom) in `CANVAS_KEY` stays; old saved
+  `pos` data is read and ignored (no migration).
+- Wheel zooms at the pointer, Shift+wheel or a horizontal wheel pans (mockup 683-689); zoom 25%-160%.
+- Zoom levels as the mockup: far (<50%) counts only, near cards, close (>=95%) cards with their detail line.
+- Minimap with the islands, the most urgent state dot, the viewport; click centers.
+- Side panel: a card click opens the card's detail and its actions at the right of the canvas (the panel's own action
+  code: Onayla, options, Yaptım/Yanıtla, open chat, Sonra, ×). Esc closes the side panel first, then the canvas.
+- "Yalnız bana bekleyenler" and "Damon'a dön" in the bar, plus the existing Sohbete dön, Özet getir, Projeler, Yenile.
+- Reply cards (scope update): one card per Damon reply that is not only `[quiet]`; the newest unread card is on top.
+- Chat toggle: "Sohbeti göster" / "Sohbeti gizle"; default hidden; kept in localStorage.
+
+### 3a. Reply cards: data (verified in client.js and dsh 0.2.2-rc.5 dsh-client-ui-chat)
+- Source: dsh's chat nodes of the Damon chat (`chatNodesOf(id)` = `uiConversation.binding(id).target('chat')`,
+  client.js:15742; a store with getSnapshot/subscribe). No Host change, no second data path.
+- A card = an `assistant-step` node with `data.status === 'settled'`, a `data.finalNode.seq`, text blocks (answerText,
+  client.js:7898) that are not only `[quiet]` (quietStep, client.js:2980), and that dsh shows as a reply: the last step
+  with text of its turn, or a step with text and no tool call (the answerRowKeys rule, client.js:3009-3013). Plus one
+  card per `turn-error` node (dsh kinds: assistant-step, turn-error, turn-tail, …; checked in dsh-client-ui-chat).
+- Left out: a seq in the rollback's withdrawn spans (`rollback.of(id).withdrawn`, inSpans client.js:980; rule 9) and a
+  seq below a fork's inherited count (`rollback.of(id).inherited`; rule 10).
+- Parse (pure function, unit-tested): `onay` blocks out of the text (onayBlocks, client.js:7836) → the approve button
+  only on the card whose seq is the current approval offer's `from` (`cardOffers.of(id)`, client.js:4031; button through
+  `picks.pick`, the same guard as today); the option list at the end (parseOptions, client.js:7747) → option buttons only
+  on the card whose seq is the current choice offer's seq (`cardOffers.choiceOf(id)`); an older card shows them as plain
+  text. Title: the first line when it is all bold (`**…**`), else the first sentence. "Senden:" / "For you:" line → the
+  highlighted action line. `> [!DETAILS] <summary>` quote → a closed `<details>` (calloutOf, client.js:3175). Other
+  callouts stay text. Body: dsh's `primitives.MarkdownText` (client.js:2388), else pre-wrap text.
+- Style: the Kararlar card (DECIDE_CSS, client.js:4088-4109): 18 px semibold title, 44 px option buttons with a number,
+  pill buttons, the recommended tag; dsh theme variables only (no hex of the mockup), WCAG AA.
+
+### 3b. Reply cards: unread (requirement 3, simplest design)
+- localStorage `dsh-composer-plus.reply-cards-read` = `{ [chat id]: { floor, read: [seq, …] } }` (junk reads as empty,
+  merged on write as CANVAS_KEY). At the first view of a chat, `floor` = its newest card seq (old replies are read).
+- Unread = `seq > floor` and not in `read`. A click on the card, Enter on it, or any of its buttons marks it read. When
+  every card up to a seq is read, `floor` moves up and `read` drops those seqs (the list stays short).
+- The feed is newest first. Unread cards have a "Yeni" badge and a 4 px blue left border; the newest unread card is the
+  first card, with a stronger shadow, and the feed scrolls to it when it comes. The feed header says "N okunmadı" and has
+  "Tümünü okundu say".
+
+### 3c. Chat toggle and the feed's place
+- localStorage `dsh-composer-plus.assistant-chat-shown` = `'1'` when shown; default hidden (Furkan). A pill button in the
+  status panel header: "Sohbeti göster" / "Sohbeti gizle" (real button, aria-pressed).
+- Hidden: dsh's `[data-conversation-scroll]` gets `visibility:hidden` (not `display:none`: dsh's history loader reads
+  the "Load earlier" row's box, see the ASSISTANT_TURNS note client.js:3020-3024; the canvas uses the same rule), and the
+  feed is drawn over the scroll body's box (measured with a ResizeObserver), so the composer below stays exactly as it
+  is. Side place: the feed leaves the panel's 332 px at the right (as the chat does, client.js:3530).
+- Shown: dsh's chat as today; the feed is not drawn.
+- New feature switch `assistantReplyCards` ("Damon yanıt kartları"), on by default (AGENTS.md rule 1: texts, screenshot
+  webp from the English demo, docs/features.json, READMEs, llms.txt, tether/FEATURES.md row, a unit test in test:all).
+
+### 3d. Canvas with the same cards
+- Islands: Güncellemeler (the reply cards, unread first), Onay, Senden, Sorun, Sürüyor (with the Sürüyor chips), Bugün
+  bitti, Kararlar (the Kararlar button: the same dialog), Özet (summary card, whole height). The side panel shows the
+  card's detail and its actions (reply card: approve / option buttons; panel card: the panel's own actions).
+
+## Not verified
+- How a real Damon reply looks as a card on Furkan's live data: only the demo data (made up) is checked.
+- The 12 non-English texts (docs, READMEs, locales) were written by an agent; no native speaker checked them.
+- The moving line with reduced motion: only the CSS rule (`animation:none`) is checked, not in a browser.
+- A touch-screen two-finger pinch: only the code path; the browser tests use a mouse and a wheel.
+- Tether: no change (by the task). The difference goes into tether/FEATURES.md.
+
+## Invariants
+- Only the Damon chat changes. Other chats, the composer (place, behavior, buttons) and the Host (index.js) do not.
+- Keep: approvals (Onayla, one send per chat: picks.pick), the Kararlar dialog and its focus rules, the Sürüyor chips,
+  the summary resize grip (list view), the status panel cards, the full-screen canvas rule (chat hidden, not removed;
+  Esc and Sohbete dön restore scroll and draft), dsh's own question/approval closes the canvas.
+- Each new style and listener belongs to its feature switch (rule 1). Turkish UI text; en, zh and 11 locales.
+- No live copy, no release, no npm publish, no DSH restart, no merge into main before Damon sends "main'e al".
+
+## Allowed paths
+client.js, locales/*.json, locale/*.json (build:locales), docs/features.json, README*.md and llms.txt (build:readme),
+assets/features/assistantReplyCards.webp (new), index.js only for SHOTS if a shot list needs the new id, test/*.mjs
+(new and changed tests), package.json (test:all only), tether/FEATURES.md, IMPLEMENTATION_PLAN.md.
+
+## Checks
+- `npm test` (exit 0), `node --check client.js`, `git diff --check`.
+- Unit: `node test/status-canvas.test.mjs`, `node test/assistant-todos-client.test.mjs`, new `test/reply-cards.test.mjs`;
+  each new assertion red on 8f1723fb's client.js (run the test against `git show 8f1723fb:client.js`).
+- Browser (headless, chromiumSandbox true): `PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright
+  node test/browser-status-canvas.mjs <bin>` with bins
+  ~/Documents/testdeepseekharness/work/dsh-0.2.0-rc.2/node_modules/@deepseek-ai/dsh/lib/bin.js,
+  ~/Documents/testdeepseekharness/work/dsh-0.2.1-rc.2/node_modules/@deepseek-ai/dsh/lib/bin.js,
+  ~/ai-maintenance/dsh-composer-plus/dsh/0.2.2-rc.5/node_modules/@deepseek-ai/dsh/lib/bin.js; regression:
+  browser-card-stack, browser-running-filter, browser-summary-resize, browser-dismiss-task (0.2.2-rc.5).
+- Screenshots: `test/browser-canvas-mockup.mjs` (new, not in test:all: MOCKUP, OUT, TAG=<short sha>, PAIR=1) next to
+  browser-status-canvas with SHOTS=<folder> SCHEME=light|dark TAG=<short sha>; out folder
+  `/Users/furkancakir/Damon/Belgeler/Composer Plus/tuval-html-20261125/`. Pictures: canvas side by side (light, dark),
+  the card view with the chat hidden, the chat shown, a reply card with Onayla and option buttons (light, dark).
+
+## Risks
+- dsh renames `[data-conversation-scroll]` or the chat node kinds: the feed does not show and the chat stays (fail open).
+- A reply card's Markdown body uses dsh's MarkdownText primitive; an older dsh without it shows plain text.
+- The scope is large (canvas rewrite + a new feature): the review loop runs until a round has no P1/P2.
+
+## Last checkpoint
+- 2026-11-25 18:3x: phase 4, review loop (this chat).
+  - `git fetch origin`: origin/main is still 9d4a53bb (the merge base): no merge needed.
+  - "Senden · Senden" side panel heading: already fixed in d7fdc4ab (client.js:5390 area), measured by
+    browser-status-canvas (`the side panel heading names the group once`).
+  - Review 6 (review-guard-6, separate subagent, whole `git diff origin/main...HEAD` at b1a2b514): P1 0, P2 0, P3 1, P4 1.
+    The loop has no P1/P2 now. Fixed in 09cce2a7: a list line is no reply card title (red on b1a2b514: title "1.");
+    the canvas layout effect skips while a drag runs (no two layouts per pointer move).
+  - Found in the 09cce2a7 screenshots: in the side place, "Sohbeti göster" covered "Liste 12:32" (also in the 1edb14cb
+    and 5cb4da4d sets). Fixed in f3857cfe: the toggle gets its own row under the icons (`::after` flex break + `order`).
+    browser-status-canvas `timeCovered` measures it with the chat hidden and shown (red on 09cce2a7).
+  - Review 7 (review-guard-7, separate subagent, `git diff b1a2b514..f3857cfe`): P1 0, P2 0, P3 1, P4 2. Fixed in
+    8a65e931: during a drag, a zoom level or card change (pinch, wheel, new data) is still measured. P4 kept: in the top
+    place the chat toggle now comes after the icons; a first line such as "3. sınıf …" is no title (rare).
+    The review loop is done: rounds 6 and 7 have no P1/P2.
+  - Last passing (8a65e931): `npm test` exit 0; `git diff --check` clean; browser-status-canvas PASS on 0.2.2-rc.5,
+    0.2.0-rc.2, 0.2.1-rc.2; browser-card-stack, approval-card, running-filter, summary-resize, dismiss-task,
+    status-refresh PASS on 0.2.2-rc.5 (headless, chromiumSandbox true).
+  - Screenshots of 8a65e931 (16 files, same names, `-8a65e931.png`) are in
+    `/Users/furkancakir/Damon/Belgeler/Composer Plus/tuval-html-20261125/`. The 1edb14cb set is deleted.
+  - Auto review denial (2026-11-25 18:5x): deleting the 09cce2a7 set (16 files, taken in this chat, out of date: it shows
+    the toggle over the list time) did not run. Reason: "a wide deletion of user documents outside the repository, and no
+    human message in the chat asks for it". It needs a written approval, as the 5cb4da4d set. Both sets stay until then.
+  - 2026-11-25 19:1x: Furkan wrote "Tamam, ekran görüntülerine baktım. Dalı main'e al, canlıya geçir" (relayed by Damon).
+    origin/main still 9d4a53bb. Review 8 (whole final diff, d5a50aff): P3 1 → 065753df (a failed-turn card shows dsh's
+    own localized text for known codes, `chat` dictionary; red on d5a50aff). Review 9 (065753df): P4 2 → ae0a535e
+    (`failureTextOf`, Object.hasOwn, real lookup unit test). Review 10 (ae0a535e): P1 0, P2 0, P3 0, P4 0: clean.
+    Last passing (ae0a535e): `npm test` exit 0; browser-status-canvas 0.2.2-rc.5, 0.2.0-rc.2, 0.2.1-rc.2 PASS;
+    card-stack, approval-card, running-filter, summary-resize, dismiss-task, status-refresh PASS on 0.2.2-rc.5.
+  - Next: merge into main (--no-ff), push, live copy (backup first, whole files of the main commit, live-copy-check
+    MATCH). No release, tag, npm publish, Tether change or DSH restart.
+  - (Earlier) Open steps: Furkan looks at the 8a65e931 screenshots. Damon sends "main'e al" → merge into main and push (standing
+    approval). Deleting the 5cb4da4d and 09cce2a7 sets needs a written approval. No live copy before Furkan writes "tamam".
+- 2026-11-25 15:5x: phase 4 (previous chat).
+  - Merges of origin/main: c0775f5d (0c6e3ae5, buttonless approval card) and aa6a951a (9d4a53bb: 1.32.0, status panel
+    contrast abd7f871). Conflicts only in generated packs (build:locales, build:readme), docs/features.json assistantTodos
+    (main's sentence change merged into the branch text, checked by a script), package.json test:all (both new tests),
+    the reduced-motion CSS rule and this plan. No feature removed.
+  - f5e1e7db: Damon'a dön lowers the zoom (at least 50%) when the island columns do not fit, so they keep 58 px from the
+    sides; the zoom percent has a background; the side panel closes when its card leaves (after Onayla). Measured headless
+    (browser-status-canvas step 2b, getBoundingClientRect): 1280 px 61%, 1360 px 67%, 1440 px 73% (zoom buttons right
+    edge 46 px, Sorun left edge 58 px), 1920 px 75% (Sorun 280 px): no overlap.
+  - Review 1 (f5e1e7db): P2 2, P3 2 → 26cdf995 (whole read floor; replySig: no draw per streamed chunk; partsMemo;
+    side-panel Onay menu key; llms). Review 2 (26cdf995): P2 1 → 040f2789 (text next to a tool call that asks you is a
+    card). Review 3 (aa6a951a): P2 1, P3 2, P4 2 → 27abc1f0 (reply card AA contrast, dim by color not opacity, llms).
+  - Review 4 (27abc1f0): P2 1, P3 1, P4 1 → 5cb4da4d (reply card title on the canvas: `.cp-rc h3.cp-rc-q`; far-zoom
+    count dim; option `li`). Review 5 (5cb4da4d): P2 1 → d7fdc4ab (the panel's h2-h4, section, ul, li, code rules get
+    `:where(:not(.cp-rc *))`, so a reply card's Markdown keeps its lists, headings and code on the canvas and in the side
+    panel; red on 5cb4da4d's client.js: li flex, ul no marker, h3 12 px, code 11 px). Also d7fdc4ab: the side panel
+    heading names the group once (it said "Senden · Senden · 3/4: …").
+  - Last passing (d7fdc4ab): `npm test` exit 0; `git diff --check` clean; browser-status-canvas PASS on 0.2.2-rc.5,
+    0.2.0-rc.2, 0.2.1-rc.2; browser-card-stack, approval-card, running-filter, summary-resize, dismiss-task PASS on
+    0.2.2-rc.5 (headless, chromiumSandbox true).
+  - Screenshots: the 1edb14cb set (16 files) and a 5cb4da4d set (16 files, taken during review 5) are in
+    `/Users/furkancakir/Damon/Belgeler/Composer Plus/tuval-html-20261125/`. No set of d7fdc4ab yet.
+  - Auto review denial (2026-11-25 16:5x): a command that took the d7fdc4ab set and deleted the 1edb14cb and the 5cb4da4d
+    sets did not run. Reason: "The command deletes the 5cb4da4d screenshot set in ~/Damon/Belgeler, a user documents
+    folder. The human asked only to delete the 1edb14cb screenshots." Deleting the 5cb4da4d set needs a written approval
+    in the chat; it stays until then.
+  - Open steps (next chat):
+    1. Review round 6 in a separate subagent on `git diff origin/main...HEAD` (round 5 had a P2, so one more round). Fix,
+       `npm test`, the browser tests above. Repeat until a round has no P1/P2. `git fetch` first: if origin/main moved
+       past 9d4a53bb, merge it, `npm test`, and include the merge in the last round.
+    2. Screenshots of the final commit with `TAG=<short sha>` (commands in the 12:4x entry below; light and dark, then
+       browser-canvas-mockup.mjs PAIR=1). When the new 16 files exist, delete only the 1edb14cb set. The 5cb4da4d set only
+       after a written approval.
+    3. Commit, report in Turkish with the screenshot paths. No merge into main before Damon sends "main'e al"; no live
+       copy, no release.
+- 2026-11-25 12:3x: phases 2 and 3 (code, texts, docs, tests) committed on the branch. Changes from the design:
+  - dsh 0.2.0-0.2.2 keep the message box (`[data-composer-seat]`, sticky) inside `[data-conversation-scroll]` (measured):
+    the reply feed covers the scroll body only down to the seat's top, and the hide rule is
+    `[data-conversation-scroll]>:not([data-composer-seat]){visibility:hidden}`.
+  - The islands keep their places at every zoom: canvasLayout uses each island's height at close zoom (measured with the
+    world set to close for one moment, no paint between).
+  - Cards come only after the Host's Turn rollback route answered once (rule 9/10 spans), as Option picks.
+  - The side panel draws the card's own element again with its own `…` menu key (`-side`); in the side panel a task card's
+    click opens its chat; on the canvas a click opens the side panel.
+  - test/browser-card-stack.mjs starts with the chat shown (`dsh-composer-plus.assistant-chat-shown` = '1'): it reads the
+    buttons under Damon's reply. test/browser-status-canvas.mjs checks the reply cards (chat hidden by default).
+- Red evidence: the new test/reply-cards.test.mjs, test/status-canvas.test.mjs and the canvas part of
+  test/assistant-todos-client.test.mjs fail on 8f1723fb's client.js (ReferenceError replyCardsOf / canvasLayout,
+  TypeError reading islands); a detached worktree of 8f1723fb, removed after.
+- Last passing: `npm test` exit 0; `git diff --check` clean; browser-status-canvas PASS on dsh 0.2.0-rc.2, 0.2.1-rc.2,
+  0.2.2-rc.5; browser-card-stack, browser-running-filter, browser-summary-resize, browser-dismiss-task PASS on 0.2.2-rc.5
+  (headless, chromiumSandbox true). Contrast of the reply card texts (light): title 18.9, Senden 18.9, New 18.9, time 5.8,
+  option 18.9.
+- 2026-11-25 12:4x: phase 3 done. Screenshots of 1edb14cb (dsh 0.2.2-rc.5 demo, headless, chromiumSandbox true) in
+  `/Users/furkancakir/Damon/Belgeler/Composer Plus/tuval-html-20261125/`: yan-yana-{light,dark}, composer-plus-{light,dark},
+  tuval-yan-panel-{light,dark}, kartlar-sohbet-gizli-{light,dark}, sohbet-acik-{light,dark}, yanit-karti-{light,dark},
+  mockup-{light,dark,far-light,side-light}, each `-1edb14cb.png`. The 4 mockup files without a SHA are deleted.
+  Commands: `SHOTS=<folder> SCHEME=light|dark TAG=1edb14cb PLAYWRIGHT=<Mergen playwright> node test/browser-status-canvas.mjs
+  <0.2.2-rc.5 bin>`, then `MOCKUP=<mockup html> OUT=<folder> TAG=1edb14cb PAIR=1 node test/browser-canvas-mockup.mjs`.
+  Dark contrast of the reply card texts: title 17.5, Senden 17.5, New 17.5, time 12.1, option 17.5.
+- (12:4x, done in phase 4) Open steps of phase 3: the review loop, the zoom-button overlap at 1360 px, the merge of
+  origin/main. See the 15:5x entry above.
+- 2026-11-25 10:2x: phase 1 (analysis) done, committed on the branch. No product code changed yet.
+- Last passing test command: `npm test` exit 0 on 8f1723fb (this worktree, before any change).
+- Mockup screenshots (phase 1, without SHA): `/Users/furkancakir/Damon/Belgeler/Composer Plus/tuval-html-20261125/
+  mockup-{light,dark,far-light,side-light}.png`; take them again in phase 3 with `TAG=<short sha>` (then delete these four).
+- New file: `test/browser-canvas-mockup.mjs` (mockup shots and side-by-side pictures).
+- Open steps (next chat): phase 2 (canvas rewrite in client.js StatusCanvas/StatusPanel canvas branch: client.js:3509-3669,
+  4739-4762, 4794-4917; reply cards: a new pure parser + feed component + the toggle, registered as feature
+  `assistantReplyCards`), then phase 3 (tests, screenshots), phase 4 (review loop, report).
+
 # Release 1.32.0 (branch chore/release-1-32-0, 2026-11-25)
 
 Approval (Furkan, Assistant chat, 2026-11-25): "Onaylıyorum: Composer Plus 1.32.0 main'in son hâlinden herkese açık

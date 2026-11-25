@@ -9,9 +9,9 @@ let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } } }
 const ANCHOR = '/** Feature switches, in Settings order.';
 const src = readFileSync(new URL('../client.js', import.meta.url), 'utf8');
 assert.ok(src.includes(ANCHOR));
-eval(src.replace(ANCHOR, `globalThis.__css = { TODOS_CSS, CODEX_THEME_CSS, DECIDE_CSS };\n    ${ANCHOR}`));
+eval(src.replace(ANCHOR, `globalThis.__css = { TODOS_CSS, CODEX_THEME_CSS, DECIDE_CSS, REPLY_CSS };\n    ${ANCHOR}`));
 mod.factory((n) => (n === 'react' ? { createElement: () => null } : {}));
-const { TODOS_CSS, CODEX_THEME_CSS, DECIDE_CSS } = globalThis.__css;
+const { TODOS_CSS, CODEX_THEME_CSS, DECIDE_CSS, REPLY_CSS } = globalThis.__css;
 
 // dsh's theme colors, copied from dsh-client-ui-theme design-platform.css (the same in 0.2.0-rc.2, 0.2.1-rc.2 and
 // 0.2.2-rc.5; checked 2026-11-25: copy them again when dsh changes a token). dsh
@@ -80,6 +80,14 @@ for (const theme of Object.keys(themes)) {
   for (const sel of ['.cp-dc-progress', '.cp-dc-x', '.cp-dc-tag', 'h3', '.cp-dc-err', '.cp-dc-btn[data-danger]']) check(`dialog ${sel}`, resolve(props(DECIDE_CSS, `${A} ${sel}`).color, dvars), dbg, 4.5);
   const send = props(DECIDE_CSS, `${A} .cp-dc-btn[data-primary]`);
   check('dialog primary button', resolve(send.color, dvars), resolve(send.background, dvars), 4.5);
+  // The Damon reply cards (assistantReplyCards, review 3 of 2026-11-25): the feed is outside the panel, so it sets the
+  // panel's AA colors itself. Onayla, the Recommended tag, a failed turn's title and a failed send on the card's background.
+  const F = '[data-composer-plus-reply-feed]';
+  const rvars = { ...(theme === 'codex' ? { ...DSH.dark, ...props(CODEX_THEME_CSS, DARK) } : DSH[theme]), ...props(REPLY_CSS, `${theme === 'light' ? 'body:not([data-ds-dark-theme])' : 'body[data-ds-dark-theme]'} ${F}`) };
+  const rbg = theme === 'codex' ? panelBg('codex') : resolve(props(REPLY_CSS, '.cp-rc').background, rvars);
+  const ok = props(REPLY_CSS, '.cp-rc-btn[data-primary]');
+  check('reply card Onayla', resolve(ok.color, rvars), resolve(ok.background, rvars), 4.5);
+  for (const sel of ['.cp-rc-tag', '.cp-rc h3.cp-rc-q', '.cp-rc[data-kind="error"] h3.cp-rc-q', '.cp-rc-err', '.cp-rc-top', '.cp-rc-details>summary']) check(`reply card ${sel}`, resolve(props(REPLY_CSS, sel).color, rvars), rbg, 4.5);
 }
 // The old white text on dsh's blue fails in the light theme: the check would see the old pill.
 assert.ok(ratio('#ffffff', DSH.light['--dsw-alias-state-business-primary']) < 4.5, 'the old pill: white on dsh blue is under 4.5:1');

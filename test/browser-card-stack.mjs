@@ -110,6 +110,9 @@ try {
       const { sessionId, background } = await seed(demo.url, { model });
       context = await browser.newContext({ locale: 'tr-TR', timezoneId: 'Europe/Istanbul', viewport: { width: 1280, height: 900 }, colorScheme: 'light' });
       await context.addInitScript(() => { if (localStorage.getItem('dsh-composer-plus.features') === null) localStorage.setItem('dsh-composer-plus.features', '{"autoUpdate":false,"worktreeChats":false,"nextPrediction":false}'); });
+      // The chat shows (Sohbeti göster): this check reads the buttons and the list under Damon's reply. The reply cards
+      // that cover the chat by default are checked in test/browser-status-canvas.mjs.
+      await context.addInitScript(() => { if (localStorage.getItem('dsh-composer-plus.assistant-chat-shown') === null) localStorage.setItem('dsh-composer-plus.assistant-chat-shown', '1'); });
       page = await context.newPage(); page.on('pageerror', (e) => errors.push(String(e)));
       await page.goto(demo.url);
       for (const name of [/^(Continue|Devam)$/, /^(Configure later|Daha sonra yapılandır)$/]) {
@@ -364,7 +367,7 @@ try {
       demo = await startDemo(process.argv.at(-1), where, 3399);
       await seed(demo.url, { model: enModel });
       shotContext = await browser.newContext({ locale: 'en-US', timezoneId: 'Europe/Istanbul', viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2, colorScheme: 'light' });
-      await shotContext.addInitScript(() => { localStorage.setItem('dsh-composer-plus.features', '{"autoUpdate":false,"worktreeChats":false,"nextPrediction":false}'); });
+      await shotContext.addInitScript(() => { localStorage.setItem('dsh-composer-plus.features', '{"autoUpdate":false,"worktreeChats":false,"nextPrediction":false}'); localStorage.setItem('dsh-composer-plus.assistant-chat-shown', '1'); });
       const shot = await shotContext.newPage(); await shot.goto(demo.url);
       for (const name of [/^Continue$/, /^Configure later$/]) { const b = shot.getByRole('button', { name }); if (await b.waitFor({ timeout: 2000 }).then(() => true, () => false)) await b.click(); }
       await shot.keyboard.press('Escape'); await shot.locator('button[aria-label="Damon"]').click();
