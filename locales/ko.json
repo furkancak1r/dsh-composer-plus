@@ -2833,7 +2833,6 @@
     "cards.queue": "{name}의 대기열",
     "cards.queued": "대기 {count}건",
     "cards.filterEmpty": "지금은 항목이 없습니다.",
-    "cards.approveAgain": "{name}이(가) 승인 문장을 다시 쓰면 “승인” 버튼이 돌아옵니다.",
     "queue.later": "나중에",
     "queue.keys": "키: A 승인 / 했어요 · 1–9 선택지 · S 나중에 · J / K 다음 / 이전 · R 답장",
     "queue.choiceTitle": "{name}이(가) 선택을 요청합니다",

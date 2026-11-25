@@ -13096,23 +13096,6 @@
         }
       }
     },
-    "cards.approveAgain": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Approve comes back when %@ writes the approval sentence again."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ onay cümlesini yeniden yazınca Onayla gelir."
-          }
-        }
-      }
-    },
     "cards.waitingCount": {
       "extractionState": "manual",
       "localizations": {
