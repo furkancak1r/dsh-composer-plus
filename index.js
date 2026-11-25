@@ -12137,7 +12137,7 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
  * - a self-quote ("Önceki yanıtımda "…" yazdım") that no earlier answer of the chat has (2026-11-23 16:44, 2026-11-24 10:35);
  * - a call of the open turn that Auto review denied (2026-11-24 11:06: the next step replied only `[quiet]`);
  * - a to-do "Onay: …" of owner user in a turn without an `onay` block after the user's newest message (2026-11-24 13:51:
- *   the panel showed an Onay card without a button).
+ *   the panel showed an Onay card without a button; since 2026-11-25 it shows nothing, so the user cannot approve).
  * The quote and to-do notes join the next step that already has a message with text (they never start a step or a turn);
  * the denial note joins the next step of the same turn (dsh runs it after a tool call). Each note goes once. */
 const GUARD_SOURCE = 'composer-plus-assistant-guard';

@@ -477,6 +477,11 @@ newest.unmount(); older.unmount(); third.unmount(); live.unmount();
   input = { ...input, draft: 'hm' }; dock.render(); await flush();
   card = onayCard(stack.render()); assert.ok(card, 'the card stays while you type');
   assert.ok(texts(card).includes(CARD), 'with its sentence');
+  // While the chat runs there is no Onayla (the offer waits for an idle chat), so no card; it comes back after the run.
+  session = { ...session, running: true }; dock.render(); await flush(); dock.render(); await flush();
+  assert.equal(onayCard(stack.render()), undefined, 'the chat runs: no Onayla, no Onay card');
+  session = { ...session, running: false }; dock.render(); await flush(); dock.render(); await flush();
+  assert.ok(onayCard(stack.render()), 'idle again: the card comes back');
   assert.equal(btns(card).filter((b) => b.p['data-composer-plus-approve'] === 'card').length, 0, 'no Onayla while the composer has text');
   input = { ...input, draft: '' };
   // A live sentence gets the CANLI label.
