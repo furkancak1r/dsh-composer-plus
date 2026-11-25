@@ -1,10 +1,12 @@
-// Damon canvas view (tuval, 2026-11-24): the pure parts of client.js StatusCanvas.
-// - canvasPlace: a card without a place goes into its group's column, at the first height where it touches no other
-//   card (saved places, measured sizes); many random layouts give no overlap.
-// - canvasZoom: the point under the pointer stays; the zoom stays in 10%–200%.
-// - canvasFit: every card is inside the viewport, at most 100%.
-// - readCanvas / writeCanvas: localStorage `dsh-composer-plus.status-canvas`, checked on read (junk reads as empty),
-//   merged on write (another window's places stay), `drop` forgets places.
+// Damon canvas view (tuval; like the "Sonsuz tuval" HTML mockup since 2026-11-25): the pure parts of client.js StatusCanvas.
+// - canvasLayout: the islands around the Damon hub at (0, 0): your groups at the left, the work at the right, the reply
+//   cards above the hub, the summary below it; no two islands overlap and none covers the hub, for many random heights.
+// - canvasEdge: the line from the hub meets the island's near side (top island: its bottom, bottom island: its top).
+// - canvasZoom: the point under the pointer stays; the zoom stays in 25%–160% (the mockup's range).
+// - canvasHome / canvasCenter: "Damon'a dön" puts the hub in the middle at 75% (40% in a narrow window).
+// - canvasMode: far (<50%: counts only), near, close (>=95%: every line of a card).
+// - readCanvas / writeCanvas: localStorage `dsh-composer-plus.status-canvas`, only the view; junk and an old `pos` read as
+//   nothing.
 import assert from 'node:assert/strict'; import { readFileSync } from 'node:fs';
 
 const mem = new Map();
@@ -14,87 +16,81 @@ let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } } }
 const ANCHOR = '/** Feature switches, in Settings order.';
 const src = read('client.js');
 assert.ok(src.includes(ANCHOR));
-eval(src.replace(ANCHOR, `globalThis.__cv = { canvasPlace, canvasZoom, canvasFit, readCanvas, writeCanvas, CANVAS_KEY, CANVAS_W, CANVAS_GAP };\n    ${ANCHOR}`));
+eval(src.replace(ANCHOR, `globalThis.__cv = { canvasLayout, canvasEdge, canvasBounds, canvasZoom, canvasCenter, canvasHome, canvasMode, readCanvas, writeCanvas, CANVAS_KEY };\n    ${ANCHOR}`));
 mod.factory((n) => (n === 'react' ? { createElement: () => null } : {}));
-const { canvasPlace, canvasZoom, canvasFit, readCanvas, writeCanvas, CANVAS_KEY, CANVAS_W, CANVAS_GAP } = globalThis.__cv;
+const { canvasLayout, canvasEdge, canvasBounds, canvasZoom, canvasCenter, canvasHome, canvasMode, readCanvas, writeCanvas, CANVAS_KEY } = globalThis.__cv;
 assert.equal(CANVAS_KEY, 'dsh-composer-plus.status-canvas');
 
-// canvasPlace: columns, under the cards that are there, nothing for a card that has a place.
-const col = (n) => n * (CANVAS_W + CANVAS_GAP);
-assert.deepEqual(canvasPlace([{ key: 'a', col: 0 }, { key: 'b', col: 0 }, { key: 'c', col: 2 }], {}, { a: { w: CANVAS_W, h: 100 }, b: { w: CANVAS_W, h: 50 } }),
-  { a: { x: 0, y: 0 }, b: { x: 0, y: 100 + CANVAS_GAP }, c: { x: col(2), y: 0 } }, 'a column per group, one card under the other');
-assert.deepEqual(canvasPlace([{ key: 'a', col: 0 }, { key: 'b', col: 0 }], { a: { x: 0, y: 500 } }, { a: { w: CANVAS_W, h: 80 }, b: { w: CANVAS_W, h: 60 } }),
-  { b: { x: 0, y: 0 } }, 'a place that is free above a moved card is used');
-assert.deepEqual(canvasPlace([{ key: 'a', col: 1 }, { key: 'b', col: 1 }], { a: { x: col(1) + 40, y: 10 } }, { a: { w: CANVAS_W, h: 90 }, b: { w: CANVAS_W, h: 60 } }),
-  { b: { x: col(1), y: 10 + 90 + CANVAS_GAP } }, 'a card that you moved into the column: the new one goes under it');
-assert.deepEqual(canvasPlace([{ key: 'a', col: 0 }], { a: { x: 3, y: 4 } }, {}), {}, 'a card with a place keeps it');
-assert.deepEqual(canvasPlace([{ key: 'b', col: 0 }], { a: { x: 0, y: 0 } }, { a: { w: CANVAS_W, h: 100 }, b: { w: CANVAS_W, h: 50 } }),
-  { b: { x: 0, y: 100 + CANVAS_GAP } }, 'the saved place of a card that is away stays free');
-// Random layouts: no two cards overlap (with the gap), and a saved place never moves.
+// canvasLayout: the mockup's places.
+{
+  const p = canvasLayout({ onay: 100, senden: 200, sorun: 80, suruyor: 150, bitti: 120, kararlar: 60, updates: 300, ozet: 90 });
+  for (const k of ['onay', 'senden', 'sorun']) assert.equal(p[k].x, -720, `${k}: the left column`);
+  for (const k of ['suruyor', 'bitti', 'kararlar']) assert.equal(p[k].x, 320, `${k}: the right column`);
+  assert.ok(p.onay.y < p.senden.y && p.senden.y < p.sorun.y, 'left: Onay, Senden, Sorun from the top');
+  assert.ok(p.suruyor.y < p.bitti.y && p.bitti.y < p.kararlar.y, 'right: Sürüyor, Bugün bitti, Kararlar from the top');
+  assert.deepEqual(p.updates, { x: -200, y: -460, w: 400, h: 300, side: 't' }, 'the reply cards above the hub, growing up');
+  assert.deepEqual(p.ozet, { x: -200, y: 160, w: 400, h: 90, side: 'b' }, 'the summary below the hub');
+  const mid = (k1, k2) => (p[k1].y + p[k2].y + p[k2].h) / 2;
+  assert.equal(mid('onay', 'sorun'), 0, 'the left column is centered at the hub');
+  assert.equal(mid('suruyor', 'kararlar'), 0, 'the right column is centered at the hub');
+  assert.deepEqual(Object.keys(canvasLayout({ onay: 100 })), ['onay'], 'an island without a height has no place');
+  assert.deepEqual(canvasLayout({ onay: 100, sorun: 50 }).sorun.y, -(100 + 48 + 50) / 2 + 100 + 48, 'a missing island leaves no gap');
+}
+// Random heights: no overlap, the hub (a 208 px circle) stays free.
 let seed = 7; const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
 for (let run = 0; run < 300; run++) {
-  const items = Array.from({ length: 2 + Math.floor(rnd() * 14) }, (_, i) => ({ key: `k${i}`, col: Math.floor(rnd() * 6) }));
-  const size = Object.fromEntries(items.map((i) => [i.key, { w: CANVAS_W, h: 30 + Math.floor(rnd() * 300) }]));
-  const pos = {};
-  for (const i of items) if (rnd() < 0.4) pos[i.key] = { x: Math.floor(rnd() * 1800) - 200, y: Math.floor(rnd() * 1200) - 200 };
-  // Saved places can overlap each other (you put them so); only the new ones must be free.
-  const placed = canvasPlace(items, pos, size);
-  for (const key of Object.keys(pos)) assert.equal(placed[key], undefined, 'a saved place stays');
-  const all = { ...pos, ...placed };
-  for (const i of items) assert.ok(Number.isFinite(all[i.key]?.x) && Number.isFinite(all[i.key]?.y), 'every card has a place');
-  for (const key of Object.keys(placed)) {
-    const a = { ...all[key], ...size[key] };
-    for (const other of items) {
-      if (other.key === key) continue;
-      const b = { ...all[other.key], ...size[other.key] };
-      const apart = a.x + a.w + CANVAS_GAP <= b.x || b.x + b.w + CANVAS_GAP <= a.x || a.y + a.h + CANVAS_GAP <= b.y || b.y + b.h + CANVAS_GAP <= a.y;
-      assert.ok(apart, `run ${run}: ${key} ${JSON.stringify(a)} touches ${other.key} ${JSON.stringify(b)}`);
+  const heights = {};
+  for (const k of ['onay', 'senden', 'sorun', 'suruyor', 'bitti', 'kararlar', 'updates', 'ozet']) if (rnd() < 0.8) heights[k] = 60 + Math.floor(rnd() * 1400);
+  const p = canvasLayout(heights); const list = Object.entries(p);
+  assert.deepEqual(Object.keys(p).sort(), Object.keys(heights).sort(), 'every island with a height has a place');
+  for (const [i, [ka, a]] of list.entries()) {
+    assert.ok(a.x + a.w <= -104 || a.x >= 104 || a.y + a.h <= -104 || a.y >= 104, `run ${run}: ${ka} covers the hub`);
+    for (const [kb, b] of list.slice(i + 1)) {
+      const apart = a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y;
+      assert.ok(apart, `run ${run}: ${ka} ${JSON.stringify(a)} overlaps ${kb} ${JSON.stringify(b)}`);
     }
   }
+  const b = canvasBounds(p);
+  for (const o of [...Object.values(p), { x: -104, y: -104, w: 208, h: 208 }]) assert.ok(o.x >= b.x && o.y >= b.y && o.x + o.w <= b.x + b.w && o.y + o.h <= b.y + b.h, 'the bounds hold every island and the hub');
 }
-
-// canvasZoom: the point under the pointer stays where it was; 10%–200%.
+// canvasEdge: the near side, at the asked height inside the island (28 px from its corners).
+{
+  const left = { x: -720, y: -100, w: 400, h: 200, side: 'l' }; const right = { x: 320, y: 0, w: 400, h: 100, side: 'r' };
+  assert.deepEqual(canvasEdge(left), [-320, 0], 'left: its right side, its middle');
+  assert.deepEqual(canvasEdge(right, 1000), [320, 72], 'right: its left side, at most 28 px from the bottom');
+  assert.deepEqual(canvasEdge({ x: -200, y: -500, w: 400, h: 340, side: 't' }), [0, -160], 'top: its bottom');
+  assert.deepEqual(canvasEdge({ x: -200, y: 160, w: 400, h: 90, side: 'b' }), [0, 160], 'bottom: its top');
+}
+// canvasZoom: the point under the pointer stays where it was; 25%–160%.
 {
   const v = { x: 120, y: -40, k: 1 };
   const z = canvasZoom(v, 1.5, 300, 200);
   const world = (view, px, py) => [(px - view.x) / view.k, (py - view.y) / view.k];
   assert.deepEqual(world(z, 300, 200).map((n) => Math.round(n * 1e6)), world(v, 300, 200).map((n) => Math.round(n * 1e6)), 'the point stays');
   assert.equal(z.k, 1.5);
-  assert.equal(canvasZoom(v, 100, 0, 0).k, 2, 'at most 200%'); assert.equal(canvasZoom(v, 0.001, 0, 0).k, 0.1, 'at least 10%');
+  assert.equal(canvasZoom(v, 100, 0, 0).k, 1.6, 'at most 160%'); assert.equal(canvasZoom(v, 0.001, 0, 0).k, 0.25, 'at least 25%');
 }
-
-// canvasFit: every card inside the viewport, at most 100%, also a far card.
+// canvasHome / canvasCenter: the hub in the middle.
 {
-  const rects = [{ x: 0, y: 0, w: 280, h: 120 }, { x: 1600, y: 900, w: 280, h: 300 }, { x: -400, y: 50, w: 280, h: 80 }];
-  for (const [W, H] of [[1280, 800], [600, 400], [3000, 2000]]) {
-    const v = canvasFit(rects, W, H);
-    assert.ok(v.k <= 1 && v.k >= 0.1, `zoom ${v.k}`);
-    for (const r of rects) {
-      const left = v.x + r.x * v.k; const top = v.y + r.y * v.k;
-      assert.ok(left >= 0 && top >= 0 && left + r.w * v.k <= W + 0.001 && top + r.h * v.k <= H + 0.001, `${W}x${H}: ${JSON.stringify(r)} inside`);
-    }
-  }
-  assert.equal(canvasFit([{ x: 0, y: 0, w: 280, h: 100 }], 1280, 800).k, 1, 'a small layout is not blown up');
-  assert.deepEqual(canvasFit([], 1280, 800).k, 1, 'no card: 100%');
+  assert.deepEqual(canvasHome(1200, 800), { x: 600, y: 400, k: 0.75 }, 'the hub in the middle at 75%');
+  assert.deepEqual(canvasHome(500, 800), { x: 250, y: 400, k: 0.4 }, 'a narrow window: 40%');
+  const c = canvasCenter(320, 100, 1, 1000, 600); assert.deepEqual([(500 - c.x) / c.k, (300 - c.y) / c.k], [320, 100], 'the asked point in the middle');
+  assert.equal(canvasCenter(0, 0, 9, 1000, 600).k, 1.6, 'center keeps the zoom range');
 }
-
-// readCanvas / writeCanvas.
+// canvasMode: the mockup's three levels.
+assert.deepEqual([0.25, 0.49, 0.5, 0.94, 0.95, 1.6].map(canvasMode), ['far', 'far', 'near', 'near', 'close', 'close']);
+// readCanvas / writeCanvas: only the view.
 {
-  assert.deepEqual(readCanvas(), { view: null, pos: {} }, 'nothing saved');
-  for (const junk of ['{', '42', 'null', '[]', '{"view":{"x":1,"y":2,"k":9},"pos":{"a":{"x":"1","y":2},"b":null}}', '{"view":{"x":1,"y":null,"k":1}}']) {
+  assert.deepEqual(readCanvas(), { view: null }, 'nothing saved');
+  for (const junk of ['{', '42', 'null', '[]', '{"view":{"x":1,"y":2,"k":9}}', '{"view":{"x":1,"y":null,"k":1}}', '{"view":{"x":1,"y":2,"k":0.1}}']) {
     mem.set(CANVAS_KEY, junk);
-    assert.deepEqual(readCanvas(), { view: null, pos: {} }, `junk reads as empty: ${junk}`);
+    assert.deepEqual(readCanvas(), { view: null }, `junk reads as empty: ${junk}`);
   }
-  mem.delete(CANVAS_KEY);
-  writeCanvas({ view: { x: 1, y: 2, k: 0.5 } });
-  writeCanvas({ pos: { a: { x: 10, y: 20 } } });
-  // Another window saves its card in between: a write of this window keeps it.
-  const other = JSON.parse(mem.get(CANVAS_KEY)); other.pos.b = { x: 5, y: 6 }; mem.set(CANVAS_KEY, JSON.stringify(other));
-  writeCanvas({ pos: { a: { x: 11, y: 21 } } });
-  assert.deepEqual(readCanvas(), { view: { x: 1, y: 2, k: 0.5 }, pos: { a: { x: 11, y: 21 }, b: { x: 5, y: 6 } } }, 'merged');
-  writeCanvas({ drop: ['b'] });
-  assert.deepEqual(readCanvas().pos, { a: { x: 11, y: 21 } }, 'drop forgets a place');
+  mem.set(CANVAS_KEY, '{"view":{"x":1,"y":2,"k":0.5},"pos":{"a":{"x":3,"y":4}}}');
+  assert.deepEqual(readCanvas(), { view: { x: 1, y: 2, k: 0.5 } }, 'an old saved view stays; its card places are left out');
+  writeCanvas({ x: 5, y: 6, k: 1.2 });
+  assert.deepEqual(JSON.parse(mem.get(CANVAS_KEY)), { view: { x: 5, y: 6, k: 1.2 } }, 'only the view is written');
   const blocked = globalThis.localStorage.setItem; globalThis.localStorage.setItem = () => { throw Error('quota'); };
-  writeCanvas({ pos: { c: { x: 1, y: 1 } } }); globalThis.localStorage.setItem = blocked; // no throw
+  writeCanvas({ x: 1, y: 1, k: 1 }); globalThis.localStorage.setItem = blocked; // no throw
 }
 console.log('status-canvas: ok');

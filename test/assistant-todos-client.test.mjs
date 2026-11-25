@@ -542,10 +542,11 @@ const groupBtn = (tr, g) => find(tr, (n) => n.t === 'button' && n.p['data-group'
   items = saved; await panelProps.store.load('s-assistant'); rt.clear(); tree = panel();
 }
 
-// Canvas view (tuval, Furkan 2026-11-24): a real button in the header opens it; the panel then draws only the canvas over
-// the whole chat body (the chat under it is hidden, not removed: a mark on the chat body); the canvas shows the same card
-// elements with the same handlers (one data path, one code path); Back to the chat and Esc close it; an action that
-// writes into the composer shows the chat first; the places are kept in this browser.
+// Canvas view (tuval, Furkan 2026-11-24; like the HTML mockup since 2026-11-25): a real button in the header opens it; the
+// panel then draws only the canvas over the whole chat body (the chat under it is hidden, not removed: a mark on the chat
+// body); the canvas shows the panel's groups as islands around the Damon hub with the same card elements and handlers (one
+// data path, one code path); a card click opens its side panel (Esc closes it first); Back to the chat and Esc close the
+// canvas; an action that writes into the composer shows the chat first; the view is kept in this browser.
 {
   const saved = items; const savedTasks = tasks;
   items = [{ id: 'n1', text: 'Kırtasiye', owner: 'user', created: 1 }, { id: 's1', text: 'Senden: SAP alanını aç', owner: 'user', created: 2 },
@@ -578,19 +579,35 @@ const groupBtn = (tr, g) => find(tr, (n) => n.t === 'button' && n.p['data-group'
   assert.match(find(r.tr, (n) => n.t === 'style')[0].c[0], /\[data-composer-plus-todos\]\[data-canvas\]\{position:absolute;inset:0;/, 'over the whole chat body');
   assert.equal(find(r.tr, (n) => n.p?.className === 'cp-td-head').length, 0, 'no panel header on the canvas');
   assert.ok(r.cv, 'the canvas'); assert.ok(typeof keyListener === 'function', 'Esc listens while the canvas is open');
-  // The same data: every card of the list, the Onay card with its Approve, the notes.
-  const keys = r.cv.p.items.map((i) => i.key);
+  // The same data: the groups as islands (the mockup's places around the hub), every card of the list in its island, the
+  // Onay card with its Approve, the Kararlar island with the notes' button.
+  const islandKeys = r.cv.p.islands.map((i) => i.key);
+  // Güncellemeler: the reply cards (assistantReplyCards is on); Özet only with a summary or Projects open.
+  assert.deepEqual(islandKeys, ['updates', 'onay', 'senden', 'sorun', 'suruyor', 'bitti', 'kararlar'], 'the islands: the panel\'s groups');
+  const keys = r.cv.p.islands.flatMap((i) => i.cards.map((c) => c.key));
   for (const k of listKeys) assert.ok(keys.some((x) => x.endsWith(`|${k}`)), `card ${k} on the canvas`);
-  assert.ok(keys.includes('onay'), 'the Onay card'); assert.ok(keys.includes('notes'), 'your notes: the Kararlar button');
+  assert.ok(keys.includes('onay'), 'the Onay card'); assert.ok(find(r.cvTree, (n) => n.t === 'button' && /-decide$/.test(n.p.id ?? '')).length === 1, 'your notes: the Kararlar button');
+  assert.deepEqual(r.cv.p.hub, { running: 1, waiting: 2 }, 'the hub: what runs, what waits for you (queue and decisions)');
   const cards = find(r.cvTree, (n) => n.p?.['data-cv-key'] !== undefined);
   assert.equal(cards.length, keys.length, 'one canvas card per item');
-  for (const c of cards) { assert.equal(c.p.tabIndex, 0, 'a card is focusable'); assert.equal(c.p.role, 'group'); assert.ok(c.p['aria-label'], 'a card has a name'); assert.ok(Number.isFinite(c.p.style.left) && Number.isFinite(c.p.style.top), 'a card has a place'); }
-  // No two new cards on the same place.
-  const places = cards.map((c) => `${c.p.style.left},${c.p.style.top}`); assert.equal(new Set(places).size, places.length, 'no two cards on one place');
+  for (const c of cards) { assert.equal(c.p.tabIndex, 0, 'a card is focusable'); assert.equal(c.p.role, 'group'); assert.ok(c.p['aria-label'], 'a card has a name'); }
+  assert.ok(find(r.cvTree, (n) => n.p?.['data-cv-key'] === 'senden|s1')[0].p['data-mine'] === '', 'a For you card waits for you (Yalnız bana bekleyenler)');
+  assert.ok(find(r.cvTree, (n) => n.p?.['data-cv-key'] === 'suruyor|c-run')[0].p['data-run'] === '', 'a running task gets its moving line');
   const view = find(r.cvTree, (n) => n.p?.className === 'cp-cv-view')[0];
-  assert.equal(view.p.tabIndex, 0, 'the canvas is focusable'); assert.equal(view.p['aria-label'], 'canvas.help');
-  assert.ok(find(r.cvTree, (n) => n.t === 'button' && n.p['data-cv-fit'] !== undefined && text(n) === 'canvas.fit').length === 1, 'Fit all');
+  assert.equal(view.p.tabIndex, 0, 'the canvas is focusable'); assert.equal(view.p['aria-label'], 'canvas.help:{"name":"Damon"}');
+  for (const [sel, label] of [['data-cv-only', 'canvas.onlyMine'], ['data-cv-home', 'canvas.home:{"name":"Damon"}']]) assert.equal(text(find(r.cvTree, (n) => n.t === 'button' && n.p[sel] !== undefined)[0]), label, label);
+  assert.ok(find(r.cvTree, (n) => n.p?.['data-cv-minimap'] !== undefined && n.p.role === 'button' && n.p.tabIndex === 0).length === 1, 'the minimap');
   assert.ok(find(r.cvTree, (n) => n.t === 'button' && n.p['aria-label'] === 'canvas.zoomIn').length === 1 && find(r.cvTree, (n) => n.t === 'button' && n.p['aria-label'] === 'canvas.zoomOut').length === 1, 'zoom buttons');
+  // A click on a card opens its side panel with the card's own buttons; Esc closes the side panel first, then the canvas.
+  {
+    find(r.cvTree, (n) => n.p?.['data-cv-key'] === 'senden|s1')[0].p.onClick({ type: 'click', target: { closest: () => null } }); r = draw();
+    const side = find(r.cvTree, (n) => n.t === 'aside' && n.p['data-cv-side'] === 'senden|s1')[0];
+    assert.ok(side, 'the side panel shows the card');
+    assert.ok(find(side, (n) => n.t === 'button' && n.p['data-act'] === 'main').length === 1, 'with its own main button');
+    assert.ok(find(r.cvTree, (n) => n.p?.['data-cv-key'] === 'senden|s1')[0].p['data-sel'] === '', 'the card is marked');
+    let esc = false; keyListener({ key: 'Escape', preventDefault: () => { esc = true; } }); r = draw();
+    assert.ok(esc && r.cv, 'Esc closes the side panel, not the canvas'); assert.equal(find(r.cvTree, (n) => n.t === 'aside').length, 0, 'no side panel');
+  }
   // Approve on the canvas: the panel's own button (picks.pick, the same guard).
   const approve = find(r.cvTree, (n) => n.t === 'button' && n.p['data-composer-plus-approve'] === 'card')[0];
   assert.ok(approve, 'Onayla on the canvas'); approve.p.onClick();
@@ -626,15 +643,12 @@ const groupBtn = (tr, g) => find(tr, (n) => n.t === 'button' && n.p['data-group'
     globalThis.document.getElementById = byId; r = draw();
     assert.equal(focused.at(-1), 'cp-td-s-assistant-view', 'the focus goes to the canvas when the button is gone');
   }
-  // A task card's click opens its chat.
+  // On the canvas a task card's click opens its side panel; in the side panel it opens the task's chat.
   const o0 = opened.length;
-  find(r.cvTree, (n) => n.t === 'li' && n.p['data-key'] === 'c-run')[0].p.onClick({ target: { closest: () => null } });
-  assert.deepEqual(opened.slice(o0), ['c-run'], 'a task card opens its chat');
-  // The places are kept in this browser; a draw again does not move them.
-  r = draw(); const savedPos = JSON.parse(mem.get('dsh-composer-plus.status-canvas')).pos;
-  for (const k of r.cv.p.items.map((i) => i.key)) assert.ok(savedPos[k], `the place of ${k} is saved`);
-  assert.equal(savedPos['senden|s1'], undefined, 'the removed item\'s place is forgotten');
-  const before = JSON.stringify(savedPos); r = draw(); assert.equal(JSON.stringify(JSON.parse(mem.get('dsh-composer-plus.status-canvas')).pos), before, 'stable');
+  find(r.cvTree, (n) => n.t === 'li' && n.p['data-key'] === 'c-run')[0].p.onClick({ target: { closest: () => null }, currentTarget: { closest: () => null } });
+  assert.deepEqual(opened.slice(o0), [], 'a card on the canvas opens no chat');
+  find(r.cvTree, (n) => n.t === 'li' && n.p['data-key'] === 'c-run')[0].p.onClick({ target: { closest: () => null }, currentTarget: { closest: (q) => (q === '.cp-cv-side' ? {} : null) } });
+  assert.deepEqual(opened.slice(o0), ['c-run'], 'in the side panel it opens its chat');
   // → of a Sorun card writes into the composer: the chat shows first, then the text goes in (nothing sent).
   composer.draft = ''; const ask = find(r.cvTree, (n) => n.t === 'button' && n.p['data-act'] === 'main' && /cards\.ask/.test(n.p['aria-label']))[0];
   ask.p.onClick(); await new Promise((res) => setTimeout(res, 5));

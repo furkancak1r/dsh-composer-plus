@@ -13,9 +13,9 @@ Belgeler with "tuval"; the other hit is a Playwright report). Main at start: 8f1
 
 ## Phases
 1. [done 2026-11-25 10:2x] Analysis: mockup behaviors, differences with file:line, design. Mockup screenshots.
-2. [open] Implement: canvas like the mockup (Damon hub, groups as islands, lines, zoom detail levels, minimap, side
+2. [done 2026-11-25 12:3x] Implement: canvas like the mockup (Damon hub, groups as islands, lines, zoom detail levels, minimap, side
    panel, only-mine filter, home). Reply cards + chat toggle. Texts (en, zh, 11 locales), docs, tether/FEATURES.md.
-3. [open] Tests (unit, red on the old client.js; browser on dsh 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5), screenshots.
+3. [done except the screenshots 2026-11-25 12:3x] Tests (unit, red on the old client.js; browser on dsh 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5), screenshots.
 4. [open] Review loop (separate subagent each round, until no P1/P2), commit on the branch, report. No merge before
    Furkan sees the screenshots ("main'e al" from Damon).
 
@@ -169,6 +169,26 @@ assets/features/assistantReplyCards.webp (new), index.js only for SHOTS if a sho
 - The scope is large (canvas rewrite + a new feature): the review loop runs until a round has no P1/P2.
 
 ## Last checkpoint
+- 2026-11-25 12:3x: phases 2 and 3 (code, texts, docs, tests) committed on the branch. Changes from the design:
+  - dsh 0.2.0-0.2.2 keep the message box (`[data-composer-seat]`, sticky) inside `[data-conversation-scroll]` (measured):
+    the reply feed covers the scroll body only down to the seat's top, and the hide rule is
+    `[data-conversation-scroll]>:not([data-composer-seat]){visibility:hidden}`.
+  - The islands keep their places at every zoom: canvasLayout uses each island's height at close zoom (measured with the
+    world set to close for one moment, no paint between).
+  - Cards come only after the Host's Turn rollback route answered once (rule 9/10 spans), as Option picks.
+  - The side panel draws the card's own element again with its own `…` menu key (`-side`); in the side panel a task card's
+    click opens its chat; on the canvas a click opens the side panel.
+  - test/browser-card-stack.mjs starts with the chat shown (`dsh-composer-plus.assistant-chat-shown` = '1'): it reads the
+    buttons under Damon's reply. test/browser-status-canvas.mjs checks the reply cards (chat hidden by default).
+- Red evidence: the new test/reply-cards.test.mjs, test/status-canvas.test.mjs and the canvas part of
+  test/assistant-todos-client.test.mjs fail on 8f1723fb's client.js (ReferenceError replyCardsOf / canvasLayout,
+  TypeError reading islands); a detached worktree of 8f1723fb, removed after.
+- Last passing: `npm test` exit 0; `git diff --check` clean; browser-status-canvas PASS on dsh 0.2.0-rc.2, 0.2.1-rc.2,
+  0.2.2-rc.5; browser-card-stack, browser-running-filter, browser-summary-resize, browser-dismiss-task PASS on 0.2.2-rc.5
+  (headless, chromiumSandbox true). Contrast of the reply card texts (light): title 18.9, Senden 18.9, New 18.9, time 5.8,
+  option 18.9.
+- Open steps: screenshots with the short SHA (light, dark) and the side-by-side pictures; delete the 4 mockup files
+  without a SHA; phase 4 (review loop in a separate subagent until no P1/P2), commit, report. No merge before "main'e al".
 - 2026-11-25 10:2x: phase 1 (analysis) done, committed on the branch. No product code changed yet.
 - Last passing test command: `npm test` exit 0 on 8f1723fb (this worktree, before any change).
 - Mockup screenshots (phase 1, without SHA): `/Users/furkancakir/Damon/Belgeler/Composer Plus/tuval-html-20261125/
