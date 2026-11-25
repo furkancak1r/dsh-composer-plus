@@ -16,7 +16,7 @@ Belgeler with "tuval"; the other hit is a Playwright report). Main at start: 8f1
 2. [done 2026-11-25 12:3x] Implement: canvas like the mockup (Damon hub, groups as islands, lines, zoom detail levels, minimap, side
    panel, only-mine filter, home). Reply cards + chat toggle. Texts (en, zh, 11 locales), docs, tether/FEATURES.md.
 3. [done 2026-11-25 12:4x] Tests (unit, red on the old client.js; browser on dsh 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5), screenshots.
-4. [in progress 2026-11-25 16:5x; review 6 open] Zoom-button fix, merges of origin/main, review loop (separate subagent each round,
+4. [done 2026-11-25 18:5x at 8a65e931; waits for "main'e al"] Zoom-button fix, merges of origin/main, review loop (separate subagent each round,
    until no P1/P2), screenshots of the final commit, report. No merge into main before Damon sends "main'e al".
 
 ## 1. Mockup canvas behaviors (mockup file:line)
@@ -172,7 +172,31 @@ assets/features/assistantReplyCards.webp (new), index.js only for SHOTS if a sho
 - The scope is large (canvas rewrite + a new feature): the review loop runs until a round has no P1/P2.
 
 ## Last checkpoint
-- 2026-11-25 15:5x: phase 4 (this chat).
+- 2026-11-25 18:3x: phase 4, review loop (this chat).
+  - `git fetch origin`: origin/main is still 9d4a53bb (the merge base): no merge needed.
+  - "Senden · Senden" side panel heading: already fixed in d7fdc4ab (client.js:5390 area), measured by
+    browser-status-canvas (`the side panel heading names the group once`).
+  - Review 6 (review-guard-6, separate subagent, whole `git diff origin/main...HEAD` at b1a2b514): P1 0, P2 0, P3 1, P4 1.
+    The loop has no P1/P2 now. Fixed in 09cce2a7: a list line is no reply card title (red on b1a2b514: title "1.");
+    the canvas layout effect skips while a drag runs (no two layouts per pointer move).
+  - Found in the 09cce2a7 screenshots: in the side place, "Sohbeti göster" covered "Liste 12:32" (also in the 1edb14cb
+    and 5cb4da4d sets). Fixed in f3857cfe: the toggle gets its own row under the icons (`::after` flex break + `order`).
+    browser-status-canvas `timeCovered` measures it with the chat hidden and shown (red on 09cce2a7).
+  - Review 7 (review-guard-7, separate subagent, `git diff b1a2b514..f3857cfe`): P1 0, P2 0, P3 1, P4 2. Fixed in
+    8a65e931: during a drag, a zoom level or card change (pinch, wheel, new data) is still measured. P4 kept: in the top
+    place the chat toggle now comes after the icons; a first line such as "3. sınıf …" is no title (rare).
+    The review loop is done: rounds 6 and 7 have no P1/P2.
+  - Last passing (8a65e931): `npm test` exit 0; `git diff --check` clean; browser-status-canvas PASS on 0.2.2-rc.5,
+    0.2.0-rc.2, 0.2.1-rc.2; browser-card-stack, approval-card, running-filter, summary-resize, dismiss-task,
+    status-refresh PASS on 0.2.2-rc.5 (headless, chromiumSandbox true).
+  - Screenshots of 8a65e931 (16 files, same names, `-8a65e931.png`) are in
+    `/Users/furkancakir/Damon/Belgeler/Composer Plus/tuval-html-20261125/`. The 1edb14cb set is deleted.
+  - Auto review denial (2026-11-25 18:5x): deleting the 09cce2a7 set (16 files, taken in this chat, out of date: it shows
+    the toggle over the list time) did not run. Reason: "a wide deletion of user documents outside the repository, and no
+    human message in the chat asks for it". It needs a written approval, as the 5cb4da4d set. Both sets stay until then.
+  - Open steps: Furkan looks at the 8a65e931 screenshots. Damon sends "main'e al" → merge into main and push (standing
+    approval). Deleting the 5cb4da4d and 09cce2a7 sets needs a written approval. No live copy before Furkan writes "tamam".
+- 2026-11-25 15:5x: phase 4 (previous chat).
   - Merges of origin/main: c0775f5d (0c6e3ae5, buttonless approval card) and aa6a951a (9d4a53bb: 1.32.0, status panel
     contrast abd7f871). Conflicts only in generated packs (build:locales, build:readme), docs/features.json assistantTodos
     (main's sentence change merged into the branch text, checked by a script), package.json test:all (both new tests),
