@@ -56,6 +56,16 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   // Rule 10: a fork's inherited events (below `inherited`) are the parent's.
   assert.deepEqual(replyCardsOf(chat, [], 41).map((c) => c.seq), [42, 60], 'a fork shows only its own replies');
   assert.deepEqual(replyCardsOf({ nodes: new Map() }), [], 'an empty chat'); assert.deepEqual(replyCardsOf(undefined), [], 'no chat');
+  // Review 2: text that asks you for something next to a tool call (not the closing answer) is a card: dsh 0.2.2 shows it
+  // in the chat (foldedReplies: all), and the chat is hidden. A plain "looking" line next to a tool call is not.
+  const ask = chatOf([
+    step(1, 0, 10, [txt('Bakıyorum.'), tool]),
+    step(1, 1, 11, [txt("Dal hazır.\n\n```onay\nOnaylıyorum (canlı değil): dal main'e alınsın.\n```"), tool]),
+    step(1, 2, 12, [txt('**Seçenekler:**\n1. Hemen\n2. Yarın'), tool]),
+    step(1, 3, 13, [txt('Senden: portu aç.'), tool]),
+    step(1, 4, 14, [txt('Bitti.')]), tail(1, 14),
+  ]);
+  assert.deepEqual(replyCardsOf(ask).map((c) => c.seq), [11, 12, 13, 14], 'an approval, options or a Senden line next to a tool call is a card');
 }
 
 // replyParts.

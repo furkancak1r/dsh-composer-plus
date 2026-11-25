@@ -4283,6 +4283,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
      * that the chat shows (a step with text and no tool call, or its turn's closing answer), not only `[quiet]` and not in a
      * quiet turn; `{ kind: 'error', seq, turn, time, message }` for each failed turn. In seq order. */
     const NO_SPANS = Object.freeze([]);
+    const asksYou = (text) => { const p = replyParts(text); return p.approvals.length > 0 || p.options.length > 0 || p.forYou !== ''; };
     function replyCardsOf(chat, withdrawn = NO_SPANS, inherited = 0) {
       if (typeof chat !== 'object' || chat === null) return [];
       const hit = replyMemo.get(chat);
@@ -4295,7 +4296,9 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         if (n?.kind === 'assistant-step' && n.data?.status === 'settled' && Array.isArray(n.data.blocks)) {
           const seq = n.data.finalNode?.seq; const text = answerText(n.data.blocks);
           if (!Number.isSafeInteger(seq) || text.trim() === '' || quietText(text) || quiet.has(String(n.data.turn)) || !kept(seq)) continue;
-          if (n.data.blocks.some((b) => b?.kind === 'tool-call') && closing.get(n.data.turn) !== seq) continue;
+          // Text next to a tool call (not the turn's closing answer) is mostly a "looking at it" line: a card only when it
+          // asks you for something (an approval, options, a "Senden:" line), which dsh 0.2.2 shows in the hidden chat (review 2).
+          if (n.data.blocks.some((b) => b?.kind === 'tool-call') && closing.get(n.data.turn) !== seq && !asksYou(text)) continue;
           cards.push({ kind: 'reply', seq, turn: n.data.turn, time: n.data.finalNode.time ?? n.data.time, text });
         } else if (n?.kind === 'turn-error' && Number.isSafeInteger(n.data?.seq) && kept(n.data.seq)) {
           cards.push({ kind: 'error', seq: n.data.seq, turn: n.data.turn, time: n.data.time, message: String(n.data.message || n.data.code || '') });
