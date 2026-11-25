@@ -202,6 +202,17 @@ assets/features/assistantReplyCards.webp (new), index.js only for SHOTS if a sho
     card-stack, approval-card, running-filter, summary-resize, dismiss-task, status-refresh PASS on 0.2.2-rc.5.
   - Next: merge into main (--no-ff), push, live copy (backup first, whole files of the main commit, live-copy-check
     MATCH). No release, tag, npm publish, Tether change or DSH restart.
+  - 2026-11-25 20:2x: merged and pushed: main = origin/main = f86a0a4cbf37e961c2536a3cdd3ed497025c588f (`npm test` exit 0
+    on the merge; its tree equals the branch 2db554e1). Branch and worktree kept.
+  - Live copy NOT done. Before: `node scripts/live-copy-check.mjs` printed `MATCH 9d4a53bb … (newest main commit)` (the
+    old main). Auto review denied the backup command (`cp -Rp` of the live folder to
+    `backup-before-canvas-<YYYYMMDD-HHMMSS>`, a file count and `diff -rq`; no delete in it). Its stated reason was about
+    another command: "The pending command deletes files matching *-09cce2a7.png in the Damon screenshot folder …; the
+    human must write an explicit approval in the chat that names this deletion of the 09cce2a7 screenshot set." The live
+    folder is unchanged. Next: Damon asks again; then backup, copy whole files of f86a0a4c (client.js with line 12
+    `id: '@local/dsh-composer-history'`, index.js, assets/features/assistantReplyCards.webp (new); backup.mjs,
+    release-notes.json, tether/gateway/* and locale/*.json are the same as the live files), package.json version stays
+    1.32.0, then live-copy-check must print `MATCH f86a0a4c`.
   - (Earlier) Open steps: Furkan looks at the 8a65e931 screenshots. Damon sends "main'e al" → merge into main and push (standing
     approval). Deleting the 5cb4da4d and 09cce2a7 sets needs a written approval. No live copy before Furkan writes "tamam".
 - 2026-11-25 15:5x: phase 4 (previous chat).
