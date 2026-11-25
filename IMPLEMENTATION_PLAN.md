@@ -43,6 +43,21 @@ DSH restart.
   shorter, active voice.
 - The phase 2 merge rule still applies: review-guard on the final diff before the merge into main.
 
+## Phase 2 (done 2026-11-25)
+- origin/main abd7f871 (contrast fix) and 0c6e3ae5 (Onay card only with its button) merged into the branch (bdde3242;
+  only this plan conflicted, both sides kept). One contrast line added in 13 languages (57fdf14f).
+- Review round 2 (review-guard-2, HEAD 57fdf14f vs abd7f871): P1 0, P2 0, P3 0, P4 2. Fixed: "all" removed from the
+  contrast line (65bae1d3). Not changed: README/docs "⊞" for the canvas button (main's text, not in the release diff;
+  open docs item for main). Review round 3 (review-guard-3, HEAD 65bae1d3): no findings. `npm test` exit 0 at 65bae1d3.
+- main f498e87f (merge --no-ff, pushed). CI test run 45607796080: success.
+- Release https://github.com/furkancak1r/dsh-composer-plus/releases/tag/v1.32.0 (target f498e87f, active.txt,
+  installed.txt, body = notes.en). release.yml run 45608231064: success (notes check, npm test, publish with provenance).
+- releases/latest = v1.32.0; registry.npmjs.org/dsh-composer-plus/1.32.0 HTTP 200 at 12:00:43Z (404 for about 5 min
+  before), gitHead f498e87f, dist-tags.latest 1.32.0, tarball HTTP 200 at 12:01:42Z.
+- awesome-dsh-plugin PR https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/18787 (fork branch
+  composer-plus-1.32.0, one file): adds Assistant status panel and Codex dark theme, removes Task board (line 693 chars).
+- Branch chore/release-1-32-0 and its worktree removed. Live copy, Tether build, DSH restart: not done (out of scope).
+
 ## Last checkpoint (2026-11-25, end of phase 1)
 - Branch chore/release-1-32-0: 789ba51a (version commit), 83decd06 (review 1 fixes), then this plan commit.
   Not merged, not pushed, no tag, no release.
