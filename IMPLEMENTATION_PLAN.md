@@ -60,12 +60,28 @@ Scope: client.js CSS and the two header icons only. No layout of the cards, no s
 - Screenshots and table: /Users/furkancakir/Damon/Belgeler/Composer Plus/kontrast-20261125/ (13 files).
 - Scratch (delete at the end of the task): /tmp/cp-contrast-20261125/ (measure.mjs, tight.mjs, main-copy/, out/, logs).
 
+## Merge of origin/main 0c6e3ae5 (ecd0747f, 2026-11-25 13:0x)
+- Conflicts: client.js and llms.txt generated blocks (rebuilt: build:locales, build:readme), docs/features.json
+  assistantTodos llms (main's text + this branch's hint sentence), this file (both sections kept). The branch's own
+  client.js delta is the same before and after the merge (diff of the +/- lines: empty).
+- Checks: `npm test` exit 0; browser-card-stack, -status-refresh, -summary-resize, -assistant-todos, -running-filter,
+  -status-canvas, -approval-card PASS on dsh 0.2.2-rc.5, 0.2.0-rc.2, 0.2.1-rc.2 (status-canvas passed at the first run).
+
+## Review round 3 (review-guard-3, head ecd0747f): P1 0, P2 0, P3 1, P4 1 — fixed (11c96e8d)
+- P3: the waiting previous summary (up to 5 min) had opacity .4 (1.77–3.73:1). Now label-secondary, no opacity
+  (light 5.80, dark 12.11; measured in real dsh: opacity 1, rgb(97,102,107) / rgb(207,211,214)). Test red first.
+- P4: the summary time's native title → dsh's Tooltip above it (`hinted`, one path with the list time). Measured: the
+  tooltip at y 99–125, the time at 133–151, no summary line covered; Hide button stays at the right. Test red first.
+
+## Review round 4 (review-guard-4, head 11c96e8d): P1 0, P2 0, P3 0, P4 1 — fixed (f5f342ee), loop done
+- P4: dead `.cp-st-old{transition:none}` in the reduced-motion rule removed.
+- Checks after 11c96e8d: `npm test` exit 0; the seven browser tests PASS on the three dsh versions. After f5f342ee
+  (one dead selector): `npm test` exit 0. Header geometry (scratch tight.mjs) equal to the earlier "after" run.
+- New screenshots: sonra-koyu-ozet-ipucu-acik.png, sonra-koyu-ozet-bekliyor.png, sonra-acik-ozet-bekliyor.png.
+
 ## Open steps
-1. Review-guard round 3 (separate subagent) on `git diff main...HEAD`: the owner's rule says fix every finding, run
-   review-guard again, merge only when clean. Fix its findings, `npm test`, browser tests on three dsh versions.
-2. `git fetch origin`; if main moved: merge it, run the checks.
-3. Main worktree: `git merge --no-ff fix/status-panel-color-contrast`, `npm test`, `git push origin main`.
-4. Delete the branch (local; remote only if it exists) and `git worktree remove` this folder; delete the scratch folder.
+1. Main worktree: `git merge --no-ff fix/status-panel-color-contrast`, `npm test`, `git push origin main`.
+2. Delete the branch (local; remote only if it exists) and `git worktree remove` this folder; delete the scratch folder.
 - Not allowed: live copy, release, version bump, DSH restart, Tether code.
 
 # Onay card only with its button (branch fix/hide-buttonless-approval-card, 2026-11-25)
