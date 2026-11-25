@@ -4376,7 +4376,8 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         }
         const you = code ? null : /^\s*(?:[-*+]\s+)?(?:\*\*|__)?(?:senden|for you)(?:\*\*|__)?\s*:\s*(?:\*\*|__)?\s*(.*?)\s*$/iu.exec(line);
         if (you !== null && forYou === '' && plainText(you[1]) !== '') { forYou = plainText(you[1]); continue; }
-        if (title === '' && !code && line.trim() !== '' && body.every((l) => l.trim() === '')) {
+        // A list line is no title ("1. Run the tests." would give "1." and break the list's numbering): it stays in the body.
+        if (title === '' && !code && line.trim() !== '' && body.every((l) => l.trim() === '') && !/^\s*(?:[-*+]|\d{1,9}[.)])\s/.test(line)) {
           const heading = /^#{1,6}\s+(.+?)\s*#*\s*$/.exec(line);
           const bold = /^\s*(\*\*|__)(.+?)\1\s*(.*)$/.exec(line);
           const sentence = /^(.+?[.!?…])(?=\s|$)\s*(.*)$/u.exec(line.trim());
@@ -5213,6 +5214,8 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const home = () => { const { w, h } = size(); setView(canvasHome(w, h)); };
       // After each draw: measure the islands and the viewport, go to the hub at the first open, and draw the lines.
       React.useLayoutEffect(() => {
+        // A drag only moves the world (no height, size or line changes): no two layouts per pointer move. Its end draws again.
+        if (dragging) return;
         const heights = () => { const out = {}; for (const i of islands) { const el = islRefs.current.get(i.key); if (el?.offsetHeight > 0) out[i.key] = el.offsetHeight; } return out; };
         // ponytail: the close heights come from the world drawn at close zoom for a moment (no paint between); React's own
         // value of the attribute is put back at once.

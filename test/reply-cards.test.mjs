@@ -105,6 +105,9 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   assert.deepEqual(replyParts('Metin\n```onay\nAçık blok').approvals, [], 'an unclosed block is no approval');
   assert.match(replyParts('Metin\n```onay\nAçık blok').body, /Açık blok/, 'it stays text');
   assert.equal(replyParts('a'.repeat(300)).title.length, 160, 'a long line is cut');
+  // A reply that starts with a list: no title from a list line, the list stays whole (review 6).
+  assert.deepEqual([replyParts('1. Testleri çalıştır.\n2. Dalı birleştir.').title, replyParts('1. Testleri çalıştır.\n2. Dalı birleştir.').body], ['', '1. Testleri çalıştır.\n2. Dalı birleştir.'], 'a numbered list');
+  assert.deepEqual([replyParts('- Testler geçti.\n- Derleme yeşil.').title, replyParts('- Testler geçti.\n- Derleme yeşil.').body], ['', '- Testler geçti.\n- Derleme yeşil.'], 'a bullet list');
 }
 
 // Read marks.
