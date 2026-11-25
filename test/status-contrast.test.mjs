@@ -87,7 +87,7 @@ for (const theme of Object.keys(themes)) {
   const rbg = theme === 'codex' ? panelBg('codex') : resolve(props(REPLY_CSS, '.cp-rc').background, rvars);
   const ok = props(REPLY_CSS, '.cp-rc-btn[data-primary]');
   check('reply card Onayla', resolve(ok.color, rvars), resolve(ok.background, rvars), 4.5);
-  for (const sel of ['.cp-rc-tag', '.cp-rc[data-kind="error"] .cp-rc-q', '.cp-rc-err', '.cp-rc-top', '.cp-rc-details>summary']) check(`reply card ${sel}`, resolve(props(REPLY_CSS, sel).color, rvars), rbg, 4.5);
+  for (const sel of ['.cp-rc-tag', '.cp-rc h3.cp-rc-q', '.cp-rc[data-kind="error"] h3.cp-rc-q', '.cp-rc-err', '.cp-rc-top', '.cp-rc-details>summary']) check(`reply card ${sel}`, resolve(props(REPLY_CSS, sel).color, rvars), rbg, 4.5);
 }
 // The old white text on dsh's blue fails in the light theme: the check would see the old pill.
 assert.ok(ratio('#ffffff', DSH.light['--dsw-alias-state-business-primary']) < 4.5, 'the old pill: white on dsh blue is under 4.5:1');

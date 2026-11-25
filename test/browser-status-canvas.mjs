@@ -180,6 +180,9 @@ try {
       assert.equal(await canvas.locator('[data-cv-minimap]').count(), 1, 'the minimap');
       assert.equal(await canvas.locator('[data-cv-key]').evaluateAll((els) => els.every((e) => e.tabIndex === 0 && e.getAttribute('aria-label'))), true, 'cards are focusable and named');
       assert.equal(await canvas.locator('[data-cv-key="onay"] [data-composer-plus-approve="card"]').count(), 1, 'the Onay card with Onayla');
+      // A reply card on the canvas keeps its own title (18 px, primary color), not the panel's small gray h3 (review 4).
+      const rcTitle = await canvas.locator('[data-cv-island="updates"] .cp-rc h3').first().evaluate((el) => ({ size: getComputedStyle(el).fontSize, color: getComputedStyle(el).color, primary: getComputedStyle(el.closest('.cp-rc')).color }));
+      assert.deepEqual([rcTitle.size, rcTitle.color], ['18px', rcTitle.primary], `the reply card title on the canvas: ${JSON.stringify(rcTitle)}`);
       await shot('composer-plus');
       note(`2: the canvas covers the chat body; hub in the middle at ${l.pct}; ${l.islands.length} islands, no overlap; ${l.paths} lines (${l.runs} moving); minimap`);
       // 2b. After "Damon'a dön", the zoom buttons at the bottom left cover no island, in each window width.
@@ -239,6 +242,11 @@ try {
       const dim = await canvas.locator('[data-cv-island="bitti"]').evaluate((el) => ({ border: getComputedStyle(el).borderTopStyle, opacity: getComputedStyle(el).opacity,
         title: getComputedStyle(el.querySelector('.cp-cv-ih')).color, secondary: getComputedStyle(document.querySelector('[data-cv-island="onay"] .cp-cv-ih span')).color }));
       assert.deepEqual([dim.border, dim.opacity, dim.title], ['dashed', '1', dim.secondary], `an island without one is dimmed: ${JSON.stringify(dim)}`);
+      // At far zoom (counts only) its count is dimmed too.
+      for (let n = 0; n < 4; n++) await canvas.locator('[data-cv-zoom="out"]').click();
+      const far = await canvas.locator('[data-cv-island="bitti"] [data-cv-count]').evaluate((el) => getComputedStyle(el).color);
+      assert.equal(far, dim.secondary, 'far: the count of a dimmed island is dimmed');
+      await canvas.locator('[data-cv-home]').click(); await pause(200);
       await canvas.locator('[data-cv-only]').click(); await pause(200);
       note(`4: Yalnız bana bekleyenler: ${l.cards.length} cards`);
       // 5. The side panel: a click on a For you card; Esc closes it first, the focus goes back to the card.
