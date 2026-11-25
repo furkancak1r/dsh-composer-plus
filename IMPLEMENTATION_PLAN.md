@@ -19,12 +19,17 @@ showed `cards.approveAgain` because `offer === undefined`.
 - Tests: status-cards.json, status-queue.json, approve-button.test.mjs (red on 8f1723fb), browser-card-stack step 7,
   new test/browser-approval-card.mjs (screenshots: SHOTS/PREFIX/SCHEME, OLD=1 for the old code).
 
-## Last checkpoint (2026-11-25 11:20)
+- Review fixes: 84c4f57e (unit test: a running chat has no card; Host guard comment), 95a8383e (README `how` clause in
+  13 languages, build:readme).
+
+## Last checkpoint (2026-11-25 11:45): done, merged into main
+- Review: round 1 no P1/P2 (P3 1, P4 4: fixed, or no change needed); round 2 no P1/P2 (P4 3: plan updated; the `how`
+  wording "has its button" kept: typing hides only the button, the approveButton row says so).
 - Last passing: `npm test` exit 0; iOS `xcodebuild … test` 122 tests, 0 failures; browser-approval-card, card-stack,
   running-filter, status-canvas, summary-resize PASS on 0.2.2-rc.5; card-stack and approval-card PASS on 0.2.0-rc.2 and
   0.2.1-rc.2.
 - Screenshots: /Users/furkancakir/Damon/Belgeler/Composer Plus/onay-karti-20261125/ (once-8f1723fb-*, sonra-ce6a5f86-*).
-- Open: review rounds until no P1/P2; fetch + merge origin/main; npm test; merge into main; push; delete branch/worktree.
+- Not done (separate approval): live copy, release, DSH restart, iPhone install.
 
 # Assistant reply guards (branch fix/assistant-reply-guards, 2026-11-24)
 
