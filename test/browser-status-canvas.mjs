@@ -183,6 +183,16 @@ try {
       // A reply card on the canvas keeps its own title (18 px, primary color), not the panel's small gray h3 (review 4).
       const rcTitle = await canvas.locator('[data-cv-island="updates"] .cp-rc h3').first().evaluate((el) => ({ size: getComputedStyle(el).fontSize, color: getComputedStyle(el).color, primary: getComputedStyle(el.closest('.cp-rc')).color }));
       assert.deepEqual([rcTitle.size, rcTitle.color], ['18px', rcTitle.primary], `the reply card title on the canvas: ${JSON.stringify(rcTitle)}`);
+      // The panel's element rules (li, ul, h3, code) leave the Markdown of a reply card alone (review 5): a list, a heading
+      // and a code block put into a card on the canvas for a moment keep dsh's look.
+      const md = await canvas.locator('[data-cv-island="updates"] .cp-rc').first().evaluate((card) => {
+        const box = document.createElement('div'); box.innerHTML = '<ol><li>Bir <b>iki</b></li></ol><ul><li>üç</li></ul><h3>Başlık</h3><pre><code>kod</code></pre>'; card.append(box);
+        const cs = (q) => getComputedStyle(box.querySelector(q));
+        const out = { ol: cs('ol li').display, ul: cs('ul').listStyleType, h3: cs('h3').fontSize, code: cs('code').fontSize, border: cs('ul li').borderTopStyle };
+        box.remove(); return out;
+      });
+      assert.deepEqual([md.ol, md.ul, md.border], ['list-item', 'disc', 'none'], `a list in a reply card on the canvas: ${JSON.stringify(md)}`);
+      assert.ok(parseFloat(md.h3) > 12 && parseFloat(md.code) > 11, `a heading and code in a reply card on the canvas: ${JSON.stringify(md)}`);
       await shot('composer-plus');
       note(`2: the canvas covers the chat body; hub in the middle at ${l.pct}; ${l.islands.length} islands, no overlap; ${l.paths} lines (${l.runs} moving); minimap`);
       // 2b. After "Damon'a dön", the zoom buttons at the bottom left cover no island, in each window width.
@@ -257,6 +267,8 @@ try {
       assert.equal(await side.getAttribute('data-cv-side'), sendenKey, 'the side panel shows the card');
       assert.equal(await side.locator('[data-act="main"]').count(), 1, 'with its own buttons');
       assert.ok(await page.evaluate(() => document.activeElement?.closest('[data-cv-side]') !== null), 'the focus in the side panel');
+      const sideHead = await side.locator('h3').first().innerText(); const group = await canvas.locator('[data-cv-island="senden"] .cp-cv-ih b').innerText();
+      assert.equal(sideHead.split(group).length - 1, 1, `the side panel heading names the group once: ${sideHead}`);
       await shot('tuval-yan-panel');
       await page.keyboard.press('Escape');
       await until(async () => (await side.count()) === 0, 'Esc closes the side panel', 3000);

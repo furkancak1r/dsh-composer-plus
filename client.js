@@ -3580,16 +3580,18 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       + `[${TODOS_ATTR}] .cp-cs-acts{flex:none;display:flex;align-items:center}[${TODOS_ATTR}] .cp-cs-more{position:relative}[${TODOS_ATTR}] .cp-cs-more>summary{list-style:none;width:26px;line-height:26px;text-align:center;cursor:pointer}`
       + `[${TODOS_ATTR}] .cp-cs-more>summary::-webkit-details-marker{display:none}[${TODOS_ATTR}] .cp-cs-more[open]>button{display:block;margin:2px 0}`
       + `[${TODOS_ATTR}] .cp-st-body ul{margin:0;padding:0}[${TODOS_ATTR}] .cp-cs-card li{border:0;padding:2px 0}`
-      + `[${TODOS_ATTR}] h2,[${TODOS_ATTR}] h3,[${TODOS_ATTR}] h4{margin:0;font-size:13px;line-height:18px}[${TODOS_ATTR}] .cp-td-name{font-weight:600}`
+      // The panel's element rules (h2-h4, section, ul, li, code) leave a reply card alone (canvas, side panel): its body is
+      // dsh's Markdown (review 5). :where() keeps their specificity.
+      + `[${TODOS_ATTR}] h2:where(:not(.cp-rc *)),[${TODOS_ATTR}] h3:where(:not(.cp-rc *)),[${TODOS_ATTR}] h4:where(:not(.cp-rc *)){margin:0;font-size:13px;line-height:18px}[${TODOS_ATTR}] .cp-td-name{font-weight:600}`
       // A narrow header: the list time shrinks first (its width is 0, so the title keeps its name and chevron), then Get
       // summary; the title button never runs under Get summary (its chevron once drew over the summary spinner).
       + `[${TODOS_ATTR}] .cp-st-top{display:flex;align-items:center;gap:2px;padding-right:6px}[${TODOS_ATTR}] .cp-st-top>h2{display:flex;flex:1;min-width:0}`
       + `[${TODOS_ATTR}] .cp-td-head{display:flex;align-items:center;gap:6px;flex:1;min-width:0;padding:8px 10px;border:0;background:none;color:inherit;font:inherit;text-align:left;white-space:nowrap;cursor:pointer;border-radius:var(--dsw-radius-lg,12px)}`
       + `[${TODOS_ATTR}] .cp-st-time,[${TODOS_ATTR}] .cp-td-count{color:var(--dsw-alias-label-tertiary);font-size:11px;font-variant-numeric:tabular-nums;white-space:nowrap}[${TODOS_ATTR}] .cp-st-time{flex:1 1 auto;width:0;overflow:hidden;text-overflow:ellipsis;text-align:right;font-weight:500}`
       + `[${TODOS_ATTR}] .cp-st-body{overflow-y:auto;padding:0 6px 6px}`
-      + `[${TODOS_ATTR}] section{padding-top:6px}[${TODOS_ATTR}] h3{display:flex;gap:6px;padding:4px;font-size:12px;font-weight:600;color:var(--dsw-alias-label-secondary)}`
-      + `[${TODOS_ATTR}] ul{margin:0;padding:0;list-style:none}`
-      + `[${TODOS_ATTR}] li{display:flex;align-items:flex-start;gap:6px;padding:6px 4px;border-top:.5px solid var(--dsw-alias-border-l3)}`
+      + `[${TODOS_ATTR}] section:where(:not(.cp-rc *)){padding-top:6px}[${TODOS_ATTR}] h3:where(:not(.cp-rc *)){display:flex;gap:6px;padding:4px;font-size:12px;font-weight:600;color:var(--dsw-alias-label-secondary)}`
+      + `[${TODOS_ATTR}] ul:where(:not(.cp-rc *)){margin:0;padding:0;list-style:none}`
+      + `[${TODOS_ATTR}] li:where(:not(.cp-rc *)){display:flex;align-items:flex-start;gap:6px;padding:6px 4px;border-top:.5px solid var(--dsw-alias-border-l3)}`
       + `[${TODOS_ATTR}] .cp-td-text{flex:1;min-width:0;overflow-wrap:anywhere}`
       + `[${TODOS_ATTR}] .cp-td-owner,[${TODOS_ATTR}] .cp-st-sub{display:block;margin-top:2px;font-size:11px;line-height:14px;color:var(--dsw-alias-label-tertiary);overflow-wrap:anywhere}`
       + `[${TODOS_ATTR}] .cp-td-group{display:flex;align-items:center;gap:6px;width:100%;margin-top:2px;padding:4px;border:0;border-radius:var(--dsw-radius-md,8px);background:none;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:11px;font-weight:600;text-align:left;overflow-wrap:anywhere;cursor:pointer}`
@@ -3608,7 +3610,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       + `[${TODOS_ATTR}] .cp-st-summary h3{padding:0 0 4px;justify-content:space-between;align-items:center}[${TODOS_ATTR}] .cp-st-summary p{margin:4px 0 0}`
       + `[${TODOS_ATTR}] .cp-st-link{padding:0;border:0;background:none;color:var(--dsw-alias-state-business-primary);font:inherit;font-weight:600;cursor:pointer;text-align:left}`
       + `[${TODOS_ATTR}] .cp-st-detail{padding:0 4px 8px 14px}[${TODOS_ATTR}] .cp-st-detail h4{margin-top:6px;font-size:11px;font-weight:600;color:var(--dsw-alias-label-tertiary)}[${TODOS_ATTR}] .cp-st-detail li{padding:3px 0;border:0}`
-      + `[${TODOS_ATTR}] code{font-size:11px}`
+      + `[${TODOS_ATTR}] code:where(:not(.cp-rc *)){font-size:11px}`
       + `[${TODOS_ATTR}] .cp-td-btn[aria-disabled="true"],[${TODOS_ATTR}] .cp-st-link[aria-disabled="true"]{opacity:.45;cursor:default}`
       + `@media (hover:hover){[${TODOS_ATTR}] .cp-td-btn:hover:not([aria-disabled="true"]),[${TODOS_ATTR}] .cp-cs-chip:hover,[${TODOS_ATTR}] .cp-td-head:hover,[${TODOS_ATTR}] .cp-td-group:hover,[${TODOS_ATTR}] .cp-st-row:hover{background:var(--dsw-alias-interactive-bg-hover)}}`
       + `[${TODOS_ATTR}] button:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:-2px}`
@@ -5384,7 +5386,8 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
           minimap,
           selCard === undefined ? null : React.createElement('aside', { className: 'cp-cv-side', 'data-cv-side': sel, 'aria-labelledby': `${viewId}-side-h` },
             btn(t('canvas.sideClose'), '×', () => onCloseSide?.(), { className: 'cp-td-btn cp-cv-x', 'data-cv-side-close': '' }),
-            React.createElement('h3', { id: `${viewId}-side-h`, tabIndex: -1 }, `${selIsland.title} · ${selCard.label}`),
+            // The card's label names its group already ("Senden · 3/4: …"): the island's title only when it does not.
+            React.createElement('h3', { id: `${viewId}-side-h`, tabIndex: -1 }, selCard.label.startsWith(selIsland.title) ? selCard.label : `${selIsland.title} · ${selCard.label}`),
             selCard.side ? selCard.side() : selCard.el)));
     }
     /** An open project row: its changed chats (a click opens one), its to-do items and its git branch and commits. */
