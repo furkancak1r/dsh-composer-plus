@@ -96,8 +96,9 @@ const runtime = () => {
 const cleanups = [];
 const runEffects = (list) => { for (const f of list) { const off = f(); if (typeof off === 'function') cleanups.push(off); } };
 const rt = runtime();
+const prims = { Switch: 'Switch', Menu: 'Menu', Input: 'Input', Button: 'Button' }; // dsh's Tooltip is added in one check below
 const plugin = mod.factory((n) => (n === 'react' ? rt.React : n === 'react-dom' ? { createPortal: (el, host, key) => ({ portal: el, host, key }) }
-  : n === '@deepseek-ai/dsh-client-ui-primitives' ? { Switch: 'Switch', Menu: 'Menu', Input: 'Input', Button: 'Button' } : {}));
+  : n === '@deepseek-ai/dsh-client-ui-primitives' ? prims : {}));
 const live = new Map(); let next = 0; const opened = [];
 plugin.apply({ effect: () => {}, configForms: { get: () => ({}) }, sessions: { scope: (id) => (id === 's-assistant' ? { id } : undefined) },
   get: (n) => (n === 'uiWorkspace' ? { openSession: (id) => opened.push(id) } : n === 'conversation' ? { input: { for: () => shell } } : undefined),
@@ -1010,7 +1011,16 @@ assert.equal(gets.length - reads, 1, 'a burst is merged into one read');
   summary = { at: NOW - 60000, projects: [{ project: 'acme-web', text: 'Old summary.' }] }; await store.load('s-assistant');
   tree = panel();
   assert.match(text(find(tree, (n) => n.t === 'h2')[0]), /status\.updated/, 'the list time');
-  assert.equal(find(tree, (n) => n.p?.title === 'status.updatedHint').length, 1, 'the list time has the hint');
+  assert.equal(find(tree, (n) => n.p?.title === 'status.updatedHint').length, 1, 'the list time has the hint (native title without dsh\'s Tooltip)');
+  assert.equal(find(tree, (n) => n.p?.title === 'status.summaryHint' || (n.p?.title === 'status.updatedHint' && n.p?.className !== 'cp-st-time')).length, 0, 'only the list time has the list hint');
+  // With dsh's Tooltip (2026-11-25, the long title covered the rows under the header): the short hint above the time, no
+  // native title, and the title button describes it for a screen reader.
+  prims.Tooltip = 'Tooltip';
+  const withTip = panel(); delete prims.Tooltip;
+  const tip = find(withTip, (n) => n.t === 'Tooltip')[0];
+  assert.deepEqual([tip?.p.label, tip?.p.side, tip?.p.portal, find(tip ?? {}, (n) => n.p?.className === 'cp-st-time').length], ['status.updatedHint', 'top', true, 1], 'dsh\'s Tooltip above the list time');
+  assert.equal(find(withTip, (n) => n.p?.title === 'status.updatedHint').length, 0, 'no native title with dsh\'s Tooltip');
+  assert.equal(find(withTip, (n) => n.t === 'button' && n.p.className === 'cp-td-head')[0].p['aria-description'], 'status.updatedHint', 'the title button describes the list time');
   const r0 = gets.length; const p0 = posts.length;
   items = [{ id: 'ffffffff', text: 'Fresh item', owner: 'agent', created: 9 }]; // Damon's item: "Damon'ın sırası" shows it
   const clicked = Date.now();
@@ -1056,6 +1066,14 @@ assert.equal(gets.length - reads, 1, 'a burst is merged into one read');
   await store.load('s-assistant'); tree = panel(); c = cardOf(tree);
   assert.equal(store.of('s-assistant').ask.state, 'done'); assert.doesNotMatch(text(c), /summaryWaiting|Old summary/); assert.match(text(c), /New summary\./);
   assert.match(text(find(c, (n) => n.t === 'h3')[0]), /^\s*status\.summary · \d/, 'the summary time');
+  assert.equal(find(find(c, (n) => n.t === 'h3')[0], (n) => n.p?.title === 'status.summaryHint').length, 1, 'the summary time has its own hint');
+  {
+    // With dsh's Tooltip (review 3): the summary time's hint is above it, not a native title over the summary text.
+    prims.Tooltip = 'Tooltip'; const h3 = find(cardOf(panel()), (n) => n.t === 'h3')[0]; delete prims.Tooltip;
+    const tip = find(h3, (n) => n.t === 'Tooltip')[0];
+    assert.deepEqual([tip?.p.label, tip?.p.side, tip?.p.portal, /status\.summary · \d/.test(text(tip ?? {}))], ['status.summaryHint', 'top', true, true], 'dsh\'s Tooltip above the summary time');
+    assert.equal(find(h3, (n) => n.p?.title === 'status.summaryHint').length, 0, 'no native title with dsh\'s Tooltip');
+  }
   assert.match(spoken(tree), /^status\.summary · \d/, 'the status line says that the summary is new');
   // The time limit: no new summary in 5 minutes. The previous summary shows again with a short note and Try again.
   {
