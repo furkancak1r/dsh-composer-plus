@@ -3546,7 +3546,9 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       // scale: 12px in at both sides, 4px + 8px above the counts, 8px between the rows, 4px + 4px under the icons.
       // ponytail: the time's room is the line less the chevron and the icons (150px); a longer text ends with "…".
       + `[${TODOS_ATTR}][data-place="side"] .cp-st-top{padding:4px 6px 4px 0}[${TODOS_ATTR}][data-place="side"] .cp-td-head{flex-wrap:wrap;row-gap:8px;padding:8px 12px 4px;margin-bottom:-32px}`
-      + `[${TODOS_ATTR}][data-place="side"] .cp-td-head .cp-cs-count{flex:1 0 100%}[${TODOS_ATTR}][data-place="side"] .cp-st-time{flex:0 1 auto;width:auto;max-width:calc(100% - 150px);line-height:26px;text-align:left}}`
+      + `[${TODOS_ATTR}][data-place="side"] .cp-td-head .cp-cs-count{flex:1 0 100%}[${TODOS_ATTR}][data-place="side"] .cp-st-time{flex:0 1 auto;width:auto;max-width:calc(100% - 150px);line-height:26px;text-align:left}`
+      // No list time yet (the first read): the chevron alone keeps the icon row's 26px, so it stays on the icons' line.
+      + `[${TODOS_ATTR}][data-place="side"] .cp-cs-count+svg,[${TODOS_ATTR}][data-place="side"] .cp-cs-count+[aria-hidden]{margin-block:6px}}`
       + `@media (max-width:999px){[${TODOS_ATTR}] .cp-td-btn.cp-st-place{display:none}}`
       // The fixed part (count bar, summary, Onay card) keeps its height and stays in place while the cards scroll (review 2:
       // a shrinking fixed part hid the Onay card); the summary card scrolls in itself (its max-height: the separator under
@@ -4783,6 +4785,8 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       // The list time's hint (Furkan, 2026-11-25: the long native tooltip opened under "Liste" and covered the next rows):
       // a short text in dsh's tooltip above the time, so the rows under the header stay readable. Without dsh's tooltip
       // (an older dsh): the native title. A screen reader gets it as the title button's description.
+      // ponytail: the tooltip opens on hover only (the time is not focusable, as with the old title); keyboard users hear
+      // the description. Upgrade: a focusable time, if a sighted keyboard user needs the hint.
       const timeHint = t('status.updatedHint');
       const timeEl = state.at === null ? null : React.createElement('span', { className: 'cp-st-time', ...(primitives.Tooltip === undefined ? { title: timeHint } : {}) }, t('status.updated', { time: clockText(state.at, lang) }));
       const listTime = timeEl === null || primitives.Tooltip === undefined ? timeEl : React.createElement(primitives.Tooltip, { label: timeHint, side: 'top', delayMs: 500, portal: true }, timeEl);

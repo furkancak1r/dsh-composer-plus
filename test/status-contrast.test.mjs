@@ -9,9 +9,9 @@ let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } } }
 const ANCHOR = '/** Feature switches, in Settings order.';
 const src = readFileSync(new URL('../client.js', import.meta.url), 'utf8');
 assert.ok(src.includes(ANCHOR));
-eval(src.replace(ANCHOR, `globalThis.__css = { TODOS_CSS, CODEX_THEME_CSS };\n    ${ANCHOR}`));
+eval(src.replace(ANCHOR, `globalThis.__css = { TODOS_CSS, CODEX_THEME_CSS, DECIDE_CSS };\n    ${ANCHOR}`));
 mod.factory((n) => (n === 'react' ? { createElement: () => null } : {}));
-const { TODOS_CSS, CODEX_THEME_CSS } = globalThis.__css;
+const { TODOS_CSS, CODEX_THEME_CSS, DECIDE_CSS } = globalThis.__css;
 
 // dsh's theme colors, copied from dsh-client-ui-theme design-platform.css (the same in 0.2.0-rc.2, 0.2.1-rc.2 and
 // 0.2.2-rc.5; checked 2026-11-25: copy them again when dsh changes a token). dsh
@@ -70,6 +70,13 @@ for (const theme of Object.keys(themes)) {
   }
   // The header icons (Get summary, Projects, Refresh, canvas, place): 3:1 for a graphic.
   check('icon buttons', resolve(style(theme, '.cp-td-btn').color, vars), bg, 3);
+  // The Kararlar dialog (its own colors: it is portaled out of the panel). Its background is the page's bg-base.
+  const D = 'dialog[data-composer-plus-decide]'; const A = '[data-composer-plus-decide]';
+  const dvars = { ...vars, ...props(DECIDE_CSS, `${theme === 'light' ? 'body:not([data-ds-dark-theme])' : 'body[data-ds-dark-theme]'} ${D}`) };
+  const dbg = resolve(props(DECIDE_CSS, D).background, dvars);
+  for (const sel of ['.cp-dc-progress', '.cp-dc-x', '.cp-dc-tag', 'h3', '.cp-dc-err', '.cp-dc-btn[data-danger]']) check(`dialog ${sel}`, resolve(props(DECIDE_CSS, `${A} ${sel}`).color, dvars), dbg, 4.5);
+  const send = props(DECIDE_CSS, `${A} .cp-dc-btn[data-primary]`);
+  check('dialog primary button', resolve(send.color, dvars), resolve(send.background, dvars), 4.5);
 }
 // The old white text on dsh's blue fails in the light theme: the check would see the old pill.
 assert.ok(ratio('#ffffff', DSH.light['--dsw-alias-state-business-primary']) < 4.5, 'the old pill: white on dsh blue is under 4.5:1');

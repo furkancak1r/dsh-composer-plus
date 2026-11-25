@@ -9,8 +9,8 @@ Scope: client.js CSS and the two header icons only. No layout of the cards, no s
   label-tertiary → label-secondary, the blue → deepseek-600, the amber → #b25000, the green → #1a7f37 (the panel's old
   fallbacks). Dark palette: success-label/error-label (dsh has none) → its primary green and red. Codex dark theme keeps
   its tokens. Text on a filled accent (count pill, Onayla, CANLI, the dialog's primary button) → label-primary-foreground.
-- Header at the right (`data-place="side"`): two rows. Row 1 the counts and the chevron; row 2 the list time (still in
-  the title button, absolutely placed at the counts' left edge) and the five icons. The canvas and place icons are 14 px
+- Header at the right (`data-place="side"`): two rows (final form: see "Scope 3"). Row 1 the counts; row 2 "Liste
+  HH:MM ⌄" (in the title button) at the left and the five icons at the right. The canvas and place icons are 14 px
   line icons (`lineIcon`, 16 px view box, 1 px stroke as dsh's icons) instead of the text glyphs ⊞ ⤒ ⇥.
 - Test: test/status-contrast.test.mjs (in test:all). Red on main's client.js: "light: Kararlar count pill #ffffff on
   #4176e6 is 4.23:1, needs 4.5:1" (after two test-only shims for the old CSS). Green now: 5.39 / 8.12 / 15.06.
@@ -46,9 +46,15 @@ Scope: client.js CSS and the two header icons only. No layout of the cards, no s
   dsh 0.2.2-rc.5, 0.2.0-rc.2, 0.2.1-rc.2; browser-status-canvas PASS on the same three (first run: dsh 0.2.2-rc.5 did not
   start, "cannot create effect on inactive context"; second run PASS without a change).
 
+## Review round 2 (review-guard-2, head b9d708b7): P1 0, P2 0, P3 1, P4 6 — loop done (no P1/P2)
+- Fixed: P3 llms text (status.summaryHint, the list time's tooltip; build:readme). P4 unit checks for dsh's Tooltip
+  branch, aria-description and summaryHint (assistant-todos-client); P4 the Kararlar dialog selectors in
+  status-contrast; P4 chevron keeps the 26 px row without a list time; P4 ponytail note (tooltip on hover only); P4 this
+  plan. Accepted: the counts line's native date title (short); a click in the 2 px gaps beside the icons folds the
+  panel (the title button reaches under the icon row, by design).
+
 ## Open steps
-- Review-guard round 2 on `git diff main...HEAD`; repeat until no P1/P2; merge --no-ff into main; push; delete branch
-  and worktree. No live copy, no release, no DSH restart.
+- Merge --no-ff into main; push; delete branch and worktree. No live copy, no release, no DSH restart.
 
 # Assistant reply guards (branch fix/assistant-reply-guards, 2026-11-24)
 
