@@ -16,8 +16,8 @@ Belgeler with "tuval"; the other hit is a Playwright report). Main at start: 8f1
 2. [done 2026-11-25 12:3x] Implement: canvas like the mockup (Damon hub, groups as islands, lines, zoom detail levels, minimap, side
    panel, only-mine filter, home). Reply cards + chat toggle. Texts (en, zh, 11 locales), docs, tether/FEATURES.md.
 3. [done 2026-11-25 12:4x] Tests (unit, red on the old client.js; browser on dsh 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5), screenshots.
-4. [open] Review loop (separate subagent each round, until no P1/P2), commit on the branch, report. No merge before
-   Furkan sees the screenshots ("main'e al" from Damon).
+4. [in progress 2026-11-25 15:5x] Zoom-button fix, merges of origin/main, review loop (separate subagent each round,
+   until no P1/P2), screenshots of the final commit, report. No merge into main before Damon sends "main'e al".
 
 ## 1. Mockup canvas behaviors (mockup file:line)
 1. Bar above the canvas: Tuval / Liste switch (376), "Yalnız bana bekleyenler" filter (377, 697), "Damon'a dön" (378,
@@ -172,6 +172,20 @@ assets/features/assistantReplyCards.webp (new), index.js only for SHOTS if a sho
 - The scope is large (canvas rewrite + a new feature): the review loop runs until a round has no P1/P2.
 
 ## Last checkpoint
+- 2026-11-25 15:5x: phase 4 (this chat).
+  - Merges of origin/main: c0775f5d (0c6e3ae5, buttonless approval card) and aa6a951a (9d4a53bb: 1.32.0, status panel
+    contrast abd7f871). Conflicts only in generated packs (build:locales, build:readme), docs/features.json assistantTodos
+    (main's sentence change merged into the branch text, checked by a script), package.json test:all (both new tests),
+    the reduced-motion CSS rule and this plan. No feature removed.
+  - f5e1e7db: Damon'a dön lowers the zoom (at least 50%) when the island columns do not fit, so they keep 58 px from the
+    sides; the zoom percent has a background; the side panel closes when its card leaves (after Onayla). Measured headless
+    (browser-status-canvas step 2b, getBoundingClientRect): 1280 px 61%, 1360 px 67%, 1440 px 73% (zoom buttons right
+    edge 46 px, Sorun left edge 58 px), 1920 px 75% (Sorun 280 px): no overlap.
+  - Review 1 (f5e1e7db): P2 2, P3 2 → 26cdf995 (whole read floor; replySig: no draw per streamed chunk; partsMemo;
+    side-panel Onay menu key; llms). Review 2 (26cdf995): P2 1 → 040f2789 (text next to a tool call that asks you is a
+    card). Review 3 (aa6a951a): P2 1, P3 2, P4 2 → 27abc1f0 (reply card AA contrast, dim by color not opacity, llms).
+  - Last passing: `npm test` exit 0 at 27abc1f0; browser-status-canvas PASS on 0.2.2-rc.5, 0.2.0-rc.2, 0.2.1-rc.2 at
+    aa6a951a; browser-card-stack, approval-card, running-filter, summary-resize, dismiss-task PASS on 0.2.2-rc.5 at aa6a951a.
 - 2026-11-25 12:3x: phases 2 and 3 (code, texts, docs, tests) committed on the branch. Changes from the design:
   - dsh 0.2.0-0.2.2 keep the message box (`[data-composer-seat]`, sticky) inside `[data-conversation-scroll]` (measured):
     the reply feed covers the scroll body only down to the seat's top, and the hide rule is
@@ -197,17 +211,8 @@ assets/features/assistantReplyCards.webp (new), index.js only for SHOTS if a sho
   Commands: `SHOTS=<folder> SCHEME=light|dark TAG=1edb14cb PLAYWRIGHT=<Mergen playwright> node test/browser-status-canvas.mjs
   <0.2.2-rc.5 bin>`, then `MOCKUP=<mockup html> OUT=<folder> TAG=1edb14cb PAIR=1 node test/browser-canvas-mockup.mjs`.
   Dark contrast of the reply card texts: title 17.5, Senden 17.5, New 17.5, time 12.1, option 17.5.
-- Open steps (next chat, phase 4):
-  1. Review loop in a separate subagent on `git diff origin/main...HEAD` (large diff: repeat until a round has no P1/P2);
-     fix the findings, `npm test`, the browser tests above; take the screenshots again with the new short SHA if the UI
-     changes (delete the older tagged files then).
-  2. Known item for round 1 (seen in the screenshots, not fixed): at 1360 px the zoom buttons at the bottom left overlap
-     the Sorun island (the "75%" text has no background); the mockup has the same corner. Smallest fix: a background for
-     the `.cp-cv-zm` group.
-  3. Commit on the branch, report in Turkish with the screenshot paths, end the turn. No merge before Damon sends
-     "main'e al"; then merge origin/main (the color contrast fix, the 1.32.0 release, the buttonless approval card fix
-     change the same panel), `npm test`, review-guard on the final diff until clean, merge into main, push, delete the
-     branch and its worktree. No live copy, no release.
+- (12:4x, done in phase 4) Open steps of phase 3: the review loop, the zoom-button overlap at 1360 px, the merge of
+  origin/main. See the 15:5x entry above.
 - 2026-11-25 10:2x: phase 1 (analysis) done, committed on the branch. No product code changed yet.
 - Last passing test command: `npm test` exit 0 on 8f1723fb (this worktree, before any change).
 - Mockup screenshots (phase 1, without SHA): `/Users/furkancakir/Damon/Belgeler/Composer Plus/tuval-html-20261125/
