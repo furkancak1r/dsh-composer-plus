@@ -4315,6 +4315,13 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
     /** The failure codes that dsh's chat shows with its own text (dsh-client-ui-chat MessageItem `failureMessage`, namespace
      * `chat`); the node's message is English or empty for them (review 8). */
     const FAILURE_KEYS = { ACCOUNT_SIGNED_OUT: 'accountSignedOut', INTERRUPTED: 'interrupted', ACCOUNT_SIGN_IN_REQUIRED: 'accountSignInRequired', QUOTA: 'quota', ACCOUNT_QUOTA: 'quota', AUTH: 'auth' };
+    /** dsh's own text of a known failure code (its `chat` dictionary, the active language); '' when this dsh has no text for
+     * it (dsh's lookup gives the key back) or the code is not known. */
+    function failureTextOf(locale, code) {
+      if (typeof code !== 'string' || !Object.hasOwn(FAILURE_KEYS, code)) return '';
+      const key = `message.failure.${FAILURE_KEYS[code]}`;
+      try { const text = locale?.bind?.('chat')?.(key); return typeof text === 'string' && text !== key ? text : ''; } catch { return ''; }
+    }
     const asksYou = (text) => { const p = replyParts(text); return p.approvals.length > 0 || p.options.length > 0 || p.forYou !== ''; };
     function replyCardsOf(chat, withdrawn = NO_SPANS, inherited = 0) {
       if (typeof chat !== 'object' || chat === null) return [];
@@ -16282,11 +16289,7 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
         // canvas's Güncellemeler island. `replyFlag` tells the status panel that the switch is on.
         const replyRead = createReplyRead(); const chatShownFlag = createFlag(REPLY_SHOWN_KEY); const replyFlag = createFlag(); const replySeats = createSeats();
         const replyData = { chatOf: chatNodesOf, rollback, check: rollbackCheck, read: replyRead };
-        // dsh's own text of a known failure code (its `chat` dictionary); '' when this dsh has no such text.
-        const failureText = (code) => {
-          const key = FAILURE_KEYS[code]; if (key === undefined) return '';
-          try { const text = ctx.locale?.bind?.('chat')?.(`message.failure.${key}`); return typeof text === 'string' && text !== `message.failure.${key}` ? text : ''; } catch { return ''; }
-        };
+        const failureText = (code) => failureTextOf(ctx.locale, code);
         feature('assistantReplyCards', () => [...watchAssistantStatus(), replyFlag.on(), ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
           name: 'conversation.input.dock',
           id: 'assistant-reply-seat',

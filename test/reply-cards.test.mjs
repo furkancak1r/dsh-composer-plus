@@ -21,11 +21,11 @@ globalThis.document = { body: { tag: 'body' }, querySelector: () => null, addEve
 const ANCHOR = '/** Feature switches, in Settings order.';
 const src = read('client.js');
 assert.ok(src.includes(ANCHOR));
-eval(src.replace(ANCHOR, `globalThis.__rc = { replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, REPLY_READ_KEY, REPLY_SHOWN_KEY };\n    ${ANCHOR}`));
+eval(src.replace(ANCHOR, `globalThis.__rc = { failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, REPLY_READ_KEY, REPLY_SHOWN_KEY };\n    ${ANCHOR}`));
 const h = (t, p, ...c) => ({ t, p: p ?? {}, c });
 const React = { createElement: h, Fragment: 'F', useState: (v) => [typeof v === 'function' ? v() : v, () => {}], useRef: (v) => ({ current: v }), useEffect() {}, useLayoutEffect() {}, useSyncExternalStore: (_s, get) => get(), useMemo: (f) => f(), useCallback: (f) => f };
 mod.factory((n) => (n === 'react' ? React : n === 'react-dom' ? { createPortal: (el, host, key) => ({ portal: el, host, key }) } : {}));
-const { replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, REPLY_READ_KEY, REPLY_SHOWN_KEY } = globalThis.__rc;
+const { failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, REPLY_READ_KEY, REPLY_SHOWN_KEY } = globalThis.__rc;
 const find = (n, pred) => { if (n === null || typeof n !== 'object') return []; if (Array.isArray(n)) return n.flatMap((c) => find(c, pred)); return [...(pred(n) ? [n] : []), ...(n.c ?? []).flat(Infinity).flatMap((c) => find(c, pred))]; };
 const text = (n) => (typeof n === 'string' ? n : Array.isArray(n) ? n.map(text).join('') : n?.c ? text(n.c) : '');
 
@@ -190,6 +190,15 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   assert.equal(errBody({ code: 'X', message: 'HTTP 400' }), 'HTTP 400', 'an unknown code: the message');
   const known = replyCardsOf(chatOf([{ key: 'e', kind: 'turn-error', data: { seq: 5, time: 5000, turn: 1, message: '', code: 'QUOTA' } }]));
   assert.deepEqual([known[0].message, known[0].code], ['', 'QUOTA'], 'the card keeps the code');
+  // The real lookup: dsh's `chat` dictionary through bind; a key that comes back (no text in this dsh, as INTERRUPTED on
+  // 0.2.0) is no text; an unknown or inherited name is not looked up; a throwing bind is no text.
+  const dict = { 'message.failure.interrupted': 'DSH süreci kapandı.' }; const asked = [];
+  const locale = { bind: (ns) => (key) => { asked.push(`${ns}/${key}`); return dict[key] ?? key; } };
+  assert.equal(failureTextOf(locale, 'INTERRUPTED'), 'DSH süreci kapandı.', 'dsh\'s text'); assert.deepEqual(asked, ['chat/message.failure.interrupted'], 'in the chat namespace');
+  assert.equal(failureTextOf(locale, 'ACCOUNT_QUOTA'), '', 'the key came back: no text');
+  for (const code of ['X', 'constructor', 'toString', undefined]) assert.equal(failureTextOf(locale, code), '', `not looked up: ${code}`);
+  assert.equal(asked.length, 2, 'only the known codes are looked up');
+  assert.equal(failureTextOf({ bind: () => { throw Error('boom'); } }, 'AUTH'), '', 'a throwing bind'); assert.equal(failureTextOf(undefined, 'AUTH'), '', 'no locale');
   assert.equal(ReplyCard({ card, sessionId: 's', t, lang: 'tr', picks, focusable: false }).p.tabIndex, undefined, 'on the canvas its frame takes the focus');
 }
 
