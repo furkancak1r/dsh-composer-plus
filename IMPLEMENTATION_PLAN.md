@@ -1,3 +1,56 @@
+# Release 1.32.0 (branch chore/release-1-32-0, 2026-11-25)
+
+Approval (Furkan, Assistant chat, 2026-11-25): "Onaylıyorum: Composer Plus 1.32.0 main'in son hâlinden herkese açık
+yayınlansın: sürüm commit'i ve notları main'e, GitHub release, npm yayını ve eklenti listesi PR'ı; canlı kopya ayrı onayla".
+Out of scope: the live copy (~/Documents/testdeepseekharness/dsh-composer-history), Tether builds and iPhone installs, a
+DSH restart.
+
+## Verified facts (2026-11-25)
+- origin/main 8f1723fb; v1.31.1 is the newest release (GitHub Latest 2026-11-20T09:07Z, npm 1.31.1 2026-11-20T09:14Z,
+  npm has no 1.32.0). 151 commits after v1.31.1 (108 without merges). Repo variable NPM_TRUSTED_PUBLISHING=on.
+  No package-lock, no CHANGELOG. dsh npm dist-tags: latest 0.2.2-rc.5, alpha 0.2.3-alpha.2.
+- Bump: minor (new features since v1.31.1: codexTheme is a new FEATURES id; canvas, Decisions dialog, Running chips,
+  resizable summary are new; docs/features.json changed for 7 features).
+
+## Phase 1 (done on this branch, not merged, not pushed)
+- 789ba51a: package.json 1.32.0, 26 README notes (2 per README × 13), release-notes.json (1.32.0, 13 languages, bold
+  names = labels from client.js en/zh and locales/<id>.json; "Notifications only from Damon" is a Tether label: en/tr only).
+- Checks: `node test/release-notes.test.mjs` ok; `npm test` exit 0; `git diff --check` ok; `npm pack --dry-run`:
+  1.32.0, 126 files (1.31.1 had 125), from tether/ only gateway/{server.mjs,admin.html,qr.swift}.
+
+## Phase 2 (only after Damon writes "Renk zıtlığı main'de, devam et")
+1. `git fetch`; merge origin/main into this branch; if the color contrast fix of the status panel
+   (fix/status-panel-color-contrast) is in main, add one line for it to the notes in all 13 languages; run the tests
+   again; if the diff from main changes more than the notes: one more review-guard round (separate subagent).
+2. Merge the branch into main, push main, `gh run watch` the CI run of that main commit.
+3. `gh release create v1.32.0 assets/active.txt assets/installed.txt --target <main sha> --latest --notes "$(node -p
+   "require('./release-notes.json').notes.en")"`; `gh run watch` release.yml until npm publish succeeds (only the
+   documented fallbacks).
+4. Verify releases/latest = v1.32.0 and https://registry.npmjs.org/dsh-composer-plus/1.32.0.
+5. awesome-dsh-plugin PR: `gh repo sync furkancak1r/awesome-dsh-plugin`, new branch of the fork, only
+   data/plugins/furkancak1r__dsh-composer-plus.yml (description.en, description.zh); no PR when no feature name changes.
+6. Delete this branch and worktree after the merge. Report in Turkish.
+
+## Review (phase 1)
+- Rule: the diff has 15 files (+41/-41), so repeat review-guard until a round gives no P1/P2.
+- Round 1 (separate subagent review-guard-1, HEAD 789ba51a vs origin/main 8f1723fb): P1 0, P2 0, P3 4, P4 2. Loop done.
+  Each finding checked by lead against the code, all fixed in 83decd06 (notes text only, 13 languages):
+  P3 Improve prompt line names only the new memory notes (the chat context was already in v1.31.1, index.js 3821);
+  P3 news line adds "the result of a task that you asked for comes in its own reply" (64eab180, not in v1.31.1);
+  P3 Mobile connect line adds "on a Mac without a Damon chat, every chat still sends notifications" (damonAbout {},
+  UI.swift 2613); P3 the Fixes line about the LIVE label is gone (cards.live is not in v1.31.1);
+  P4 merge_main line says "when it sends a task" (mergeGate on chat_new/chat_send); P4 English reply-guard sentences
+  shorter, active voice.
+- The phase 2 merge rule still applies: review-guard on the final diff before the merge into main.
+
+## Last checkpoint (2026-11-25, end of phase 1)
+- Branch chore/release-1-32-0: 789ba51a (version commit), 83decd06 (review 1 fixes), then this plan commit.
+  Not merged, not pushed, no tag, no release.
+- Last passing: `node test/release-notes.test.mjs` ok and `npm test` exit 0 (after 83decd06's change); `git diff --check`
+  ok; `npm pack --dry-run` 1.32.0, 126 files, tether/gateway only.
+- fix/status-panel-color-contrast was at 8f1723fb (= origin/main, no own commit yet) at 2026-11-25 08:45.
+- Open: phase 2 (above), only after Damon's message "Renk zıtlığı main'de, devam et".
+
 # Assistant reply guards (branch fix/assistant-reply-guards, 2026-11-24)
 
 Source: Damon's daily error review of 2026-11-24 (Furkan's standing request of 2026-11-11: fix each mistake of the day
