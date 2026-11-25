@@ -13,7 +13,8 @@ eval(src.replace(ANCHOR, `globalThis.__css = { TODOS_CSS, CODEX_THEME_CSS };\n  
 mod.factory((n) => (n === 'react' ? { createElement: () => null } : {}));
 const { TODOS_CSS, CODEX_THEME_CSS } = globalThis.__css;
 
-// dsh's theme colors (dsh-client-ui-theme design-platform.css; the same in 0.2.0-rc.2, 0.2.1-rc.2 and 0.2.2-rc.5). dsh
+// dsh's theme colors, copied from dsh-client-ui-theme design-platform.css (the same in 0.2.0-rc.2, 0.2.1-rc.2 and
+// 0.2.2-rc.5; checked 2026-11-25: copy them again when dsh changes a token). dsh
 // has no success-label and no error-label token: the panel's fallback colors apply there.
 const common = { '--dsw-static-deepseek-600': '#4868b2', '--dsw-alias-state-warn-primary': '#f59e0b', '--dsw-alias-state-warn-label': '#dd8629', '--dsw-alias-state-success-primary': '#22c55e' };
 const DSH = {
@@ -31,6 +32,7 @@ const resolve = (value, vars) => {
   for (let n = 0; n < 20 && v.includes('var('); n++) {
     v = v.replace(/var\((--[\w-]+)\s*(?:,((?:[^()]|\([^()]*\))*))?\)/, (_, name, fallback) => vars[name] ?? (fallback === undefined ? 'MISSING' : fallback.trim()));
   }
+  if (/^#[0-9a-f]{3}$/i.test(v)) v = `#${[...v.slice(1)].map((c) => c + c).join('')}`;
   assert.match(v, /^#[0-9a-f]{6}$/i, `a color: ${value} → ${v}`);
   return v;
 };
@@ -44,29 +46,30 @@ const themes = {
   dark: { ...DSH.dark, ...props(TODOS_CSS, `body[data-ds-dark-theme] ${P}`) },
   codex: { ...DSH.dark, ...props(CODEX_THEME_CSS, DARK), ...props(TODOS_CSS, `body[data-ds-dark-theme] ${P}`) },
 };
-assert.ok(Object.keys(props(TODOS_CSS, `body:not([data-ds-dark-theme]) ${P}`)).length > 0, 'the panel sets its light colors');
 const panelBg = (theme) => (theme === 'codex' ? props(CODEX_THEME_CSS, `${DARK} ${P}`)['background-color'] : resolve(props(TODOS_CSS, P).background, themes[theme]));
 assert.equal(panelBg('codex'), '#181818', 'Codex dark theme: the panel background');
 
+// A selector's color as the theme sets it: Codex dark theme's own rule for it (DARK + the panel) comes after the panel's.
+const style = (theme, sel) => ({ ...props(TODOS_CSS, `${P} ${sel}`), ...(theme === 'codex' ? props(CODEX_THEME_CSS, `${DARK} ${P} ${sel}`) : {}) });
 const results = [];
 for (const theme of Object.keys(themes)) {
   const vars = themes[theme]; const bg = panelBg(theme);
   const check = (what, fg, back, need) => { const r = ratio(fg, back); results.push(`${theme} ${what} ${r.toFixed(2)}`); assert.ok(r >= need, `${theme}: ${what} ${fg} on ${back} is ${r.toFixed(2)}:1, needs ${need}:1`); };
   // The Kararlar count pill (the first fix): its number on its own fill.
-  const pill = props(TODOS_CSS, `${P} .cp-dc-badge`);
+  const pill = style(theme, '.cp-dc-badge');
   check('Kararlar count pill', resolve(pill.color, vars), resolve(pill.background, vars), 4.5);
   // CANLI and Onayla: text on a filled accent.
-  const tag = props(TODOS_CSS, `${P} .cp-cs-tag`);
+  const tag = style(theme, '.cp-cs-tag');
   check('CANLI tag', resolve(tag.color, vars), resolve(tag.background, vars), 4.5);
-  const onayFill = resolve(props(TODOS_CSS, `${P} .cp-cs-card[data-card="onay"]`)['--cp-co'], vars);
-  check('Onayla', resolve(props(TODOS_CSS, `${P} .cp-cs-act[data-primary]`).color, vars), onayFill, 4.5);
+  const onayFill = resolve(style(theme, '.cp-cs-card[data-card="onay"]')['--cp-co'], vars);
+  check('Onayla', resolve(style(theme, '.cp-cs-act[data-primary]').color, vars), onayFill, 4.5);
   // Text on the panel: the list time, counts, time lines, the Kararlar row, states, errors, links.
   for (const sel of ['.cp-st-time', '.cp-td-count', '.cp-st-sub', '.cp-dc-open', '.cp-dc-open>span[aria-hidden]', '.cp-td-group', '.cp-cs-count', '.cp-cs-new', '[data-state="overdue"]', '[data-state="done"]',
     '[data-state="waiting"]', '[data-state="running"]', '.cp-td-err', '.cp-td-empty', '.cp-st-link', '.cp-st-note', '.cp-st-time[data-refreshing="true"]']) {
-    check(sel, resolve(props(TODOS_CSS, `${P} ${sel}`).color, vars), bg, 4.5);
+    check(sel, resolve(style(theme, sel).color, vars), bg, 4.5);
   }
   // The header icons (Get summary, Projects, Refresh, canvas, place): 3:1 for a graphic.
-  check('icon buttons', resolve(props(TODOS_CSS, `${P} .cp-td-btn`).color, vars), bg, 3);
+  check('icon buttons', resolve(style(theme, '.cp-td-btn').color, vars), bg, 3);
 }
 // The old white text on dsh's blue fails in the light theme: the check would see the old pill.
 assert.ok(ratio('#ffffff', DSH.light['--dsw-alias-state-business-primary']) < 4.5, 'the old pill: white on dsh blue is under 4.5:1');

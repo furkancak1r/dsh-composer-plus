@@ -24,9 +24,31 @@ Scope: client.js CSS and the two header icons only. No layout of the cards, no s
   light 82 → 0, dark 12 → 0, Codex 2 → 0. Open: the dialog's disabled Gönder (opacity .5, WCAG exempts disabled controls).
 - Screenshots and table: /Users/furkancakir/Damon/Belgeler/Composer Plus/kontrast-20261125/.
 
+## Scope 3 (Furkan 2026-11-25: "burası çok sıkışık görünüyor")
+- Header at the right: the counts (whole width), then "Liste HH:MM ⌄" at the left and the icons at the right on one line;
+  4 px scale (12 px in at both sides, 8 px between rows). The title button reaches under the icon row (margin-bottom
+  -32px): its hover/focus box is the whole header.
+- The list time's hint: a short text (`status.updatedHint`, 13 languages) in dsh's Tooltip above the time (portal), the
+  native title only without dsh's Tooltip; `aria-description` on the title button. The summary card's time has its own
+  hint `status.summaryHint`.
+- Measured (scratch /tmp/cp-contrast-20261125/tight.mjs, fixture with the screenshot's counts, 300 px panel = the
+  screenshot's): before, the native tooltip (simulated: drawn by macOS, not in the page) covered 3 lines under "Liste"
+  (⊞, ⤒, Projeler); after, dsh's tooltip is 1 line above the time over the counts line only. 240 px: no overlap.
+
+## Review round 1 (review-guard-1, separate subagent, head 1bdbcf06): P1 0, P2 0, P3 2, P4 4 — fixed
+- P3 canvas bar count: rule scoped to `.cp-td-head .cp-cs-count`. P3 test: Codex rules overlay (`style()`); probe: a bad
+  Codex running color fails it. P4 `#rgb` in resolve(): red on main now at "light: Kararlar count pill … 4.23:1".
+  P4 comment/hover: the new layout (title button under the icon row). P4 Settings shot: `SHOT=1` browser-card-stack,
+  only assistantTodos.webp changed. P4 token copy: dsh versions named in the test.
+
+## Checks (last passing, 2026-11-25 12:2x, after scope 3 and round-1 fixes)
+- `npm test` exit 0. browser-card-stack, -status-refresh, -summary-resize, -assistant-todos, -running-filter PASS on
+  dsh 0.2.2-rc.5, 0.2.0-rc.2, 0.2.1-rc.2; browser-status-canvas PASS on the same three (first run: dsh 0.2.2-rc.5 did not
+  start, "cannot create effect on inactive context"; second run PASS without a change).
+
 ## Open steps
-- Review-guard (separate subagent) on `git diff main...HEAD`; fix findings; `npm test`; merge --no-ff into main; push;
-  delete branch and worktree. No live copy, no release, no DSH restart.
+- Review-guard round 2 on `git diff main...HEAD`; repeat until no P1/P2; merge --no-ff into main; push; delete branch
+  and worktree. No live copy, no release, no DSH restart.
 
 # Assistant reply guards (branch fix/assistant-reply-guards, 2026-11-24)
 
