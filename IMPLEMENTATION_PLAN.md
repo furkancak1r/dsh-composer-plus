@@ -1,3 +1,89 @@
+# Fix: status panel contrast and header (branch fix/status-panel-color-contrast, 2026-11-25)
+
+Furkan (2026-11-25): "renk zıtlık sorunu var düzelt" (the Kararlar count pill: white on a light fill in the dark theme)
+and "şunlar daha düzgün görünebilir" (the header: three rows, the canvas icon smaller and thinner than the others).
+Scope: client.js CSS and the two header icons only. No layout of the cards, no size, no behavior. Tether: no code.
+
+## Change
+- `contrastVars(sel)` (client.js, before TODOS_CSS): for the panel and the Kararlar dialog only. Light palette:
+  label-tertiary → label-secondary, the blue → deepseek-600, the amber → #b25000, the green → #1a7f37 (the panel's old
+  fallbacks). Dark palette: success-label/error-label (dsh has none) → its primary green and red. Codex dark theme keeps
+  its tokens. Text on a filled accent (count pill, Onayla, CANLI, the dialog's primary button) → label-primary-foreground.
+- Header at the right (`data-place="side"`): two rows (final form: see "Scope 3"). Row 1 the counts; row 2 "Liste
+  HH:MM ⌄" (in the title button) at the left and the five icons at the right. The canvas and place icons are 14 px
+  line icons (`lineIcon`, 16 px view box, 1 px stroke as dsh's icons) instead of the text glyphs ⊞ ⤒ ⇥.
+- Test: test/status-contrast.test.mjs (in test:all). Red on main's client.js: "light: Kararlar count pill #ffffff on
+  #4176e6 is 4.23:1, needs 4.5:1" (after two test-only shims for the old CSS). Green now: 5.39 / 8.12 / 15.06.
+
+## Checks (last passing, 2026-11-25 11:2x)
+- `npm test` exit 0. `git diff --check` clean.
+- Headless (chromiumSandbox true), `TMPDIR=/tmp/cp-contrast-20261125 PLAYWRIGHT=<Mergen playwright 1.58> node test/<t>.mjs <bins>`:
+  browser-card-stack, browser-status-refresh, browser-status-canvas, browser-summary-resize PASS on dsh 0.2.2-rc.5,
+  0.2.0-rc.2, 0.2.1-rc.2.
+- Measure (scratch script, not committed): /tmp/cp-contrast-20261125/measure.mjs; panel scan AA failures before/after:
+  light 82 → 0, dark 12 → 0, Codex 2 → 0. Open: the dialog's disabled Gönder (opacity .5, WCAG exempts disabled controls).
+- Screenshots and table: /Users/furkancakir/Damon/Belgeler/Composer Plus/kontrast-20261125/.
+
+## Scope 3 (Furkan 2026-11-25: "burası çok sıkışık görünüyor")
+- Header at the right: the counts (whole width), then "Liste HH:MM ⌄" at the left and the icons at the right on one line;
+  4 px scale (12 px in at both sides, 8 px between rows). The title button reaches under the icon row (margin-bottom
+  -32px): its hover/focus box is the whole header.
+- The list time's hint: a short text (`status.updatedHint`, 13 languages) in dsh's Tooltip above the time (portal), the
+  native title only without dsh's Tooltip; `aria-description` on the title button. The summary card's time has its own
+  hint `status.summaryHint`.
+- Measured (scratch /tmp/cp-contrast-20261125/tight.mjs, fixture with the screenshot's counts, 300 px panel = the
+  screenshot's): before, the native tooltip (simulated: drawn by macOS, not in the page) covered 3 lines under "Liste"
+  (⊞, ⤒, Projeler); after, dsh's tooltip is 1 line above the time over the counts line only. 240 px: no overlap.
+
+## Review round 1 (review-guard-1, separate subagent, head 1bdbcf06): P1 0, P2 0, P3 2, P4 4 — fixed
+- P3 canvas bar count: rule scoped to `.cp-td-head .cp-cs-count`. P3 test: Codex rules overlay (`style()`); probe: a bad
+  Codex running color fails it. P4 `#rgb` in resolve(): red on main now at "light: Kararlar count pill … 4.23:1".
+  P4 comment/hover: the new layout (title button under the icon row). P4 Settings shot: `SHOT=1` browser-card-stack,
+  only assistantTodos.webp changed. P4 token copy: dsh versions named in the test.
+
+## Checks (last passing, 2026-11-25 12:2x, after scope 3 and round-1 fixes)
+- `npm test` exit 0. browser-card-stack, -status-refresh, -summary-resize, -assistant-todos, -running-filter PASS on
+  dsh 0.2.2-rc.5, 0.2.0-rc.2, 0.2.1-rc.2; browser-status-canvas PASS on the same three (first run: dsh 0.2.2-rc.5 did not
+  start, "cannot create effect on inactive context"; second run PASS without a change).
+
+## Review round 2 (review-guard-2, head b9d708b7): P1 0, P2 0, P3 1, P4 6 — loop done (no P1/P2)
+- Fixed: P3 llms text (status.summaryHint, the list time's tooltip; build:readme). P4 unit checks for dsh's Tooltip
+  branch, aria-description and summaryHint (assistant-todos-client); P4 the Kararlar dialog selectors in
+  status-contrast; P4 chevron keeps the 26 px row without a list time; P4 ponytail note (tooltip on hover only); P4 this
+  plan. Accepted: the counts line's native date title (short); a click in the 2 px gaps beside the icons folds the
+  panel (the title button reaches under the icon row, by design).
+
+## Last checkpoint (2026-11-25 12:5x, about 150 tool calls: the chat stops here)
+- Branch head a0d6ec66 (commits 1bdbcf06, b9d708b7, a0d6ec66). Last passing: `npm test` exit 0 (after a0d6ec66's
+  changes); browser tests as in "Checks" above (before a0d6ec66; a0d6ec66 changes CSS of the side header only by one
+  chevron margin rule, checked by the scratch measure: chevron center 104 = icon center 104).
+- Screenshots and table: /Users/furkancakir/Damon/Belgeler/Composer Plus/kontrast-20261125/ (13 files).
+- Scratch (delete at the end of the task): /tmp/cp-contrast-20261125/ (measure.mjs, tight.mjs, main-copy/, out/, logs).
+
+## Merge of origin/main 0c6e3ae5 (ecd0747f, 2026-11-25 13:0x)
+- Conflicts: client.js and llms.txt generated blocks (rebuilt: build:locales, build:readme), docs/features.json
+  assistantTodos llms (main's text + this branch's hint sentence), this file (both sections kept). The branch's own
+  client.js delta is the same before and after the merge (diff of the +/- lines: empty).
+- Checks: `npm test` exit 0; browser-card-stack, -status-refresh, -summary-resize, -assistant-todos, -running-filter,
+  -status-canvas, -approval-card PASS on dsh 0.2.2-rc.5, 0.2.0-rc.2, 0.2.1-rc.2 (status-canvas passed at the first run).
+
+## Review round 3 (review-guard-3, head ecd0747f): P1 0, P2 0, P3 1, P4 1 — fixed (11c96e8d)
+- P3: the waiting previous summary (up to 5 min) had opacity .4 (1.77–3.73:1). Now label-secondary, no opacity
+  (light 5.80, dark 12.11; measured in real dsh: opacity 1, rgb(97,102,107) / rgb(207,211,214)). Test red first.
+- P4: the summary time's native title → dsh's Tooltip above it (`hinted`, one path with the list time). Measured: the
+  tooltip at y 99–125, the time at 133–151, no summary line covered; Hide button stays at the right. Test red first.
+
+## Review round 4 (review-guard-4, head 11c96e8d): P1 0, P2 0, P3 0, P4 1 — fixed (f5f342ee), loop done
+- P4: dead `.cp-st-old{transition:none}` in the reduced-motion rule removed.
+- Checks after 11c96e8d: `npm test` exit 0; the seven browser tests PASS on the three dsh versions. After f5f342ee
+  (one dead selector): `npm test` exit 0. Header geometry (scratch tight.mjs) equal to the earlier "after" run.
+- New screenshots: sonra-koyu-ozet-ipucu-acik.png, sonra-koyu-ozet-bekliyor.png, sonra-acik-ozet-bekliyor.png.
+
+## Open steps
+1. Main worktree: `git merge --no-ff fix/status-panel-color-contrast`, `npm test`, `git push origin main`.
+2. Delete the branch (local; remote only if it exists) and `git worktree remove` this folder; delete the scratch folder.
+- Not allowed: live copy, release, version bump, DSH restart, Tether code.
+
 # Onay card only with its button (branch fix/hide-buttonless-approval-card, 2026-11-25)
 
 Source: Furkan, 2026-11-25: "onay butonu gelince görüyorum zaten … bu uyarıyı kaldır". Standing main approval: after a
