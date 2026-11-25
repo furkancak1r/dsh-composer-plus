@@ -469,18 +469,34 @@ newest.unmount(); older.unmount(); third.unmount(); live.unmount();
   approve[0].p.onClick(); approve[0].p.onClick(); await flush();
   assert.deepEqual(cardSent, [['D', CARD]], 'one click sends the exact sentence once, on the same path as the reply button');
   assert.equal(await cardPicks.pick('D', offers.of('D').offer, 1), false, 'the same answer again: refused');
-  // Typing hides the card's Onayla (today's rule); the card and the sentence stay.
-  dock.render(); await flush(); input = { ...input, draft: 'hm' }; dock.render(); await flush();
+  // Sent: the sentence has no Onayla now, so the card goes (Furkan, 2026-11-25); its "Onay:" item stays in the data.
+  dock.render(); await flush(); dock.render(); await flush();
+  assert.equal(onayCard(stack.render()), undefined, 'sent: no Onayla, no Onay card');
+  // Typing hides the card's Onayla (today's rule); the card and the sentence stay while the block is active.
+  view = chat(user(250, 'q'), tail(25, 260, `Ready.\n\n${block(CARD)}`)); dock.render(); await flush(); dock.render(); await flush();
+  input = { ...input, draft: 'hm' }; dock.render(); await flush();
   card = onayCard(stack.render()); assert.ok(card, 'the card stays while you type');
+  assert.ok(texts(card).includes(CARD), 'with its sentence');
   assert.equal(btns(card).filter((b) => b.p['data-composer-plus-approve'] === 'card').length, 0, 'no Onayla while the composer has text');
   input = { ...input, draft: '' };
   // A live sentence gets the CANLI label.
   view = chat(user(300, 'y'), tail(30, 310, block(LIVE))); dock.render(); await flush(); dock.render(); await flush();
   assert.ok(texts(onayCard(stack.render())).includes('cards.live'), 'a live sentence: CANLI');
-  // Without a block, the "Onay:" items keep the card and say that the button comes back.
+  // Without a block there is no Onayla (Furkan, 2026-11-25: "onay butonu gelince görüyorum zaten"): no Onay card, no
+  // note, no count and no queue entry. The "Onay:" item stays in the data (Damon reads it).
   view = chat(user(400, 'z'), tail(40, 410, 'Ok.')); dock.render(); await flush(); dock.render(); await flush();
-  card = onayCard(stack.render()); assert.ok(card, 'the items keep the card');
-  assert.ok(texts(card).some((x) => /^cards\.approveAgain/.test(x)), 'the note: the button comes back with the sentence');
+  {
+    const tree0 = stack.render();
+    assert.equal(onayCard(tree0), undefined, 'no block: no Onay card');
+    assert.ok(!texts(tree0).some((x) => /cards\.approveAgain|cards\.count\.onay/.test(x)), 'no block: no note, no "1 onay" in the count bar');
+    const said0 = []; const walk0 = (n) => { if (Array.isArray(n)) return n.forEach(walk0); if (n === null || typeof n !== 'object') return; if (n.p?.['data-composer-plus-active'] === '') said0.push(...texts(n)); (n.c ?? []).forEach(walk0); }; walk0(tree0);
+    assert.ok(!said0.some((x) => /cards\.onay/.test(x)), 'no block: the Onay item is not in the queue');
+    assert.deepEqual(store.of().items.map((i) => i.text), ['Onay: montaj testi main'], 'the "Onay:" item stays in the data');
+  }
+  // The block again: the card with its Onayla comes back.
+  view = chat(user(420, 'z2'), tail(42, 430, `Ready.\n\n${block(CARD)}`)); dock.render(); await flush(); dock.render(); await flush();
+  card = onayCard(stack.render()); assert.ok(card, 'a block: the Onay card');
+  assert.equal(btns(card).filter((b) => b.p['data-composer-plus-approve'] === 'card').length, 1, 'a block: one Onayla');
   // --- One list (Furkan, 2026-11-23): no Kartlar/Kuyruk/Brifing switch; the first item that waits for you is active ---
   // The Onay card is the active item (a thin line at its left): one Onayla on screen; the keys act on the active item in
   // the panel; A sends the exact sentence once through the same store, only after the item was active for 800 ms.
@@ -646,12 +662,13 @@ newest.unmount(); older.unmount(); third.unmount(); live.unmount();
   // A choice (karar): the option list of the newest answer, published by CardChoices. It is the first For you card; its
   // buttons are under the answer only (one set on screen); 1–9 pick while it is the active item.
   const choiceFrom = cardSent.length; // one store for the buttons, the card and the keys (as in the app)
-  view = chat(user(600, 'v'), tail(60, 610, 'Which one?\n\n**Seçenekler:**\n1. Kendisi alsın\n2. Bana sorsun'));
+  // The answer has a block too: the approval (with its Onayla) is the active item first.
+  view = chat(user(600, 'v'), tail(60, 610, `${block(CARD)}\n\nWhich one?\n\n**Seçenekler:**\n1. Kendisi alsın\n2. Bana sorsun`));
   const choices = mount(globalThis.__ap.CardChoices, props); choices.render(); await flush(); choices.render();
   assert.deepEqual(offers.choiceOf('D').offer.options.map((o) => o.label), ['Kendisi alsın', 'Bana sorsun'], 'the choice is published');
   dock.render(); await flush(); dock.render(); await flush();
   tree = stack.render();
-  assert.deepEqual(active(tree), ['onay'], 'the Onay item still waits: it stays active');
+  assert.deepEqual(active(tree), ['onay'], 'the approval waits: it stays active');
   const karar = find(tree, (n) => n.p?.['data-card'] === 'karar')[0];
   assert.ok(karar, 'the choice is a card in For you');
   assert.match(texts(find(tree, (n) => n.p?.['data-composer-plus-counts'] === '')[0]).join(''), /cards\.count\.senden:\{"count":1\}/, 'the count bar counts the choice');

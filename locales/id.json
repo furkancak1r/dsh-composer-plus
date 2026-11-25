@@ -2832,7 +2832,6 @@
     "cards.queue": "Antrean {name}",
     "cards.queued": "{count} dalam antrean",
     "cards.filterEmpty": "Belum ada apa pun di sini.",
-    "cards.approveAgain": "Tombol Setujui kembali saat {name} menulis ulang kalimat persetujuan.",
     "queue.later": "Nanti",
     "queue.keys": "Tombol: A setujui / sudah · 1–9 pilihan · S nanti · J / K berikutnya / sebelumnya · R balas",
     "queue.choiceTitle": "{name} meminta Anda memilih",
