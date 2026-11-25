@@ -3545,6 +3545,9 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       // ponytail: the time's room is the line less the chevron and the icons (150px); a longer text ends with "…".
       + `[${TODOS_ATTR}][data-place="side"] .cp-st-top{padding:4px 6px 4px 0}[${TODOS_ATTR}][data-place="side"] .cp-td-head{flex-wrap:wrap;row-gap:8px;padding:8px 12px 4px;margin-bottom:-32px}`
       + `[${TODOS_ATTR}][data-place="side"] .cp-td-head .cp-cs-count{flex:1 0 100%}[${TODOS_ATTR}][data-place="side"] .cp-st-time{flex:0 1 auto;width:auto;max-width:calc(100% - 150px);line-height:26px;text-align:left}`
+      // The chat toggle (Sohbeti göster) is wider than the 150px of the icons: it gets its own row under them, at the right,
+      // so it does not cover the list time.
+      + `[${TODOS_ATTR}][data-place="side"] .cp-st-top:has(>[data-composer-plus-chat-toggle])::after{content:"";flex-basis:100%;order:1}[${TODOS_ATTR}][data-place="side"] .cp-st-top>[data-composer-plus-chat-toggle]{order:2}`
       // No list time yet (the first read): the chevron alone keeps the icon row's 26px, so it stays on the icons' line.
       + `[${TODOS_ATTR}][data-place="side"] .cp-cs-count+svg,[${TODOS_ATTR}][data-place="side"] .cp-cs-count+[aria-hidden]{margin-block:6px}}`
       + `@media (max-width:999px){[${TODOS_ATTR}] .cp-td-btn.cp-st-place{display:none}}`
@@ -5167,7 +5170,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
               state.refreshing ? React.createElement('span', { className: 'cp-st-time', 'data-refreshing': 'true' }, t('status.refreshing'))
                 : state.at === null ? null : listTime,
               React.createElement(TodoIcon, open ? { name: 'IconChevronDownOutlineRegular', glyph: '▾' } : { name: 'IconChevronUpOutlineRegular', glyph: '▴' }))),
-            chatToggle, summarizeBtn, projectsBtn, refreshBtn,
+            summarizeBtn, projectsBtn, refreshBtn,
             // The canvas view: the chat area and the panel go, only the canvas shows. Not while dsh's own question, approval or
             // plan review waits in the chat (it would close at once).
             asked !== '' ? null : React.createElement('button', { id: `${headId}-canvas`, type: 'button', className: 'cp-td-btn', 'data-composer-plus-canvas-open': '', 'aria-label': t('canvas.open'), title: t('canvas.open'),
@@ -5179,7 +5182,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
               'aria-label': t(place === 'side' ? 'status.placeTop' : 'status.placeSide'), title: t(place === 'side' ? 'status.placeTop' : 'status.placeSide'),
               onClick: () => setPlace(place === 'side' ? 'top' : 'side') },
               lineIcon(place === 'side' ? 'M3 2.5h10M8 13.5V5.5M5 8.5l3-3 3 3' : 'M13.5 3v10M2.5 8h8M7.5 5l3 3-3 3')),
-            spokenSpan),
+            chatToggle, spokenSpan),
           readError,
           open ? summaryCard : null, open ? summaryGrip : null,
           // The Onay card stays in sight while the list scrolls, also in a folded panel.

@@ -122,6 +122,13 @@ try {
         return Object.fromEntries([['title', 'h3'], ['for', '[data-reply-for]'], ['new', '.cp-rc-new'], ['time', '.cp-rc-top span:last-child'], ['option', '.cp-rc-opt']].map(([k, q]) => [k, Math.round(ratio(el.querySelector(q)) * 10) / 10]));
       });
       for (const [k, v] of Object.entries(contrast)) assert.ok(v >= 4.5, `contrast ${k} ${v} ≥ 4.5 (${SCHEME})`);
+      // No header button covers the list time (the chat toggle covered "Liste 12:32" in the two-row side header).
+      const timeCovered = () => stack.evaluate((root) => {
+        const t = root.querySelector('.cp-st-time'); if (t === null) return ['no list time']; const a = t.getBoundingClientRect();
+        return [...root.querySelectorAll('.cp-st-top > button')].filter((b) => { const r = b.getBoundingClientRect(); return r.width > 0 && r.left < a.right && r.right > a.left && r.top < a.bottom && r.bottom > a.top; })
+          .map((b) => b.getAttribute('aria-label') ?? b.textContent);
+      });
+      assert.deepEqual(await timeCovered(), [], 'no button covers the list time (chat hidden)');
       await shot('kartlar-sohbet-gizli');
       await newCard.screenshot({ path: process.env.SHOTS ? join(process.env.SHOTS, `yanit-karti-${SCHEME}${TAG}.png`) : join(where.home, 'card.png') });
       if (process.env.SHOT && EN && index === 0) {
@@ -140,6 +147,7 @@ try {
       await until(async () => (await feed.count()) === 0, 'Sohbeti göster shows the chat', 5000);
       assert.equal(await scroller.evaluate((el) => getComputedStyle(el).visibility), 'visible', 'the chat shows');
       assert.equal(await toggle.getAttribute('aria-pressed'), 'true');
+      assert.deepEqual(await timeCovered(), [], 'no button covers the list time (chat shown)');
       await shot('sohbet-acik');
       await page.reload();
       if (!(await stack.waitFor({ timeout: 10000 }).then(() => true, () => false))) { await page.keyboard.press('Escape'); await openDamon(); }
