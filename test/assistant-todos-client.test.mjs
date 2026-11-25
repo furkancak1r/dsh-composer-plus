@@ -1053,6 +1053,13 @@ assert.equal(gets.length - reads, 1, 'a burst is merged into one read');
   assert.equal(store.of('s-assistant').ask.state, 'done'); assert.doesNotMatch(text(c), /summaryWaiting|Old summary/); assert.match(text(c), /New summary\./);
   assert.match(text(find(c, (n) => n.t === 'h3')[0]), /^\s*status\.summary · \d/, 'the summary time');
   assert.equal(find(find(c, (n) => n.t === 'h3')[0], (n) => n.p?.title === 'status.summaryHint').length, 1, 'the summary time has its own hint');
+  {
+    // With dsh's Tooltip (review 3): the summary time's hint is above it, not a native title over the summary text.
+    prims.Tooltip = 'Tooltip'; const h3 = find(cardOf(panel()), (n) => n.t === 'h3')[0]; delete prims.Tooltip;
+    const tip = find(h3, (n) => n.t === 'Tooltip')[0];
+    assert.deepEqual([tip?.p.label, tip?.p.side, tip?.p.portal, /status\.summary · \d/.test(text(tip ?? {}))], ['status.summaryHint', 'top', true, true], 'dsh\'s Tooltip above the summary time');
+    assert.equal(find(h3, (n) => n.p?.title === 'status.summaryHint').length, 0, 'no native title with dsh\'s Tooltip');
+  }
   assert.match(spoken(tree), /^status\.summary · \d/, 'the status line says that the summary is new');
   // The time limit: no new summary in 5 minutes. The previous summary shows again with a short note and Try again.
   {

@@ -3621,7 +3621,9 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       + `[${TODOS_ATTR}] .cp-td-btn[data-refreshing="true"]{opacity:1;cursor:progress;color:var(--dsw-alias-state-business-primary)}[${TODOS_ATTR}] .cp-td-btn[data-refreshing="true"] > *{animation:cp-st-spin .8s linear infinite}`
       + `[${TODOS_ATTR}] .cp-st-ask[aria-disabled="true"]{cursor:progress}[${TODOS_ATTR}] .cp-st-ask[data-waiting="true"]{color:var(--dsw-alias-state-business-primary)}`
       + `[${TODOS_ATTR}] .cp-st-time[data-refreshing="true"]{font-size:12px;font-weight:500;color:var(--dsw-alias-state-business-primary)}`
-      + `[${TODOS_ATTR}] .cp-st-body[data-refreshing="true"] > :not(.cp-st-summary),[${TODOS_ATTR}] .cp-st-old[data-old="true"]{opacity:.4;transition:opacity .15s}`
+      + `[${TODOS_ATTR}] .cp-st-body[data-refreshing="true"] > :not(.cp-st-summary){opacity:.4;transition:opacity .15s}`
+      // The previous summary can wait up to 5 min: dimmed by an AA color, not by opacity (.4 gave 1.8–3.7:1).
+      + `[${TODOS_ATTR}] .cp-st-old[data-old="true"],[${TODOS_ATTR}] .cp-st-old[data-old="true"] .cp-st-link{color:var(--dsw-alias-label-secondary)}`
       + `[${TODOS_ATTR}] .cp-st-spin{flex:none;box-sizing:border-box;width:12px;height:12px;border:2px solid var(--dsw-alias-state-business-primary);border-right-color:transparent;border-radius:50%;animation:cp-st-spin .8s linear infinite}`
       + `[${TODOS_ATTR}] .cp-st-wait{display:flex;align-items:center;gap:6px;margin:0 0 4px;color:var(--dsw-alias-label-secondary)}[${TODOS_ATTR}] .cp-st-note{margin:0 0 4px;font-size:12px;color:var(--dsw-alias-label-tertiary)}`
       + `[${TODOS_ATTR}] .cp-st-skel{display:block;height:10px;margin-top:8px;border-radius:4px;background:var(--dsw-alias-border-l1,rgba(127,127,127,.25));animation:cp-st-pulse 1s ease-in-out infinite alternate}[${TODOS_ATTR}] .cp-st-skel + .cp-st-skel{width:60%}`
@@ -4678,10 +4680,14 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         'aria-controls': `${headId}-summary-card`, 'aria-label': t('status.resizeSummary'), title: t('status.resizeSummaryHint'), 'data-composer-plus-summary-grip': '',
         'aria-valuemin': SUMMARY_MIN, 'aria-valuemax': Math.max(summaryRoom ?? 0, summaryMax), 'aria-valuenow': summaryMax,
         onPointerDown: dragSummary, onKeyDown: keySummary, onDoubleClick: () => setSummaryHeight(null) });
+      // A short hint in dsh's tooltip above the text (portaled: it never covers the rows under it); without dsh's tooltip
+      // (an older dsh) the native title.
+      const hinted = (props, text, hint) => (primitives.Tooltip === undefined ? React.createElement('span', { ...props, title: hint }, text)
+        : React.createElement(primitives.Tooltip, { label: hint, side: 'top', delayMs: 500, portal: true }, React.createElement('span', props, text)));
       const summaryCard = !state.shown ? null : React.createElement('div', { id: `${headId}-summary-card`, className: 'cp-st-summary', role: 'region', 'aria-labelledby': `${headId}-summary`, 'aria-busy': asking,
         style: canvas ? undefined : { maxHeight: summaryMax } }, // the canvas has no grip: the card shows whole there
         React.createElement('h3', { id: `${headId}-summary` },
-          React.createElement('span', { title: t('status.summaryHint') }, summary === null || asking ? t('status.summary') : `${t('status.summary')} · ${clockText(summary.at, lang)}`),
+          hinted(null, summary === null || asking ? t('status.summary') : `${t('status.summary')} · ${clockText(summary.at, lang)}`, t('status.summaryHint')),
           React.createElement('button', { type: 'button', className: 'cp-td-btn', 'aria-label': t('status.hideSummary'), title: t('status.hideSummary'), onClick: closeCard },
             React.createElement(TodoIcon, { name: 'IconCloseOutlineRegular', glyph: '×' }))),
         asking ? React.createElement('p', { className: 'cp-st-wait' }, React.createElement('span', { className: 'cp-st-spin', 'aria-hidden': true }), t('status.summaryWaiting'))
@@ -4781,13 +4787,11 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
           decideDialog);
       }
       // The list time's hint (Furkan, 2026-11-25: the long native tooltip opened under "Liste" and covered the next rows):
-      // a short text in dsh's tooltip above the time, so the rows under the header stay readable. Without dsh's tooltip
-      // (an older dsh): the native title. A screen reader gets it as the title button's description.
-      // ponytail: the tooltip opens on hover only (the time is not focusable, as with the old title); keyboard users hear
+      // a short text in dsh's tooltip above the time (hinted). A screen reader gets it as the title button's description.
+      // ponytail: the tooltips open on hover only (the times are not focusable, as with the old title); keyboard users hear
       // the description. Upgrade: a focusable time, if a sighted keyboard user needs the hint.
       const timeHint = t('status.updatedHint');
-      const timeEl = state.at === null ? null : React.createElement('span', { className: 'cp-st-time', ...(primitives.Tooltip === undefined ? { title: timeHint } : {}) }, t('status.updated', { time: clockText(state.at, lang) }));
-      const listTime = timeEl === null || primitives.Tooltip === undefined ? timeEl : React.createElement(primitives.Tooltip, { label: timeHint, side: 'top', delayMs: 500, portal: true }, timeEl);
+      const listTime = state.at === null ? null : hinted({ className: 'cp-st-time' }, t('status.updated', { time: clockText(state.at, lang) }), timeHint);
       // aria-disabled (not disabled) while it refreshes: the focus stays on the button; the store refuses a second Refresh.
       return React.createElement('section', { [TODOS_ATTR]: '', 'data-open': String(open), 'data-place': place, 'aria-labelledby': headId, 'aria-description': t('queue.keys'), onKeyDown: onPanelKey },
         React.createElement('style', null, TODOS_CSS),

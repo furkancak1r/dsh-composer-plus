@@ -65,9 +65,12 @@ for (const theme of Object.keys(themes)) {
   check('Onayla', resolve(style(theme, '.cp-cs-act[data-primary]').color, vars), onayFill, 4.5);
   // Text on the panel: the list time, counts, time lines, the Kararlar row, states, errors, links.
   for (const sel of ['.cp-st-time', '.cp-td-count', '.cp-st-sub', '.cp-dc-open', '.cp-dc-open>span[aria-hidden]', '.cp-td-group', '.cp-cs-count', '.cp-cs-new', '[data-state="overdue"]', '[data-state="done"]',
-    '[data-state="waiting"]', '[data-state="running"]', '.cp-td-err', '.cp-td-empty', '.cp-st-link', '.cp-st-note', '.cp-st-time[data-refreshing="true"]']) {
+    '[data-state="waiting"]', '[data-state="running"]', '.cp-td-err', '.cp-td-empty', '.cp-st-link', '.cp-st-note', '.cp-st-time[data-refreshing="true"]',
+    '.cp-st-old[data-old="true"]', '.cp-st-old[data-old="true"] .cp-st-link']) {
     check(sel, resolve(style(theme, sel).color, vars), bg, 4.5);
   }
+  // The previous summary waits dimmed by its color, not by opacity (up to 5 min: opacity .4 gave 1.8–3.7:1).
+  assert.equal(style(theme, '.cp-st-old[data-old="true"]').opacity, undefined, `${theme}: the waiting summary has no opacity`);
   // The header icons (Get summary, Projects, Refresh, canvas, place): 3:1 for a graphic.
   check('icon buttons', resolve(style(theme, '.cp-td-btn').color, vars), bg, 3);
   // The Kararlar dialog (its own colors: it is portaled out of the panel). Its background is the page's bg-base.
