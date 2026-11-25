@@ -192,7 +192,7 @@ assets/features/assistantReplyCards.webp (new), index.js only for SHOTS if a sho
   - Last passing (d7fdc4ab): `npm test` exit 0; `git diff --check` clean; browser-status-canvas PASS on 0.2.2-rc.5,
     0.2.0-rc.2, 0.2.1-rc.2; browser-card-stack, approval-card, running-filter, summary-resize, dismiss-task PASS on
     0.2.2-rc.5 (headless, chromiumSandbox true).
-  - Screenshots: the 1edb14cb set (18 files) and a 5cb4da4d set (18 files, taken during review 5) are in
+  - Screenshots: the 1edb14cb set (16 files) and a 5cb4da4d set (16 files, taken during review 5) are in
     `/Users/furkancakir/Damon/Belgeler/Composer Plus/tuval-html-20261125/`. No set of d7fdc4ab yet.
   - Auto review denial (2026-11-25 16:5x): a command that took the d7fdc4ab set and deleted the 1edb14cb and the 5cb4da4d
     sets did not run. Reason: "The command deletes the 5cb4da4d screenshot set in ~/Damon/Belgeler, a user documents
@@ -203,7 +203,7 @@ assets/features/assistantReplyCards.webp (new), index.js only for SHOTS if a sho
        `npm test`, the browser tests above. Repeat until a round has no P1/P2. `git fetch` first: if origin/main moved
        past 9d4a53bb, merge it, `npm test`, and include the merge in the last round.
     2. Screenshots of the final commit with `TAG=<short sha>` (commands in the 12:4x entry below; light and dark, then
-       browser-canvas-mockup.mjs PAIR=1). When the new 18 files exist, delete only the 1edb14cb set. The 5cb4da4d set only
+       browser-canvas-mockup.mjs PAIR=1). When the new 16 files exist, delete only the 1edb14cb set. The 5cb4da4d set only
        after a written approval.
     3. Commit, report in Turkish with the screenshot paths. No merge into main before Damon sends "main'e al"; no live
        copy, no release.
