@@ -3629,7 +3629,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       + `[${TODOS_ATTR}] .cp-st-skel{display:block;height:10px;margin-top:8px;border-radius:4px;background:var(--dsw-alias-border-l1,rgba(127,127,127,.25));animation:cp-st-pulse 1s ease-in-out infinite alternate}[${TODOS_ATTR}] .cp-st-skel + .cp-st-skel{width:60%}`
       + `[${TODOS_ATTR}] .cp-st-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}`
       // Reduced motion: no turning and no pulse, only the text.
-      + `@media (prefers-reduced-motion:reduce){[${TODOS_ATTR}] .cp-cs-card[data-running="true"] .cp-cs-sym,[${TODOS_ATTR}] .cp-td-btn[data-refreshing="true"] > *,[${TODOS_ATTR}] .cp-st-skel{animation:none}[${TODOS_ATTR}] .cp-st-spin{display:none}[${TODOS_ATTR}] .cp-st-body > *,[${TODOS_ATTR}] .cp-st-old{transition:none}}`
+      + `@media (prefers-reduced-motion:reduce){[${TODOS_ATTR}] .cp-cs-card[data-running="true"] .cp-cs-sym,[${TODOS_ATTR}] .cp-td-btn[data-refreshing="true"] > *,[${TODOS_ATTR}] .cp-st-skel{animation:none}[${TODOS_ATTR}] .cp-st-spin{display:none}[${TODOS_ATTR}] .cp-st-body > *{transition:none}}`
       // Canvas view: over the whole chat body; the chat under it is hidden, not removed (its scroll and draft stay).
       + `[${TODOS_ATTR}][data-canvas]{position:absolute;inset:0;z-index:20;width:auto;max-width:none;max-height:none;margin:0;border:0;border-radius:0;box-shadow:none;overflow:clip}[${CANVAS_ATTR}="open"]>:not([${TODOS_ATTR}]){visibility:hidden}`
       + `[${TODOS_ATTR}] .cp-cv-bar{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:4px;padding:6px 10px;border-bottom:.5px solid var(--dsw-alias-border-l1)}[${TODOS_ATTR}] .cp-cv-grow{flex:1}`
