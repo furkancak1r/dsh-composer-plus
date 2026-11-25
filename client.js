@@ -4395,15 +4395,24 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       return {
         of: (id) => marks[id],
         subscribe: (fn) => { listeners.add(fn); return () => { listeners.delete(fn); }; },
-        start: (id, floor) => { if (marks[id] === undefined) save(id, { floor, read: [] }); },
+        // A whole seq: dsh's turn-tail node (the chat's newest) sits at its turn's end seq + 0.1, and readReplyMarks keeps
+        // only whole floors (a fraction would make every card read again at the next load).
+        start: (id, floor) => { if (marks[id] === undefined) save(id, { floor: Math.floor(floor), read: [] }); },
         mark(id, seqs, cardSeqs) {
           const m = marks[id]; if (m === undefined) return;
           const next = markReplies(m, seqs, cardSeqs);
           if (next.floor !== m.floor || next.read.join() !== m.read.join()) save(id, next);
         },
-        all: (id, top) => save(id, { floor: Math.max(top, marks[id]?.floor ?? top), read: [] }),
+        all: (id, top) => save(id, { floor: Math.max(Math.floor(top), marks[id]?.floor ?? -1), read: [] }),
       };
     }
+    /** What the reply cards of a chat snapshot depend on: its nodes, its newest seq and how many steps settled or run. A
+     * streamed chunk changes none of them. */
+    const replySig = (chat) => {
+      let settled = 0; let running = 0;
+      for (const n of chat?.nodes?.values?.() ?? []) { if (n?.data?.status === 'settled') settled++; else if (n?.data?.status === 'running') running++; }
+      return `${chatStateKey(chat)}|${settled}|${running}`;
+    };
     /** The reply cards of chat `sessionId` (`replies`: { chatOf, rollback, check, read }, undefined while the feature is
      * off): the cards, the read mark, `read(seqs)` and `readAll()`. */
     function useReplyCards(sessionId, replies) {
@@ -4411,7 +4420,10 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       React.useEffect(() => {
         let source; try { source = replies === undefined ? undefined : replies.chatOf(sessionId); } catch { source = undefined; }
         if (typeof source?.subscribe !== 'function') { setChat(null); return undefined; }
-        const read = () => setChat(source.getSnapshot());
+        // dsh gives a new snapshot for each streamed chunk (each frame): take one only when a card can change (a node
+        // comes or goes, a step settles or starts), so that the panel and the canvas do not draw while Damon writes.
+        let last = null;
+        const read = () => { const next = source.getSnapshot(); const sig = replySig(next); if (sig !== last) { last = sig; setChat(next); } };
         read(); return source.subscribe(read);
       }, [sessionId, replies]);
       const rb = React.useSyncExternalStore(replies?.rollback.subscribe ?? noSubscribe, () => replies?.rollback.of(sessionId));
@@ -4460,8 +4472,11 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
      * only on the card that holds its blocks, and the option offer (`choiceNow`) gives option buttons only on its answer,
      * each while the message box is empty, through Option picks' store (`picks.pick`: one send per chat). An older card
      * shows the same sentences and options as text. A click, Enter or a button marks it read (`onRead`). */
+    const partsMemo = new WeakMap(); // card → { labels, parts }: a card is parsed once per language, not at each draw
     function ReplyCard({ card, sessionId, unread = false, first = false, offerNow, choiceNow, picks, t, lang, onRead, focusable = true }) {
-      const parts = card.kind === 'error' ? { title: t('replies.failed'), forYou: '', body: card.message, details: [], approvals: [], options: [] } : replyParts(card.text, calloutLabels(t));
+      const labels = JSON.stringify(calloutLabels(t)); let memo = partsMemo.get(card);
+      if (card.kind !== 'error' && memo?.labels !== labels) { memo = { labels, parts: replyParts(card.text, JSON.parse(labels)) }; partsMemo.set(card, memo); }
+      const parts = card.kind === 'error' ? { title: t('replies.failed'), forYou: '', body: card.message, details: [], approvals: [], options: [] } : memo.parts;
       const title = parts.title || (parts.approvals.length > 0 ? t('replies.approval') : parts.options.length > 0 ? t('replies.choice') : t('replies.title'));
       const approve = offerNow?.offer?.options?.[0]?.from === card.seq && offerNow.empty === true ? offerNow : undefined;
       const choice = choiceNow?.offer?.seq === card.seq && choiceNow.empty === true ? choiceNow : undefined;
@@ -4838,7 +4853,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
             approval.since === null ? null : ` · ${span(now - approval.since)}`,
             [...(offer?.options ?? []).map((o) => o.text), ...approval.items.map((i) => i.text)].some(liveApproval) ? React.createElement('span', { className: 'cp-cs-tag' }, t('cards.live')) : null),
           // Sonra for a click too (the S key does the same): in "…" while something else waits.
-          laterAct('onay').length === 0 ? null : React.createElement('span', { className: 'cp-cs-acts' }, more('onay', t('cards.onay'), laterAct('onay')))),
+          laterAct('onay').length === 0 ? null : React.createElement('span', { className: 'cp-cs-acts' }, more(`onay${sfx}`, t('cards.onay'), laterAct('onay')))),
         ...(offer?.options ?? []).map((option) => React.createElement('div', { key: option.n, className: 'cp-cs-line' },
           React.createElement('p', { className: 'cp-cs-sentence cp-cs-main' }, option.text),
           offerNow?.empty !== true ? null : React.createElement('button', { type: 'button', className: 'cp-cs-act', 'data-primary': '', disabled: pick.busy, title: option.text,

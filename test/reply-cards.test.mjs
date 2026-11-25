@@ -21,11 +21,11 @@ globalThis.document = { body: { tag: 'body' }, querySelector: () => null, addEve
 const ANCHOR = '/** Feature switches, in Settings order.';
 const src = read('client.js');
 assert.ok(src.includes(ANCHOR));
-eval(src.replace(ANCHOR, `globalThis.__rc = { replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, ReplyCard, REPLY_READ_KEY, REPLY_SHOWN_KEY };\n    ${ANCHOR}`));
+eval(src.replace(ANCHOR, `globalThis.__rc = { replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, REPLY_READ_KEY, REPLY_SHOWN_KEY };\n    ${ANCHOR}`));
 const h = (t, p, ...c) => ({ t, p: p ?? {}, c });
 const React = { createElement: h, Fragment: 'F', useState: (v) => [typeof v === 'function' ? v() : v, () => {}], useRef: (v) => ({ current: v }), useEffect() {}, useLayoutEffect() {}, useSyncExternalStore: (_s, get) => get(), useMemo: (f) => f(), useCallback: (f) => f };
 mod.factory((n) => (n === 'react' ? React : n === 'react-dom' ? { createPortal: (el, host, key) => ({ portal: el, host, key }) } : {}));
-const { replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, ReplyCard, REPLY_READ_KEY, REPLY_SHOWN_KEY } = globalThis.__rc;
+const { replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, REPLY_READ_KEY, REPLY_SHOWN_KEY } = globalThis.__rc;
 const find = (n, pred) => { if (n === null || typeof n !== 'object') return []; if (Array.isArray(n)) return n.flatMap((c) => find(c, pred)); return [...(pred(n) ? [n] : []), ...(n.c ?? []).flat(Infinity).flatMap((c) => find(c, pred))]; };
 const text = (n) => (typeof n === 'string' ? n : Array.isArray(n) ? n.map(text).join('') : n?.c ? text(n.c) : '');
 
@@ -121,6 +121,16 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   const blocked = globalThis.localStorage.setItem; globalThis.localStorage.setItem = () => { throw Error('quota'); };
   store.mark('t', [1], [1]); store.start('u', 5); globalThis.localStorage.setItem = blocked; // no throw
   assert.equal(store.of('u').floor, 5, 'storage blocked: this page only');
+  // dsh's turn-tail node is the newest node at its turn's end seq + 0.1 (review 1): the floor is a whole seq, so a new
+  // reply stays New after a reload (a fraction was dropped at the next load and made every card read).
+  const chat = chatOf([step(1, 0, 42, [txt('Eski yanıt.')]), tail(1, 42)]); [...chat.nodes.values()][1].anchorSeq = 43.1;
+  store.start('f', Number(chatStateKey(chat).split(':')[1])); assert.deepEqual(store.of('f'), { floor: 43, read: [] }, 'a whole floor');
+  const reloaded = createReplyRead(); assert.equal(replyUnread(reloaded.of('f'), 50), true, 'a newer reply is still New after a reload');
+  store.all('f', 60.1); assert.equal(createReplyRead().of('f').floor, 60, 'Tümünü okundu say: a whole floor too');
+  // A streamed chunk is no new state for the cards (no draw at each frame); a settled step is.
+  const live = (text, status) => chatOf([step(1, 0, 42, [txt(text)], status)]);
+  assert.equal(replySig(live('Yazı', 'running')), replySig(live('Yazıyor, uzun', 'running')), 'a chunk: the same state');
+  assert.notEqual(replySig(live('Yazı', 'running')), replySig(live('Yazı', 'settled')), 'it settles: a new state');
 }
 
 // ReplyCard: buttons only on the card of the offer, through picks.pick.
