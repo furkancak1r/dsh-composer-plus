@@ -3616,7 +3616,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       + `[${TODOS_ATTR}] .cp-cv-bar{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 12px;border-bottom:.5px solid var(--dsw-alias-border-l1)}[${TODOS_ATTR}] .cp-cv-grow{flex:1}`
       + `[${TODOS_ATTR}] .cp-cv-back{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border:.5px solid var(--dsw-alias-border-l1);border-radius:999px;background:var(--dsw-alias-bg-base);color:inherit;font:inherit;font-weight:600;white-space:nowrap;cursor:pointer}`
       + `[${TODOS_ATTR}] .cp-cv-back[aria-pressed="true"]{border-color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}[${TODOS_ATTR}] .cp-cv-hint{font-size:12px;color:var(--dsw-alias-label-tertiary)}`
-      + `[${TODOS_ATTR}] .cp-cv-pct{padding:2px 0;font-size:12px;line-height:16px;font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-secondary)}`
+      + `[${TODOS_ATTR}] .cp-cv-pct{padding:2px 4px;border-radius:6px;background:var(--dsw-alias-bg-base);font-size:12px;line-height:16px;font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-secondary)}`
       + `[${TODOS_ATTR}] .cp-cv{display:flex;flex-direction:column;flex:1;min-height:0}[${TODOS_ATTR}] .cp-cv-view{position:relative;flex:1;min-height:0;overflow:hidden;overflow:clip;touch-action:none;user-select:none;-webkit-user-select:none;cursor:grab;background-image:radial-gradient(var(--dsw-alias-border-l1,rgba(127,127,127,.35)) 1.2px,transparent 1.2px);background-size:24px 24px}[${TODOS_ATTR}] .cp-cv-view[data-drag]{cursor:grabbing}`
       + `[${TODOS_ATTR}] .cp-cv-world{position:absolute;left:0;top:0;transform-origin:0 0}`
       + `[${TODOS_ATTR}] .cp-cv-lines{position:absolute;left:0;top:0;width:1px;height:1px;overflow:visible;pointer-events:none}[${TODOS_ATTR}] .cp-cv-lines path{fill:none;stroke:var(--dsw-alias-border-l3,rgba(127,127,127,.45));stroke-width:2}[${TODOS_ATTR}] .cp-cv-lines circle{fill:var(--dsw-alias-bg-base);stroke:var(--dsw-alias-border-l3,rgba(127,127,127,.45));stroke-width:2}`
@@ -3686,8 +3686,11 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
     }
     /** The view that shows the canvas point (wx, wy) in the middle of a width × height viewport at zoom `k`. */
     const canvasCenter = (wx, wy, k, width, height) => { const z = Math.min(CANVAS_ZOOM[1], Math.max(CANVAS_ZOOM[0], k)); return { x: width / 2 - wx * z, y: height / 2 - wy * z, k: z }; };
-    /** Damon'a dön (and 0): the hub in the middle, 75% (40% in a narrow window). */
-    const canvasHome = (width, height) => canvasCenter(0, 0, width < 600 ? 0.4 : 0.75, width, height);
+    /** Damon'a dön (and 0): the hub in the middle at 75%. When the two island columns (720 px at each side of the hub) do
+     * not fit at 75%, a smaller zoom (at least 50%: the cards stay) keeps them CANVAS_EDGE px from the sides, clear of the
+     * zoom buttons at the bottom left. 40% in a narrow window (the mockup). */
+    const CANVAS_EDGE = 58; // the zoom buttons: 12 px from the edge, 34 px wide, 12 px space
+    const canvasHome = (width, height) => canvasCenter(0, 0, width < 600 ? 0.4 : Math.max(0.5, Math.min(0.75, (width - 2 * CANVAS_EDGE) / 1440)), width, height);
     /** What an island shows at zoom `k`: far (only its count), near (its cards), close (every line of a card). */
     const canvasMode = (k) => (k < 0.5 ? 'far' : k < 0.95 ? 'near' : 'close');
     /** `lang()`: dsh's UI language; the Host gives the tasks' result lines in it (see installAssistantTodos). */
@@ -5071,7 +5074,8 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         const onSelCard = (key) => { setSel(key); if (key?.startsWith('reply|')) replyCards.read([Number(key.slice(6))]); };
         const islands = [
           ...(replyOn ? [{ key: 'updates', title: t('replies.title'), count: unreadReplies.length, tone: 'business', quiet: t('replies.none'),
-            cards: replies.slice(0, Math.max(5, unreadReplies.length)).map((rc) => ({ key: `reply|${rc.seq}`, label: `${t('replies.title')} · ${clockText(rc.time, lang)}`, el: replyEl(rc), mine: replyUnread(replyCards.mark, rc.seq) })) }] : []),
+            // The card in the side panel stays on the island after it is read (it can move below the first five).
+            cards: replies.filter((rc, i) => i < Math.max(5, unreadReplies.length) || sel === `reply|${rc.seq}`).map((rc) => ({ key: `reply|${rc.seq}`, label: `${t('replies.title')} · ${clockText(rc.time, lang)}`, el: replyEl(rc), mine: replyUnread(replyCards.mark, rc.seq) })) }] : []),
           { key: 'onay', title: t('cards.onay'), count: approval === null ? 0 : 1, tone: 'business',
             cards: approval === null ? [] : [{ key: 'onay', label: `${t('cards.onay')}${qn('onay')}`, el: onayCard, side: () => onayCardOf('-side'), mine: true }] },
           { key: 'senden', title: t('cards.senden'), count: cards.groups.senden.length + (kararCard === null ? 0 : 1), tone: 'warn',
@@ -5261,7 +5265,13 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       // The side panel: the card's element again (its own buttons and handlers), the focus on its heading.
       const selIsland = sel === null ? undefined : islands.find((i) => i.cards.some((c) => c.key === sel));
       const selCard = selIsland?.cards.find((c) => c.key === sel);
-      React.useEffect(() => { if (selCard !== undefined) globalThis.document?.getElementById?.(`${viewId}-side-h`)?.focus?.({ preventScroll: true }); }, [sel, selCard === undefined]);
+      React.useEffect(() => {
+        if (selCard !== undefined) { globalThis.document?.getElementById?.(`${viewId}-side-h`)?.focus?.({ preventScroll: true }); return; }
+        if (sel === null) return;
+        // The card left (an approval was sent, a task ended): the side panel closes, and a focus that was in it goes to the canvas.
+        onCloseSide?.(); const doc = globalThis.document; const f = doc?.activeElement;
+        if (f == null || f === doc.body || viewRef.current?.contains?.(f)) viewRef.current?.focus?.({ preventScroll: true });
+      }, [sel, selCard === undefined]);
       const open = (key) => (ev) => {
         if (ev.type === 'keydown' && (ev.key !== 'Enter' || ev.target !== ev.currentTarget)) return;
         if (ev.type === 'click' && ev.target?.closest?.('button, a, summary, input, textarea, select, details, [role="menu"], [role="menuitem"]')) return;

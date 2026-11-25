@@ -164,7 +164,9 @@ try {
       assert.deepEqual(cover, { same: true, inputHidden: true, hitInCanvas: true, mark: 'open' }, 'the canvas covers the chat body; the chat and the message box are hidden');
       await pause(400);
       let l = await layout(page);
-      assert.equal(l.pct, '75%', 'the first open: Damon in the middle at 75%');
+      // client.js canvasHome: 75%, or smaller (at least 50%) so that the columns keep 58 px from the sides.
+      const homePct = (w) => `${Math.round(Math.max(0.5, Math.min(0.75, (w - 116) / 1440)) * 100)}%`;
+      assert.equal(l.pct, homePct(l.view.w), `the first open: Damon in the middle at ${homePct(l.view.w)}`);
       const mid = (b) => [b.x + b.w / 2, b.y + b.h / 2];
       assert.ok(Math.abs(mid(l.hub)[0] - mid(l.view)[0]) < 2 && Math.abs(mid(l.hub)[1] - mid(l.view)[1]) < 2, 'the hub in the middle');
       assert.deepEqual(l.islands.map((i) => i.key).sort(), ['bitti', 'kararlar', 'onay', 'senden', 'sorun', 'suruyor', 'updates'].sort(), 'the islands');
@@ -180,6 +182,24 @@ try {
       assert.equal(await canvas.locator('[data-cv-key="onay"] [data-composer-plus-approve="card"]').count(), 1, 'the Onay card with Onayla');
       await shot('composer-plus');
       note(`2: the canvas covers the chat body; hub in the middle at ${l.pct}; ${l.islands.length} islands, no overlap; ${l.paths} lines (${l.runs} moving); minimap`);
+      // 2b. After "Damon'a dön", the zoom buttons at the bottom left cover no island, in each window width.
+      const zoomFree = [];
+      for (const width of [1280, 1360, 1440, 1920]) {
+        await page.setViewportSize({ width, height: 820 }); await pause(300);
+        await canvas.locator('[data-cv-home]').click(); await pause(300);
+        const m = await page.evaluate(() => {
+          const r = (el) => { const b = el.getBoundingClientRect(); return { x: b.left, y: b.top, w: b.width, h: b.height }; };
+          const view = document.querySelector('[data-composer-plus-todos][data-canvas] .cp-cv-view');
+          return { pct: view.querySelector('[data-cv-pct]').textContent, view: r(view), zoom: { key: 'zoom', ...r(view.querySelector('.cp-cv-zm')) },
+            islands: [...view.querySelectorAll('[data-cv-island]')].map((el) => ({ key: el.dataset.cvIsland, ...r(el) })) };
+        });
+        const hit = overlaps([m.zoom, ...m.islands]).filter((o) => o.startsWith('zoom'));
+        assert.deepEqual(hit, [], `${width} px: the zoom buttons cover no island (${m.pct})`);
+        const sorun = m.islands.find((i) => i.key === 'sorun');
+        zoomFree.push(`${width} px ${m.pct}: zoom right ${Math.round(m.zoom.x + m.zoom.w - m.view.x)}, Sorun left ${Math.round(sorun.x - m.view.x)}`);
+      }
+      await page.setViewportSize({ width: 1360, height: 820 }); await pause(300); await canvas.locator('[data-cv-home]').click(); await pause(300);
+      note(`2b: the zoom buttons cover no island: ${zoomFree.join('; ')}`);
       // 3. Pan, zoom, levels, home.
       const free = await page.evaluate(() => { const view = document.querySelector('.cp-cv-view').getBoundingClientRect();
         for (let y = view.top + 20; y < view.bottom - 150; y += 15) for (let x = view.left + 60; x < view.right - 200; x += 15) { const el = document.elementFromPoint(x, y); if (el?.classList.contains('cp-cv-view') || el?.classList.contains('cp-cv-world')) return { x, y }; }
@@ -199,15 +219,16 @@ try {
       l = await layout(page); assert.equal(l.zoom, 'far', `far at ${l.pct}`); assert.equal(l.cards.length, 0, 'far: no cards, only the counts');
       assert.ok(await canvas.locator('[data-cv-island="onay"] [data-cv-count]').isVisible(), 'far: the island count');
       await canvas.locator('[data-cv-home]').click(); await pause(200);
-      l = await layout(page); assert.equal(l.pct, '75%'); assert.equal(l.zoom, 'near'); assert.ok(l.cards.length > 0, 'near: the cards');
+      l = await layout(page); assert.equal(l.pct, homePct(l.view.w)); assert.equal(l.zoom, 'near'); assert.ok(l.cards.length > 0, 'near: the cards');
       assert.ok(Math.abs(mid(l.hub)[0] - mid(l.view)[0]) < 2, "Damon'a dön: the hub in the middle");
       await canvas.locator('[data-cv-zoom="in"]').click(); await canvas.locator('[data-cv-zoom="in"]').click(); await pause(300);
-      assert.equal((await layout(page)).zoom, 'close', 'close at 117%');
+      const closePct = (await layout(page)).pct;
+      assert.equal((await layout(page)).zoom, 'close', `close at ${closePct}`);
       await page.reload();
       if (!(await stack.waitFor({ timeout: 10000 }).then(() => true, () => false))) { await page.keyboard.press('Escape'); await openDamon(); }
       assert.equal(await canvas.count(), 0, 'a reload shows the chat');
       await stack.locator('[data-composer-plus-canvas-open]').click(); await canvas.waitFor({ timeout: 5000 }); await pause(400);
-      assert.equal((await layout(page)).pct, '117%', 'the view stays after a reload');
+      assert.equal((await layout(page)).pct, closePct, 'the view stays after a reload');
       await canvas.locator('[data-cv-home]').click(); await pause(200);
       note('3: drag and Shift+wheel move; the wheel and −/+ zoom at the pointer; far shows counts only; home; the view stays after a reload');
       // 4. Only what waits for you.
@@ -262,11 +283,13 @@ try {
       await until(() => calls.slice(sent).some((c) => c.newest === (EN ? 'Approve: merge the login-fix branch of acme-web into main and run the build script on the test server.' : APPROVAL)), 'the model got the sentence');
       await pause(1500);
       assert.equal(calls.slice(sent).filter((c) => c.newest === (EN ? 'Approve: merge the login-fix branch of acme-web into main and run the build script on the test server.' : APPROVAL) && c.step === 0).length, 1, 'one message');
-      note('6: Tab reaches the Onay card, Enter opens it in the side panel, Onayla there sent the exact sentence once');
-      // 7. Esc (side panel, then canvas) and Back to the chat; the chat comes back as it was.
-      await page.keyboard.press('Escape'); await pause(300);
-      if (await side.count()) { await page.keyboard.press('Escape'); await pause(300); }
-      await canvas.locator('.cp-cv-view').focus(); await page.keyboard.press('Escape');
+      // The sentence is sent: the Onay card shows only with its button (main 0c6e3ae5), so it leaves; its side panel closes
+      // and the focus goes to the canvas.
+      await until(async () => (await side.count()) === 0, 'the side panel of the sent approval closes', 5000);
+      await until(() => page.evaluate(() => document.activeElement?.classList.contains('cp-cv-view') === true), 'the focus on the canvas', 3000);
+      note('6: Tab reaches the Onay card, Enter opens it in the side panel, Onayla there sent the exact sentence once; the card left, its side panel closed, the focus on the canvas');
+      // 7. Esc and Back to the chat; the chat comes back as it was.
+      await page.keyboard.press('Escape');
       await until(async () => (await canvas.count()) === 0, 'Esc closes the canvas');
       await until(() => page.evaluate(() => document.activeElement?.hasAttribute('data-composer-plus-canvas-open') === true), 'the focus goes back to the canvas button', 3000);
       // The scroll position and the draft: shown chat, a low window, a draft.

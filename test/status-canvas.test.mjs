@@ -3,7 +3,8 @@
 //   cards above the hub, the summary below it; no two islands overlap and none covers the hub, for many random heights.
 // - canvasEdge: the line from the hub meets the island's near side (top island: its bottom, bottom island: its top).
 // - canvasZoom: the point under the pointer stays; the zoom stays in 25%–160% (the mockup's range).
-// - canvasHome / canvasCenter: "Damon'a dön" puts the hub in the middle at 75% (40% in a narrow window).
+// - canvasHome / canvasCenter: "Damon'a dön" puts the hub in the middle at 75%, smaller (at least 50%) when the island
+//   columns do not fit beside the zoom buttons, 40% in a narrow window.
 // - canvasMode: far (<50%: counts only), near, close (>=95%: every line of a card).
 // - readCanvas / writeCanvas: localStorage `dsh-composer-plus.status-canvas`, only the view; junk and an old `pos` read as
 //   nothing.
@@ -74,6 +75,9 @@ for (let run = 0; run < 300; run++) {
 {
   assert.deepEqual(canvasHome(1200, 800), { x: 600, y: 400, k: 0.75 }, 'the hub in the middle at 75%');
   assert.deepEqual(canvasHome(500, 800), { x: 250, y: 400, k: 0.4 }, 'a narrow window: 40%');
+  // The columns do not fit at 75%: a smaller zoom keeps the left column 58 px from the edge (clear of the zoom buttons).
+  for (const w of [1000, 1080, 1160]) { const v = canvasHome(w, 700); assert.ok(v.k < 0.75 && Math.abs(v.x - 720 * v.k - 58) < 1e-9, `${w} px: the left column 58 px from the edge (${v.k})`); }
+  assert.equal(canvasHome(700, 700).k, 0.5, 'at least 50%: the cards stay');
   const c = canvasCenter(320, 100, 1, 1000, 600); assert.deepEqual([(500 - c.x) / c.k, (300 - c.y) / c.k], [320, 100], 'the asked point in the middle');
   assert.equal(canvasCenter(0, 0, 9, 1000, 600).k, 1.6, 'center keeps the zoom range');
 }
