@@ -235,7 +235,10 @@ try {
       await canvas.locator('[data-cv-only]').click(); await pause(200);
       l = await layout(page);
       assert.ok(l.cards.length > 0 && l.cards.every((c) => /^(onay|karar|senden\|)/.test(c.key)), `only the waiting cards: ${l.cards.map((c) => c.key).join(', ')}`);
-      await until(async () => (await canvas.locator('[data-cv-island="bitti"]').evaluate((el) => getComputedStyle(el).opacity)) === '0.4', 'an island without one is dimmed (after its .2 s fade)', 3000);
+      // An island without one is dimmed by a dashed border and the secondary text color, not by opacity (AA, review 3).
+      const dim = await canvas.locator('[data-cv-island="bitti"]').evaluate((el) => ({ border: getComputedStyle(el).borderTopStyle, opacity: getComputedStyle(el).opacity,
+        title: getComputedStyle(el.querySelector('.cp-cv-ih')).color, secondary: getComputedStyle(document.querySelector('[data-cv-island="onay"] .cp-cv-ih span')).color }));
+      assert.deepEqual([dim.border, dim.opacity, dim.title], ['dashed', '1', dim.secondary], `an island without one is dimmed: ${JSON.stringify(dim)}`);
       await canvas.locator('[data-cv-only]').click(); await pause(200);
       note(`4: Yalnız bana bekleyenler: ${l.cards.length} cards`);
       // 5. The side panel: a click on a For you card; Esc closes it first, the focus goes back to the card.
