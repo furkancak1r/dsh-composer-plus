@@ -2832,7 +2832,6 @@
     "cards.queue": "{name}のキュー",
     "cards.queued": "キュー {count} 件",
     "cards.filterEmpty": "いまは何もありません。",
-    "cards.approveAgain": "{name}が承認文を書き直すと、「承認」ボタンが戻ります。",
     "queue.later": "あとで",
     "queue.keys": "キー: A 承認 / やりました · 1–9 選択肢 · S あとで · J / K 次 / 前 · R 返信",
     "queue.choiceTitle": "{name}が選択を求めています",

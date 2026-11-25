@@ -4977,9 +4977,6 @@ struct DeckView: View {
                             }
                         }
                     }
-                    if sentences.isEmpty && !a.items.isEmpty {
-                        Text(String(localized: "cards.approveAgain", defaultValue: "Approve comes back when \(assistantName) writes the approval sentence again.", bundle: b)).font(.caption).foregroundStyle(.secondary)
-                    }
                     if !a.items.isEmpty {
                         DisclosureGroup(isExpanded: $topicsOpen) {
                             VStack(alignment: .leading, spacing: 4) {

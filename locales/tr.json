@@ -4496,7 +4496,6 @@
     "cards.queue": "{name}'ın sırası",
     "cards.queued": "sırada {count}",
     "cards.filterEmpty": "Şu an burada iş yok.",
-    "cards.approveAgain": "{name} onay cümlesini yeniden yazınca Onayla gelir.",
     "queue.later": "Sonra",
     "queue.keys": "Tuşlar: A onayla / yaptım · 1–9 seçenek · S sonra · J / K sonraki / önceki · R yanıtla",
     "queue.choiceTitle": "{name} seçmeni istiyor",

@@ -4753,7 +4753,8 @@ func statusCards(_ o: J, now: Date, approvals: Int = 0, seen: Set<String> = [], 
             return r != 0 ? r < 0 : a.n < b.n
         }
     }
-    out.approval = onay.isEmpty && approvals == 0 ? nil : StatusApproval(items: onay, since: onay.map(\.created).min())
+    // The Onay card only with an Approve button (a sentence that the chat offers now), as client.js statusCards.
+    out.approval = approvals == 0 ? nil : StatusApproval(items: onay, since: onay.map(\.created).min())
     out.counts = CardCounts(onay: out.approval == nil ? 0 : 1, sorun: out.groups["sorun"]!.count, senden: out.groups["senden"]!.count,
         suruyor: out.groups["suruyor"]!.count, bitti: out.groups["bitti"]!.count, fresh: out.groups["bitti"]!.filter(\.fresh).count)
     return out
