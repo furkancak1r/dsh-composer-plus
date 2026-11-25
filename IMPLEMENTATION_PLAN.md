@@ -53,8 +53,20 @@ Scope: client.js CSS and the two header icons only. No layout of the cards, no s
   plan. Accepted: the counts line's native date title (short); a click in the 2 px gaps beside the icons folds the
   panel (the title button reaches under the icon row, by design).
 
+## Last checkpoint (2026-11-25 12:5x, about 150 tool calls: the chat stops here)
+- Branch head a0d6ec66 (commits 1bdbcf06, b9d708b7, a0d6ec66). Last passing: `npm test` exit 0 (after a0d6ec66's
+  changes); browser tests as in "Checks" above (before a0d6ec66; a0d6ec66 changes CSS of the side header only by one
+  chevron margin rule, checked by the scratch measure: chevron center 104 = icon center 104).
+- Screenshots and table: /Users/furkancakir/Damon/Belgeler/Composer Plus/kontrast-20261125/ (13 files).
+- Scratch (delete at the end of the task): /tmp/cp-contrast-20261125/ (measure.mjs, tight.mjs, main-copy/, out/, logs).
+
 ## Open steps
-- Merge --no-ff into main; push; delete branch and worktree. No live copy, no release, no DSH restart.
+1. Review-guard round 3 (separate subagent) on `git diff main...HEAD`: the owner's rule says fix every finding, run
+   review-guard again, merge only when clean. Fix its findings, `npm test`, browser tests on three dsh versions.
+2. `git fetch origin`; if main moved: merge it, run the checks.
+3. Main worktree: `git merge --no-ff fix/status-panel-color-contrast`, `npm test`, `git push origin main`.
+4. Delete the branch (local; remote only if it exists) and `git worktree remove` this folder; delete the scratch folder.
+- Not allowed: live copy, release, version bump, DSH restart, Tether code.
 
 # Assistant reply guards (branch fix/assistant-reply-guards, 2026-11-24)
 
