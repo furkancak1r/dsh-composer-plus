@@ -4312,6 +4312,9 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
      * that the chat shows (a step with text and no tool call, or its turn's closing answer), not only `[quiet]` and not in a
      * quiet turn; `{ kind: 'error', seq, turn, time, message }` for each failed turn. In seq order. */
     const NO_SPANS = Object.freeze([]);
+    /** The failure codes that dsh's chat shows with its own text (dsh-client-ui-chat MessageItem `failureMessage`, namespace
+     * `chat`); the node's message is English or empty for them (review 8). */
+    const FAILURE_KEYS = { ACCOUNT_SIGNED_OUT: 'accountSignedOut', INTERRUPTED: 'interrupted', ACCOUNT_SIGN_IN_REQUIRED: 'accountSignInRequired', QUOTA: 'quota', ACCOUNT_QUOTA: 'quota', AUTH: 'auth' };
     const asksYou = (text) => { const p = replyParts(text); return p.approvals.length > 0 || p.options.length > 0 || p.forYou !== ''; };
     function replyCardsOf(chat, withdrawn = NO_SPANS, inherited = 0) {
       if (typeof chat !== 'object' || chat === null) return [];
@@ -4330,7 +4333,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
           if (n.data.blocks.some((b) => b?.kind === 'tool-call') && closing.get(n.data.turn) !== seq && !asksYou(text)) continue;
           cards.push({ kind: 'reply', seq, turn: n.data.turn, time: n.data.finalNode.time ?? n.data.time, text });
         } else if (n?.kind === 'turn-error' && Number.isSafeInteger(n.data?.seq) && kept(n.data.seq)) {
-          cards.push({ kind: 'error', seq: n.data.seq, turn: n.data.turn, time: n.data.time, message: String(n.data.message || n.data.code || '') });
+          cards.push({ kind: 'error', seq: n.data.seq, turn: n.data.turn, time: n.data.time, message: String(n.data.message ?? ''), code: typeof n.data.code === 'string' ? n.data.code : '' });
         }
       }
       cards.sort((a, b) => a.seq - b.seq);
@@ -4509,10 +4512,11 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
      * each while the message box is empty, through Option picks' store (`picks.pick`: one send per chat). An older card
      * shows the same sentences and options as text. A click, Enter or a button marks it read (`onRead`). */
     const partsMemo = new WeakMap(); // card → { labels, parts }: a card is parsed once per language, not at each draw
-    function ReplyCard({ card, sessionId, unread = false, first = false, offerNow, choiceNow, picks, t, lang, onRead, focusable = true }) {
+    function ReplyCard({ card, sessionId, unread = false, first = false, offerNow, choiceNow, picks, t, lang, onRead, focusable = true, failure }) {
       const labels = JSON.stringify(calloutLabels(t)); let memo = partsMemo.get(card);
       if (card.kind !== 'error' && memo?.labels !== labels) { memo = { labels, parts: replyParts(card.text, JSON.parse(labels)) }; partsMemo.set(card, memo); }
-      const parts = card.kind === 'error' ? { title: t('replies.failed'), forYou: '', body: card.message, details: [], approvals: [], options: [] } : memo.parts;
+      // A failed turn: dsh's own text for a known code (`failure`: dsh's `chat` dictionary), else the node's message.
+      const parts = card.kind === 'error' ? { title: t('replies.failed'), forYou: '', body: failure?.(card.code) || card.message || card.code || '', details: [], approvals: [], options: [] } : memo.parts;
       const title = parts.title || (parts.approvals.length > 0 ? t('replies.approval') : parts.options.length > 0 ? t('replies.choice') : t('replies.title'));
       const approve = offerNow?.offer?.options?.[0]?.from === card.seq && offerNow.empty === true ? offerNow : undefined;
       const choice = choiceNow?.offer?.seq === card.seq && choiceNow.empty === true ? choiceNow : undefined;
@@ -4556,7 +4560,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
      * göster" flag). The chat under the cards is hidden, not removed (dsh's history
      * loader reads its rows' boxes; its scroll stays). When the chat shows and no status panel has the toggle, a pill
      * "Sohbeti gizle" hides it again. */
-    function ReplyFeed({ sessionId, host, replies, shown, statusSeats, offers, picks, locale, t }) {
+    function ReplyFeed({ sessionId, host, replies, shown, statusSeats, offers, picks, locale, t, failure }) {
       const chatShown = React.useSyncExternalStore(shown.subscribe, shown.getSnapshot);
       const panel = React.useSyncExternalStore(statusSeats.subscribe, () => statusSeats.getSnapshot().has(sessionId));
       const offerNow = React.useSyncExternalStore(offers.subscribe, () => offers.of(sessionId));
@@ -4600,14 +4604,14 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
             panel ? null : toggle(true)), // with the status panel, its header has the toggle
           ordered.length === 0 ? React.createElement('p', { className: 'cp-rf-note' }, t('replies.none')) : null,
           ordered.slice(0, REPLY_MAX).map((card, i) => React.createElement(ReplyCard, { key: card.seq, card, sessionId, unread: replyUnread(mark, card.seq), first: i === 0 && replyUnread(mark, card.seq),
-            offerNow, choiceNow, picks, t, lang, onRead: (seq) => read([seq]) })),
+            offerNow, choiceNow, picks, t, lang, failure, onRead: (seq) => read([seq]) })),
           ordered.length > REPLY_MAX ? React.createElement('p', { className: 'cp-rf-note' }, t('replies.more', { count: ordered.length - REPLY_MAX })) : null));
     }
     /** The card stack in the Damon chat (the Durum panel's data, statusCards' groups): the count bar (Get summary,
      * Projects, Refresh, fold), the summary card, the Onay card (both stay in place while the cards scroll), then Sorun,
      * Senden, Sürüyor, Bugün bitti and your notes. `offers`: the chat's approval sentences (createCardOffers); `picks`:
      * Option picks' store, so Onayla sends on the same path and guard as the button under a reply. */
-    function StatusPanel({ sessionId, host, store, useSessions, useSessionStatus, openSession, locale, t, composer, notify, offers, picks, replies, replyFlag, chatShown }) {
+    function StatusPanel({ sessionId, host, store, useSessions, useSessionStatus, openSession, locale, t, composer, notify, offers, picks, replies, replyFlag, chatShown, failure }) {
       const state = React.useSyncExternalStore(store.subscribe, () => store.of(sessionId));
       const offerNow = React.useSyncExternalStore(offers.subscribe, () => offers.of(sessionId));
       const name = ASSISTANT_NAME;
@@ -5124,7 +5128,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         const cardOf = (c) => ({ key: `${c.group}|${c.key}`, label: `${t(`cards.${c.group}`)}${qn(`senden|${c.key}`)}: ${c.title}`, el: ul(card(c)), side: () => ul(card(c, '-side')), mine: c.group === 'senden', run: runs.includes(c) });
         const replies = replyOn ? replyOrder(replyCards.cards, replyCards.mark) : [];
         const unreadReplies = replies.filter((rc) => replyUnread(replyCards.mark, rc.seq));
-        const replyEl = (rc) => React.createElement(ReplyCard, { card: rc, sessionId, unread: replyUnread(replyCards.mark, rc.seq), offerNow, choiceNow: choice, picks, t, lang, focusable: false, onRead: (seq) => replyCards.read([seq]) });
+        const replyEl = (rc) => React.createElement(ReplyCard, { card: rc, sessionId, unread: replyUnread(replyCards.mark, rc.seq), offerNow, choiceNow: choice, picks, t, lang, failure, focusable: false, onRead: (seq) => replyCards.read([seq]) });
         // A reply card opened in the side panel counts as read.
         const onSelCard = (key) => { setSel(key); if (key?.startsWith('reply|')) replyCards.read([Number(key.slice(6))]); };
         const islands = [
@@ -16278,6 +16282,11 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
         // canvas's Güncellemeler island. `replyFlag` tells the status panel that the switch is on.
         const replyRead = createReplyRead(); const chatShownFlag = createFlag(REPLY_SHOWN_KEY); const replyFlag = createFlag(); const replySeats = createSeats();
         const replyData = { chatOf: chatNodesOf, rollback, check: rollbackCheck, read: replyRead };
+        // dsh's own text of a known failure code (its `chat` dictionary); '' when this dsh has no such text.
+        const failureText = (code) => {
+          const key = FAILURE_KEYS[code]; if (key === undefined) return '';
+          try { const text = ctx.locale?.bind?.('chat')?.(`message.failure.${key}`); return typeof text === 'string' && text !== `message.failure.${key}` ? text : ''; } catch { return ''; }
+        };
         feature('assistantReplyCards', () => [...watchAssistantStatus(), replyFlag.on(), ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
           name: 'conversation.input.dock',
           id: 'assistant-reply-seat',
@@ -16287,7 +16296,7 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
           name: 'shell.overlay',
           id: 'assistant-replies',
           locale: LOCALE_NS,
-          inject: () => ({ seats: replySeats, replies: replyData, shown: chatShownFlag, statusSeats, offers: cardOffers, picks: optionPicks, locale: () => ctx.locale?.getSnapshot?.().active }),
+          inject: () => ({ seats: replySeats, replies: replyData, shown: chatShownFlag, statusSeats, offers: cardOffers, picks: optionPicks, failure: failureText, locale: () => ctx.locale?.getSnapshot?.().active }),
         }, ReplyFeeds))]);
         feature('assistantCallouts', () => [...watchAssistantStatus(), ctx.slots.inject('shell.overlay', () => ctx.slots.register({
           name: 'shell.overlay',
@@ -16306,7 +16315,7 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
           id: 'assistant-status',
           locale: LOCALE_NS,
           inject: () => ({ seats: statusSeats, store: todos, locale: () => ctx.locale?.getSnapshot?.().active,
-            composer: (id, text) => draftTodo(inputOf(id), text), notify: notifyIn, offers: cardOffers, picks: optionPicks, replies: replyData, replyFlag, chatShown: chatShownFlag,
+            composer: (id, text) => draftTodo(inputOf(id), text), notify: notifyIn, offers: cardOffers, picks: optionPicks, replies: replyData, replyFlag, chatShown: chatShownFlag, failure: failureText,
             openSession: (id) => { try { ctx.get('uiWorkspace')?.openSession(id); } catch { /* the chat is in the sidebar */ } } }),
         }, StatusPanels)), () => todos.stop(), () => canvasOpen.clear()]);
         const toggles = createToggles({ mobileConnect: mobile, remoteComputers: computersSwitch, resumeAfterRestart: resume, outageResume: outageSwitch, stopSendFirst: sendFirst, projectMemory: memory, memoryHistory: memoryHistorySwitch, memoryPerChat: memoryChatSwitch, contentSearch, turnRollback: rollbackSwitch, nextPrediction: prediction, typingCompletion: completion, sessionBranch: branchSwitch, defaultWorkspace: defaultWs, goalCheck: goalSwitch, worktreeChats: worktreeSwitch, branchTree,

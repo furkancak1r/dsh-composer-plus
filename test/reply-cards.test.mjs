@@ -181,6 +181,15 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   assert.equal(text(find(tr, (n) => n.p.role === 'alert')[0]), 'approve.failed:{"error":"boom"}', 'a failed send says why');
   tr = ReplyCard({ card: { kind: 'error', seq: 60, time: 60000, message: 'HTTP 400' }, sessionId: 's', t, lang: 'tr', picks });
   assert.equal(tr.p['data-kind'], 'error'); assert.equal(text(find(tr, (n) => n.t === 'h3')[0]), 'replies.failed', 'a failed turn');
+  // Review 8: a known failure code shows dsh's own text in the UI language (its `chat` dictionary), as dsh's chat does;
+  // the node's English message or bare code only when this dsh has no text for it.
+  const failure = (code) => ({ INTERRUPTED: 'DSH süreci bu tur bitmeden kapandı.' })[code] ?? '';
+  const errBody = (c) => text(find(ReplyCard({ card: { kind: 'error', seq: 61, time: 61000, ...c }, sessionId: 's', t, lang: 'tr', picks, failure }), (n) => n.p?.className === 'cp-rc-body')[0]);
+  assert.equal(errBody({ code: 'INTERRUPTED', message: 'The DSH process exited before this turn finished.' }), 'DSH süreci bu tur bitmeden kapandı.', 'a known code: dsh\'s text');
+  assert.equal(errBody({ code: 'QUOTA', message: '' }), 'QUOTA', 'no text in this dsh: the code');
+  assert.equal(errBody({ code: 'X', message: 'HTTP 400' }), 'HTTP 400', 'an unknown code: the message');
+  const known = replyCardsOf(chatOf([{ key: 'e', kind: 'turn-error', data: { seq: 5, time: 5000, turn: 1, message: '', code: 'QUOTA' } }]));
+  assert.deepEqual([known[0].message, known[0].code], ['', 'QUOTA'], 'the card keeps the code');
   assert.equal(ReplyCard({ card, sessionId: 's', t, lang: 'tr', picks, focusable: false }).p.tabIndex, undefined, 'on the canvas its frame takes the focus');
 }
 
