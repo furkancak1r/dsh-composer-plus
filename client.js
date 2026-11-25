@@ -5216,9 +5216,13 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const size = () => { const el = viewRef.current; return { w: el?.clientWidth ?? box.w, h: el?.clientHeight ?? box.h }; };
       const home = () => { const { w, h } = size(); setView(canvasHome(w, h)); };
       // After each draw: measure the islands and the viewport, go to the hub at the first open, and draw the lines.
+      const measured = React.useRef('');
       React.useLayoutEffect(() => {
-        // A drag only moves the world (no height, size or line changes): no two layouts per pointer move. Its end draws again.
-        if (dragging) return;
+        // A drag that only moves the world changes no height, size or line: no two layouts per pointer move. A zoom level
+        // or a card that changes during the drag (a pinch, the wheel, new data) is measured; the drag's end draws again.
+        const key = `${mode}|${islands.map((i) => `${i.key}:${i.cards.map((c) => c.key).join(',')}`).join('|')}`;
+        if (dragging && key === measured.current) return;
+        measured.current = key;
         const heights = () => { const out = {}; for (const i of islands) { const el = islRefs.current.get(i.key); if (el?.offsetHeight > 0) out[i.key] = el.offsetHeight; } return out; };
         // ponytail: the close heights come from the world drawn at close zoom for a moment (no paint between); React's own
         // value of the attribute is put back at once.
