@@ -194,7 +194,15 @@ assets/features/assistantReplyCards.webp (new), index.js only for SHOTS if a sho
   - Auto review denial (2026-11-25 18:5x): deleting the 09cce2a7 set (16 files, taken in this chat, out of date: it shows
     the toggle over the list time) did not run. Reason: "a wide deletion of user documents outside the repository, and no
     human message in the chat asks for it". It needs a written approval, as the 5cb4da4d set. Both sets stay until then.
-  - Open steps: Furkan looks at the 8a65e931 screenshots. Damon sends "main'e al" → merge into main and push (standing
+  - 2026-11-25 19:1x: Furkan wrote "Tamam, ekran görüntülerine baktım. Dalı main'e al, canlıya geçir" (relayed by Damon).
+    origin/main still 9d4a53bb. Review 8 (whole final diff, d5a50aff): P3 1 → 065753df (a failed-turn card shows dsh's
+    own localized text for known codes, `chat` dictionary; red on d5a50aff). Review 9 (065753df): P4 2 → ae0a535e
+    (`failureTextOf`, Object.hasOwn, real lookup unit test). Review 10 (ae0a535e): P1 0, P2 0, P3 0, P4 0: clean.
+    Last passing (ae0a535e): `npm test` exit 0; browser-status-canvas 0.2.2-rc.5, 0.2.0-rc.2, 0.2.1-rc.2 PASS;
+    card-stack, approval-card, running-filter, summary-resize, dismiss-task, status-refresh PASS on 0.2.2-rc.5.
+  - Next: merge into main (--no-ff), push, live copy (backup first, whole files of the main commit, live-copy-check
+    MATCH). No release, tag, npm publish, Tether change or DSH restart.
+  - (Earlier) Open steps: Furkan looks at the 8a65e931 screenshots. Damon sends "main'e al" → merge into main and push (standing
     approval). Deleting the 5cb4da4d and 09cce2a7 sets needs a written approval. No live copy before Furkan writes "tamam".
 - 2026-11-25 15:5x: phase 4 (previous chat).
   - Merges of origin/main: c0775f5d (0c6e3ae5, buttonless approval card) and aa6a951a (9d4a53bb: 1.32.0, status panel
