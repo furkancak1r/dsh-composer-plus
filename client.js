@@ -3523,14 +3523,28 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
     // wide as the chat column, at most 40% of the window high. dsh 0.2.2-rc.2 wraps the scroll body in a `display:contents`
     // frame, so the stack and the scroll body are still siblings in the flex column. The panel is the only box: the cards,
     // counts and summary inside it are flat (a colored left line, no background), so nothing shows as a box in a box.
+    // WCAG AA colors of the panel and its Kararlar dialog (Furkan, 2026-11-25: "renk zıtlık sorunu var"), set here for
+    // `sel` only. dsh's light palette on white: label-tertiary 3.7:1, the blue 4.2:1, the amber 2.8:1 (text) and 2.2:1 (◆),
+    // the green 2.3:1 (✓); they become label-secondary, the darker palette blue and the panel's old amber and green
+    // fallbacks. dsh's dark palette has no success and error label tokens, so the old dark fallbacks (3.6:1, 3.8:1) gave
+    // way to its primary green and red. Codex dark theme keeps its tokens. Text on a filled accent (the Kararlar count pill,
+    // Onayla, CANLI) uses label-primary-foreground: white in light, near-black in dark. test/status-contrast.test.mjs.
+    const contrastVars = (sel) => `body:not([data-ds-dark-theme]) ${sel}{--dsw-alias-label-tertiary:var(--dsw-alias-label-secondary);--dsw-alias-state-business-primary:var(--dsw-static-deepseek-600,#4868b2);--dsw-alias-state-warn-primary:#b25000;--dsw-alias-state-warn-label:#b25000;--dsw-alias-state-success-primary:#1a7f37}`
+      + `body[data-ds-dark-theme] ${sel}{--dsw-alias-state-success-label:var(--dsw-alias-state-success-primary);--dsw-alias-state-error-label:var(--dsw-alias-state-error-primary)}`;
     const TODOS_CSS = `[${TODOS_ATTR}]{order:-1;flex:none;box-sizing:border-box;width:var(--dsh-chat-content-width,720px);max-width:calc(100% - 32px);max-height:40vh;margin:8px auto 4px;display:flex;flex-direction:column;overflow:hidden;border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-lg,12px);background:var(--dsw-alias-bg-base);font-size:13px;line-height:18px;color:var(--dsw-alias-label-primary)}`
+      + contrastVars(`[${TODOS_ATTR}]`)
       // At the right (`side`, the old Durum panel's place): the chat moves left to make room, so the panel covers no
       // message. ponytail: in a window narrower than 1000px the panel shows above the chat and the place button hides (a
       // 300px side panel would cover the chat). Upgrade when dsh has a chat side slot.
       + `@media (min-width:1000px){[${TODOS_ATTR}][data-place="side"]{position:absolute;top:12px;right:20px;z-index:8;width:300px;max-height:calc(100% - 180px);margin:0;box-shadow:0 4px 16px rgba(0,0,0,.08)}[${SEAT_ATTR}="open"] [data-conversation-scroll]{padding-right:332px}`
       // The 300px header: the counts on their own line (no "1 ona…"), the buttons under them at the right.
       + `[${TODOS_ATTR}][data-place="side"] .cp-st-top{flex-wrap:wrap;justify-content:flex-end}[${TODOS_ATTR}][data-place="side"] .cp-st-top>h2{flex:1 0 100%}[${TODOS_ATTR}][data-place="side"] .cp-cs-count{white-space:normal}`
-      + `[${TODOS_ATTR}][data-place="side"] .cp-td-head{flex-wrap:wrap}[${TODOS_ATTR}][data-place="side"] .cp-st-time{width:auto}}`
+      // Two rows (Furkan, 2026-11-25: "şunlar daha düzgün görünebilir"): the counts and the chevron, then the list time at
+      // the left of the icons. One grid: the time starts where the counts start (10px), the chevron ends where the last
+      // icon ends. The time stays in the title button (a click on it folds the panel, as before); it only shows lower.
+      // ponytail: its room is the row less five icons (160px); a longer text ends with "…".
+      + `[${TODOS_ATTR}][data-place="side"] .cp-st-top{position:relative}[${TODOS_ATTR}][data-place="side"] .cp-td-head{padding-right:6px}[${TODOS_ATTR}][data-place="side"] .cp-cs-count{flex:1}`
+      + `[${TODOS_ATTR}][data-place="side"] .cp-st-time{position:absolute;left:10px;bottom:4px;width:auto;max-width:calc(100% - 170px);text-align:left}}`
       + `@media (max-width:999px){[${TODOS_ATTR}] .cp-td-btn.cp-st-place{display:none}}`
       // The fixed part (count bar, summary, Onay card) keeps its height and stays in place while the cards scroll (review 2:
       // a shrinking fixed part hid the Onay card); the summary card scrolls in itself (its max-height: the separator under
@@ -3551,8 +3565,8 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       + `[${TODOS_ATTR}] .cp-cs-sym{flex:none;width:14px;color:var(--cp-co);text-align:center}[${TODOS_ATTR}] .cp-cs-title{font-weight:600}`
       + `[${TODOS_ATTR}] button.cp-cs-title{padding:0;border:0;background:none;color:inherit;font:inherit;font-weight:600;text-align:left;cursor:pointer}[${TODOS_ATTR}] button.cp-cs-title:hover{text-decoration:underline}`
       + `[${TODOS_ATTR}] .cp-cs-act{flex:none;height:24px;padding:0 10px;border:.5px solid var(--cp-co);border-radius:999px;background:none;color:inherit;font:inherit;font-size:12px;white-space:nowrap;cursor:pointer}`
-      + `[${TODOS_ATTR}] .cp-cs-act[data-primary]{background:var(--cp-co);color:#fff;font-weight:600}[${TODOS_ATTR}] .cp-cs-act:disabled{opacity:.5;cursor:default}`
-      + `[${TODOS_ATTR}] .cp-cs-tag{margin-left:6px;padding:0 5px;border-radius:4px;font-size:10px;font-weight:700;line-height:16px;color:#fff;background:var(--dsw-alias-state-error-primary,#d92d20)}[${TODOS_ATTR}] .cp-cs-new{color:var(--dsw-alias-state-success-label,#1a7f37);font-weight:600}`
+      + `[${TODOS_ATTR}] .cp-cs-act[data-primary]{background:var(--cp-co);color:var(--dsw-alias-label-primary-foreground,#fff);font-weight:600}[${TODOS_ATTR}] .cp-cs-act:disabled{opacity:.5;cursor:default}`
+      + `[${TODOS_ATTR}] .cp-cs-tag{margin-left:6px;padding:0 5px;border-radius:4px;font-size:10px;font-weight:700;line-height:16px;color:var(--dsw-alias-label-primary-foreground,#fff);background:var(--dsw-alias-state-error-label,#d92d20)}[${TODOS_ATTR}] .cp-cs-new{color:var(--dsw-alias-state-success-label,#1a7f37);font-weight:600}`
       + `[${TODOS_ATTR}] .cp-cs-sentence{margin:6px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}[${TODOS_ATTR}] .cp-st-body{flex:1 1000 auto;min-height:0}`
       + `[${TODOS_ATTR}] .cp-cs-card[data-card="karar"]{--cp-co:var(--dsw-alias-state-warn-primary,#f59e0b)}[${TODOS_ATTR}] .cp-cs-card[data-opens="true"]{cursor:pointer}`
       // Sürüyor: a card that runs now has a blue dot that pulses (still with reduced motion); Damon's to-do keeps ○. Above
@@ -3569,7 +3583,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       // summary; the title button never runs under Get summary (its chevron once drew over the summary spinner).
       + `[${TODOS_ATTR}] .cp-st-top{display:flex;align-items:center;gap:2px;padding-right:6px}[${TODOS_ATTR}] .cp-st-top>h2{display:flex;flex:1;min-width:0}`
       + `[${TODOS_ATTR}] .cp-td-head{display:flex;align-items:center;gap:6px;flex:1;min-width:0;padding:8px 10px;border:0;background:none;color:inherit;font:inherit;text-align:left;white-space:nowrap;cursor:pointer;border-radius:var(--dsw-radius-lg,12px)}`
-      + `[${TODOS_ATTR}] .cp-st-time,[${TODOS_ATTR}] .cp-td-count{color:var(--dsw-alias-label-tertiary);font-size:11px;font-variant-numeric:tabular-nums;white-space:nowrap}[${TODOS_ATTR}] .cp-st-time{flex:1 1 auto;width:0;overflow:hidden;text-overflow:ellipsis;text-align:right}`
+      + `[${TODOS_ATTR}] .cp-st-time,[${TODOS_ATTR}] .cp-td-count{color:var(--dsw-alias-label-tertiary);font-size:11px;font-variant-numeric:tabular-nums;white-space:nowrap}[${TODOS_ATTR}] .cp-st-time{flex:1 1 auto;width:0;overflow:hidden;text-overflow:ellipsis;text-align:right;font-weight:500}`
       + `[${TODOS_ATTR}] .cp-st-body{overflow-y:auto;padding:0 6px 6px}`
       + `[${TODOS_ATTR}] section{padding-top:6px}[${TODOS_ATTR}] h3{display:flex;gap:6px;padding:4px;font-size:12px;font-weight:600;color:var(--dsw-alias-label-secondary)}`
       + `[${TODOS_ATTR}] ul{margin:0;padding:0;list-style:none}`
@@ -3580,7 +3594,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       + `[${TODOS_ATTR}] .cp-td-group[data-owner="agent"]{color:var(--dsw-alias-state-business-primary)}`
       // Kararlar: the notes' button, its count of open decisions as a badge.
       + `[${TODOS_ATTR}] .cp-dc-open{margin-top:6px;padding:6px 4px;font-size:12px;color:var(--dsw-alias-label-secondary)}[${TODOS_ATTR}] .cp-dc-open>span[aria-hidden]{color:var(--dsw-alias-state-warn-primary,#f59e0b)}`
-      + `[${TODOS_ATTR}] .cp-dc-badge{min-width:18px;padding:0 5px;border-radius:999px;background:var(--dsw-alias-state-business-primary,#3b6cf6);color:#fff;font-size:11px;font-weight:700;line-height:18px;text-align:center;font-variant-numeric:tabular-nums}`
+      + `[${TODOS_ATTR}] .cp-dc-badge{min-width:18px;padding:0 5px;border-radius:999px;background:var(--dsw-alias-state-business-primary,#3b6cf6);color:var(--dsw-alias-label-primary-foreground,#fff);font-size:11px;font-weight:700;line-height:18px;text-align:center;font-variant-numeric:tabular-nums}`
       + `[${TODOS_ATTR}] .cp-td-btn{flex:none;display:grid;place-items:center;width:26px;height:26px;padding:0;border:0;border-radius:999px;background:none;color:var(--dsw-alias-label-tertiary);font:inherit;cursor:pointer}`
       + `[${TODOS_ATTR}] .cp-st-row{display:block;width:100%;min-width:0;padding:6px 4px;border:0;border-radius:var(--dsw-radius-md,8px);background:none;color:inherit;font:inherit;text-align:left;overflow-wrap:anywhere;cursor:pointer}`
       // A task or project row: its row button, then → (and ×) at its right; a long title wraps, it never runs under them.
@@ -3846,6 +3860,9 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       return true;
     }
     const TodoIcon = ({ name, glyph }) => (primitives[name] === undefined ? React.createElement('span', { 'aria-hidden': true }, glyph) : React.createElement(primitives[name], { size: 14, 'aria-hidden': true }));
+    /** A 14 px line icon in dsh's icon grid (16 px view box, 1 px stroke) for a shape that dsh's primitives do not have. */
+    const lineIcon = (d) => React.createElement('svg', { width: 14, height: 14, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
+      React.createElement('path', { d }));
     const sameDay = (a, b) => { const x = new Date(a); const y = new Date(b); return x.getFullYear() === y.getFullYear() && x.getMonth() === y.getMonth() && x.getDate() === y.getDate(); };
     const clockText = (at, locale) => { try { return new Date(at).toLocaleTimeString(locale || undefined, { hour: '2-digit', minute: '2-digit' }); } catch { return new Date(at).toISOString().slice(11, 16); } };
     /** "45 s", "12 min", "1.5 h" in the UI language. */
@@ -4086,6 +4103,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
     // A native modal <dialog> (showModal): the top layer over the whole page, the rest of the page inert (the focus stays
     // in the dialog), Esc closes it. The backdrop is dimmed and blurred, so the chat behind it cannot be read.
     const DECIDE_CSS = `dialog[${DECIDE_ATTR}]{box-sizing:border-box;width:min(560px,calc(100vw - 32px));max-height:min(86vh,720px);padding:0;border:.5px solid var(--dsw-alias-border-l1,rgba(127,127,127,.3));border-radius:var(--dsw-radius-xl,16px);background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-primary,#111);font-size:14px;line-height:20px;box-shadow:0 24px 64px rgba(0,0,0,.3);overflow:hidden}`
+      + contrastVars(`dialog[${DECIDE_ATTR}]`)
       + `dialog[${DECIDE_ATTR}]::backdrop{background:rgba(0,0,0,.45);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}`
       + `[${DECIDE_ATTR}] .cp-dc-in{box-sizing:border-box;display:flex;flex-direction:column;gap:14px;max-height:min(86vh,720px);padding:18px 20px 20px;overflow-y:auto}`
       + `[${DECIDE_ATTR}] .cp-dc-top{display:flex;align-items:center;gap:8px}[${DECIDE_ATTR}] .cp-dc-top h2{flex:1;margin:0;font-size:15px;line-height:20px;font-weight:600}`
@@ -4100,7 +4118,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       + `[${DECIDE_ATTR}] .cp-dc-tag{flex:none;margin-left:auto;padding:0 6px;border:.5px solid currentColor;border-radius:4px;font-size:11px;line-height:18px;color:var(--dsw-alias-state-business-primary,#3b6cf6);white-space:nowrap}`
       + `[${DECIDE_ATTR}] .cp-dc-acts{display:flex;flex-wrap:wrap;align-items:center;gap:8px}[${DECIDE_ATTR}] .cp-dc-other{display:flex;gap:8px}`
       + `[${DECIDE_ATTR}] .cp-dc-btn{flex:none;height:32px;padding:0 14px;border:.5px solid var(--dsw-alias-border-l3,rgba(127,127,127,.35));border-radius:999px;background:none;color:inherit;font:inherit;font-size:13px;white-space:nowrap;cursor:pointer}`
-      + `[${DECIDE_ATTR}] .cp-dc-btn[data-primary]{border-color:transparent;background:var(--dsw-alias-state-business-primary,#3b6cf6);color:#fff;font-weight:600}[${DECIDE_ATTR}] .cp-dc-btn[data-danger]{color:var(--dsw-alias-state-error-label,#d92d20)}`
+      + `[${DECIDE_ATTR}] .cp-dc-btn[data-primary]{border-color:transparent;background:var(--dsw-alias-state-business-primary,#3b6cf6);color:var(--dsw-alias-label-primary-foreground,#fff);font-weight:600}[${DECIDE_ATTR}] .cp-dc-btn[data-danger]{color:var(--dsw-alias-state-error-label,#d92d20)}`
       + `[${DECIDE_ATTR}] .cp-dc-other input{box-sizing:border-box;flex:1;min-width:0;height:32px;padding:0 12px;border:.5px solid var(--dsw-alias-border-l3,rgba(127,127,127,.35));border-radius:999px;background:none;color:inherit;font:inherit;font-size:13px}`
       + `[${DECIDE_ATTR}] .cp-dc-notes li{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:.5px solid var(--dsw-alias-border-l3,rgba(127,127,127,.35))}[${DECIDE_ATTR}] .cp-dc-notes li>span{flex:1;min-width:0;overflow-wrap:anywhere}`
       + `[${DECIDE_ATTR}] h3{margin:0;font-size:13px;font-weight:600;color:var(--dsw-alias-label-secondary,#555)}[${DECIDE_ATTR}] .cp-dc-empty{margin:0;font-size:16px;font-weight:600}`
@@ -4777,13 +4795,13 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
             // plan review waits in the chat (it would close at once).
             asked !== '' ? null : React.createElement('button', { id: `${headId}-canvas`, type: 'button', className: 'cp-td-btn', 'data-composer-plus-canvas-open': '', 'aria-label': t('canvas.open'), title: t('canvas.open'),
               onClick: () => { setCanvas(true); setTimeout(() => globalThis.document?.getElementById?.(`${headId}-view`)?.focus?.({ preventScroll: true }), 0); } },
-              React.createElement('span', { 'aria-hidden': true }, '⊞')),
-            // The place: at the right of the chat or above it (the button names where it moves the panel). ponytail: a text
-            // glyph, as TodoIcon's fallback: dsh's primitives have no "panel right" or "panel top" icon (only IconPanelLeft).
+              lineIcon('M3.5 2.5h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1zM8 2.5v11M2.5 8h11')),
+            // The place: at the right of the chat or above it (the button names where it moves the panel). Our own line icons
+            // (arrow to the top, arrow to the right): dsh's primitives have no "panel right" or "panel top" icon.
             React.createElement('button', { id: `${headId}-place`, type: 'button', className: 'cp-td-btn cp-st-place', 'data-place-button': place,
               'aria-label': t(place === 'side' ? 'status.placeTop' : 'status.placeSide'), title: t(place === 'side' ? 'status.placeTop' : 'status.placeSide'),
               onClick: () => setPlace(place === 'side' ? 'top' : 'side') },
-              React.createElement('span', { 'aria-hidden': true }, place === 'side' ? '⤒' : '⇥')),
+              lineIcon(place === 'side' ? 'M3 2.5h10M8 13.5V5.5M5 8.5l3-3 3 3' : 'M13.5 3v10M2.5 8h8M7.5 5l3 3-3 3')),
             spokenSpan),
           readError,
           open ? summaryCard : null, open ? summaryGrip : null,

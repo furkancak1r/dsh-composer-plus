@@ -1,3 +1,33 @@
+# Fix: status panel contrast and header (branch fix/status-panel-color-contrast, 2026-11-25)
+
+Furkan (2026-11-25): "renk zıtlık sorunu var düzelt" (the Kararlar count pill: white on a light fill in the dark theme)
+and "şunlar daha düzgün görünebilir" (the header: three rows, the canvas icon smaller and thinner than the others).
+Scope: client.js CSS and the two header icons only. No layout of the cards, no size, no behavior. Tether: no code.
+
+## Change
+- `contrastVars(sel)` (client.js, before TODOS_CSS): for the panel and the Kararlar dialog only. Light palette:
+  label-tertiary → label-secondary, the blue → deepseek-600, the amber → #b25000, the green → #1a7f37 (the panel's old
+  fallbacks). Dark palette: success-label/error-label (dsh has none) → its primary green and red. Codex dark theme keeps
+  its tokens. Text on a filled accent (count pill, Onayla, CANLI, the dialog's primary button) → label-primary-foreground.
+- Header at the right (`data-place="side"`): two rows. Row 1 the counts and the chevron; row 2 the list time (still in
+  the title button, absolutely placed at the counts' left edge) and the five icons. The canvas and place icons are 14 px
+  line icons (`lineIcon`, 16 px view box, 1 px stroke as dsh's icons) instead of the text glyphs ⊞ ⤒ ⇥.
+- Test: test/status-contrast.test.mjs (in test:all). Red on main's client.js: "light: Kararlar count pill #ffffff on
+  #4176e6 is 4.23:1, needs 4.5:1" (after two test-only shims for the old CSS). Green now: 5.39 / 8.12 / 15.06.
+
+## Checks (last passing, 2026-11-25 11:2x)
+- `npm test` exit 0. `git diff --check` clean.
+- Headless (chromiumSandbox true), `TMPDIR=/tmp/cp-contrast-20261125 PLAYWRIGHT=<Mergen playwright 1.58> node test/<t>.mjs <bins>`:
+  browser-card-stack, browser-status-refresh, browser-status-canvas, browser-summary-resize PASS on dsh 0.2.2-rc.5,
+  0.2.0-rc.2, 0.2.1-rc.2.
+- Measure (scratch script, not committed): /tmp/cp-contrast-20261125/measure.mjs; panel scan AA failures before/after:
+  light 82 → 0, dark 12 → 0, Codex 2 → 0. Open: the dialog's disabled Gönder (opacity .5, WCAG exempts disabled controls).
+- Screenshots and table: /Users/furkancakir/Damon/Belgeler/Composer Plus/kontrast-20261125/.
+
+## Open steps
+- Review-guard (separate subagent) on `git diff main...HEAD`; fix findings; `npm test`; merge --no-ff into main; push;
+  delete branch and worktree. No live copy, no release, no DSH restart.
+
 # Assistant reply guards (branch fix/assistant-reply-guards, 2026-11-24)
 
 Source: Damon's daily error review of 2026-11-24 (Furkan's standing request of 2026-11-11: fix each mistake of the day
