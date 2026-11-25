@@ -15,7 +15,7 @@ Belgeler with "tuval"; the other hit is a Playwright report). Main at start: 8f1
 1. [done 2026-11-25 10:2x] Analysis: mockup behaviors, differences with file:line, design. Mockup screenshots.
 2. [done 2026-11-25 12:3x] Implement: canvas like the mockup (Damon hub, groups as islands, lines, zoom detail levels, minimap, side
    panel, only-mine filter, home). Reply cards + chat toggle. Texts (en, zh, 11 locales), docs, tether/FEATURES.md.
-3. [done except the screenshots 2026-11-25 12:3x] Tests (unit, red on the old client.js; browser on dsh 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5), screenshots.
+3. [done 2026-11-25 12:4x] Tests (unit, red on the old client.js; browser on dsh 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5), screenshots.
 4. [open] Review loop (separate subagent each round, until no P1/P2), commit on the branch, report. No merge before
    Furkan sees the screenshots ("main'e al" from Damon).
 
@@ -133,6 +133,9 @@ Belgeler with "tuval"; the other hit is a Playwright report). Main at start: 8f1
 
 ## Not verified
 - How a real Damon reply looks as a card on Furkan's live data: only the demo data (made up) is checked.
+- The 12 non-English texts (docs, READMEs, locales) were written by an agent; no native speaker checked them.
+- The moving line with reduced motion: only the CSS rule (`animation:none`) is checked, not in a browser.
+- A touch-screen two-finger pinch: only the code path; the browser tests use a mouse and a wheel.
 - Tether: no change (by the task). The difference goes into tether/FEATURES.md.
 
 ## Invariants
@@ -187,8 +190,24 @@ assets/features/assistantReplyCards.webp (new), index.js only for SHOTS if a sho
   0.2.2-rc.5; browser-card-stack, browser-running-filter, browser-summary-resize, browser-dismiss-task PASS on 0.2.2-rc.5
   (headless, chromiumSandbox true). Contrast of the reply card texts (light): title 18.9, Senden 18.9, New 18.9, time 5.8,
   option 18.9.
-- Open steps: screenshots with the short SHA (light, dark) and the side-by-side pictures; delete the 4 mockup files
-  without a SHA; phase 4 (review loop in a separate subagent until no P1/P2), commit, report. No merge before "main'e al".
+- 2026-11-25 12:4x: phase 3 done. Screenshots of 1edb14cb (dsh 0.2.2-rc.5 demo, headless, chromiumSandbox true) in
+  `/Users/furkancakir/Damon/Belgeler/Composer Plus/tuval-html-20261125/`: yan-yana-{light,dark}, composer-plus-{light,dark},
+  tuval-yan-panel-{light,dark}, kartlar-sohbet-gizli-{light,dark}, sohbet-acik-{light,dark}, yanit-karti-{light,dark},
+  mockup-{light,dark,far-light,side-light}, each `-1edb14cb.png`. The 4 mockup files without a SHA are deleted.
+  Commands: `SHOTS=<folder> SCHEME=light|dark TAG=1edb14cb PLAYWRIGHT=<Mergen playwright> node test/browser-status-canvas.mjs
+  <0.2.2-rc.5 bin>`, then `MOCKUP=<mockup html> OUT=<folder> TAG=1edb14cb PAIR=1 node test/browser-canvas-mockup.mjs`.
+  Dark contrast of the reply card texts: title 17.5, Senden 17.5, New 17.5, time 12.1, option 17.5.
+- Open steps (next chat, phase 4):
+  1. Review loop in a separate subagent on `git diff origin/main...HEAD` (large diff: repeat until a round has no P1/P2);
+     fix the findings, `npm test`, the browser tests above; take the screenshots again with the new short SHA if the UI
+     changes (delete the older tagged files then).
+  2. Known item for round 1 (seen in the screenshots, not fixed): at 1360 px the zoom buttons at the bottom left overlap
+     the Sorun island (the "75%" text has no background); the mockup has the same corner. Smallest fix: a background for
+     the `.cp-cv-zm` group.
+  3. Commit on the branch, report in Turkish with the screenshot paths, end the turn. No merge before Damon sends
+     "main'e al"; then merge origin/main (the color contrast fix, the 1.32.0 release, the buttonless approval card fix
+     change the same panel), `npm test`, review-guard on the final diff until clean, merge into main, push, delete the
+     branch and its worktree. No live copy, no release.
 - 2026-11-25 10:2x: phase 1 (analysis) done, committed on the branch. No product code changed yet.
 - Last passing test command: `npm test` exit 0 on 8f1723fb (this worktree, before any change).
 - Mockup screenshots (phase 1, without SHA): `/Users/furkancakir/Damon/Belgeler/Composer Plus/tuval-html-20261125/
