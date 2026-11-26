@@ -4397,14 +4397,15 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         actError == null ? null : React.createElement('p', { className: 'cp-dc-err', role: 'alert' }, t('todos.failed', { error: actError })),
         card, rest));
     }
-    /** Kararlar by itself (Furkan, 2026-11-26: "yeni karar istediğinde input alanı boşsa otomatik olarak pop up
-     * çıkartabilirsin damonda isem"): whether the dialog may open now. The window is shown, the Damon chat (`host`, its chat
-     * body) is on screen, its message box is empty (`empty`: no text, no attachment), dsh asks nothing (`asked`), no other
-     * dialog or menu is open, and no key or input came in the last DECIDE_PEEK_QUIET_MS (`lastInput`). */
+    /** The element is in the page and drawn (not hidden by CSS or a closed parent). */
     const onScreen = (el) => el != null && el.isConnected !== false && (el.checkVisibility?.() ?? (el.getClientRects?.().length ?? 0) > 0);
     const POPUPS = 'dialog[open], [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], [aria-modal="true"]';
     /** A dialog or menu on screen (`except`: not this one). */
     const popupShown = (doc, except = null) => [...(doc?.querySelectorAll?.(POPUPS) ?? [])].some((el) => el !== except && except?.contains?.(el) !== true && onScreen(el));
+    /** Kararlar by itself (Furkan, 2026-11-26: "yeni karar istediğinde input alanı boşsa otomatik olarak pop up
+     * çıkartabilirsin damonda isem"): whether the dialog may open now. The window is shown, the Damon chat (`host`, its chat
+     * body) is on screen, its message box is empty (`empty`: no text, no attachment), dsh asks nothing (`asked`), no other
+     * dialog or menu is open, and no key or input came in the last DECIDE_PEEK_QUIET_MS (`lastInput`). */
     function canPeek({ doc = globalThis.document, host, empty = false, asked = '', lastInput = 0, now = Date.now() }) {
       if (doc?.visibilityState !== 'visible' || empty !== true || asked !== '' || now - lastInput < DECIDE_PEEK_QUIET_MS) return false;
       return onScreen(host) && !popupShown(doc);

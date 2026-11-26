@@ -327,7 +327,7 @@ for (const h of hooks) h?.off?.(); assert.equal(dialog.open, false); assert.equa
   for (const h of hooks) h?.off?.();
   list = [{ id: 'l1', text: 'Karar ver: nereye', owner: 'user', created: NOW, options: ['Canlı sunucuya deploy (Önerilen)', 'Test'] }, { id: 'l2', text: 'Karar ver: renk', owner: 'user', created: NOW, options: ['Mavi', 'Yeşil'] }];
   st = { answered: new Map(), drafts: new Map(), later: [], error: null }; hooks = []; clock += 5000; draw(); clock += 900;
-  const n1 = mine.length; key('Enter'); await flush(); assert.equal(mine.length, n1, 'Enter: no live option'); 
+  const n1 = mine.length; key('Enter'); await flush(); assert.equal(mine.length, n1, 'Enter: no live option');
   b('send').p.onClick(); draw(); await flush(); draw(); assert.match(mine.at(-1), /→ Canlı sunucuya deploy$/, 'a click on Gönder sends it');
   let fieldFocus = 0; d2.querySelector = (sel) => (sel === '.cp-dc-other input' ? { focus: () => { fieldFocus += 1; } } : { focus() {} });
   clock += 900; const n2 = mine.length; b('send').p.onClick(); draw(); await flush();
