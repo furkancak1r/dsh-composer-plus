@@ -4401,7 +4401,7 @@
     "feature.assistantTodos": "Asistan durum paneli",
     "feature.assistantTodos.description": "Asistan sohbetinde, sohbetin sağında bir durum paneli: asistanın yazdığı sabah özeti, yapılacaklar listeniz, asistanın alt ajanlara verdiği görevler (çalışıyor, sizi bekliyor, bugün bitti; süresi ve sonucuyla) ve son 24 saatte değişen projeler. Bir projeye tıklayınca sohbetleri, yapılacakları ve git dalıyla son commit'leri açılır; bir göreve ya da sohbete tıklayınca açılır. İşlerinizi asistana söyleyin: asistana vermek için →, silmek için × düğmesine tıklayın. Asistan bir maddenin bittiğine dair kanıt bulunca maddeyi kendisi siler. Bu Mac'te saklanır.",
     "feature.assistantReplyCards": "Damon yanıt kartları",
-    "feature.assistantReplyCards.description": "Asistan sohbetinde her yanıt Kararlar kartları gibi bir kart olarak görünür: başlık, asistanın senden istediği adım, Onayla ve seçenek butonları; uzun ayrıntılar kapalı kalır. Yeni kart, sen ona ya da butonlarından birine tıklayana kadar Yeni etiketiyle en üstte durur. Sohbet kartların arkasında gizlidir; Sohbeti göster onu yeniden açar. Mesaj kutusu olduğu gibi kalır.",
+    "feature.assistantReplyCards.description": "Asistan sohbetinde her yanıt Kararlar kartları gibi bir kart olarak görünür: başlık, asistanın senden istediği adım, Onayla ve seçenek butonları; uzun ayrıntılar kapalı kalır. Kartlar zaman sırasıyla durur, en yenisi en altta ve görünür; yeni kart, sen ona ya da butonlarından birine tıklayana kadar Yeni etiketini taşır. Sohbet kartların arkasında gizlidir; Sohbeti göster onu yeniden açar. Mesaj kutusu olduğu gibi kalır.",
     "todos.title": "Yapılacaklar",
     "todos.count": "{count} madde",
     "todos.empty": "Madde yok. Aklınızdaki bir işi asistana söyleyin.",

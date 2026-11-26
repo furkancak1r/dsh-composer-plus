@@ -139,6 +139,12 @@ export async function fakeModel(calls = [], lang = 'tr') {
       }
       // A background note (a finished subagent, Assistant news): the cards show it, so the reply is only [quiet].
       if (lastNotice) return say('[quiet]');
+      // test/browser-reply-order.mjs: "DEMO-NOTE <n>" gets a short reply with its own title (one card each).
+      const demoNote = damonStep ? /^DEMO-NOTE (\d+)$/.exec(newest.trim()) : null;
+      // "DEMO-TWO-TOPICS": one reply with two independent topics, split by a `---` line (two cards). The `---` inside the code
+      // block does not split.
+      if (damonStep && newest.trim() === 'DEMO-TWO-TOPICS') return say(lang === 'en' ? '**The rate column is the same in the four companies.** The two detail reports have it now.\n\nFor you: update the 4 reports with these files.\n\n---\n\n**The local model was off for 11 minutes.** It runs again; the same test runs with llama.cpp.\n\n```text\n---\n```' : "**Kur kolonu dört firmada aynı raporlarda.** İki Kalem Detay raporu da kur kolonlu.\n\nSenden: 4 raporu bu dosyalarla güncelle.\n\n---\n\n**Yerel model 11 dakika kapalı kaldı.** Şu an yeniden açık; aynı test llama.cpp ile sürüyor.\n\n```text\n---\n```");
+      if (demoNote !== null) return say(lang === 'en' ? `**Sample update ${demoNote[1]}.** This card shows the order; no real work ran.` : `**Örnek güncelleme ${demoNote[1]}.** Bu kart sırayı göstermek için var; gerçek bir iş yapılmadı.`);
       const card = damonStep ? /^(?:Görev|Task): (.+)$/m.exec(newest) : null;
       if (card !== null && step === 0) return tools([['subagent', { description: `${card[1]} (yeniden)`, prompt: 'DEMO-DONE second: retry.', ...bg }], ['todo_list_remove', { task: card[1], reason: 'yedek ajan başlatıldı' }]]);
       if (card !== null) return say('Yeni ajanı başlattım ve hatalı kartı kaldırdım.');

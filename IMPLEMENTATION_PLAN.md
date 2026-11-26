@@ -1,3 +1,112 @@
+# Damon reply cards: time order, text cursor, chat toggle icon, Tether cards (branch fix/chat-card-order-tether, 2026-11-26)
+
+Source: Furkan in the Assistant chat, 2026-11-26 (relayed by Damon): "yeni gelen kart en altta gözüksün", "yeni kart
+yapısına göre tetherı da güncelle", "text alanları tıklanabilir değil şu I ya benzeyen şeyin çıkması lazım", "sohbeti
+göster butonunu da simgeye dönüştür". Base: main f86a0a4c. Standing approval: merge into main after a clean review.
+Not in scope: live copy, release, npm publish, DSH restart, iPhone install.
+
+## Acceptance
+1. Mac feed: cards oldest on top, newest at the bottom; the newest card is in view when the chat opens and when a new
+   card comes. Card design unchanged.
+2. Pointer: text in a card has `cursor: text` and can be selected; the hand only on buttons, links, the details summary;
+   a drag that selects text does not mark the card read.
+3. The "Sohbeti göster" toggle is an icon button (cp-td-btn) in the header icon row, aria-label and title from the
+   language pack, the same click.
+4. Tether: the Damon chat shows each reply and failed turn as a card (time, title, For you line, body, buttons), newest
+   at the bottom; title rule shared with the Mac (test/fixtures/reply-titles.json); text selectable. No toggle on the
+   phone (tether/FEATURES.md).
+5. Tests: test/reply-cards.test.mjs (order, CSS, drag guard, toggle, shared table), test/browser-reply-order.mjs
+   (real dsh, 1440x900), browser-status-canvas.mjs updated; iOS testReplyTitleMatchesTheMac, testDamonChatScreen.
+6. Screenshots before/after: /Users/furkancakir/Damon/Belgeler/Composer Plus/kart-sirasi-20261126/.
+
+## Phases
+1. [done 09:05] Before evidence on f86a0a4c: olcum-once.json, kart-sirasi-once.png, yeni-kart-once.png,
+   panel-basligi-once.png, tether-damon-once.png.
+2. [done 10:00] Mac + Tether code, texts (13 languages), docs (features.json, READMEs, FEATURES.md), unit tests.
+3. [done 10:10] npm test, browser tests (0.2.2-rc.5, 0.2.0-rc.2, 0.2.1-rc.2), iOS tests, after screenshots.
+4. Review-guard rounds until no P1/P2 (diff > 100 lines and > 3 files: full loop).
+5. Update from origin/main, tests again, merge into main, push.
+
+## Checks
+- `node test/reply-cards.test.mjs` (and npm test)
+- `TMPDIR=$PWD/build/t PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-reply-order.mjs <bins>`
+- `cd tether/ios && xcodebuild -project DSHMobile.xcodeproj -scheme DSHMobile -destination 'platform=iOS Simulator,id=A5766181-4A27-457E-81C2-DFDE4A0F018F' -derivedDataPath ../../build/DerivedData test CODE_SIGNING_ALLOWED=NO`
+
+7. Card split (added 2026-11-26 09:50, "birbirinden bağımsız konuları ayrı kartlar olarak göster"): a `---` line (outside
+   code and `onay` blocks) splits a reply into topic cards (client.js replySections, Tether replySections, one table:
+   test/fixtures/reply-sections.json); the options only on the last part; the Approve buttons on the part with the block;
+   ASSISTANT_SECTION asks for one topic per card.
+
+8. Per-part read state (added 2026-11-26 10:40, "ayrı konuları ayrı yazsan da hepsine tek okundu geliyor ama farklı
+   okundular gelmesi lazım"). DONE 11:10 in 5515c04d (as planned below; id regex /^\d{1,16}:\d{1,6}$/; the canvas side
+   panel reads the card that it opens by its key). Findings (verified in code):
+   - The read state lives only in the Mac browser: localStorage `dsh-composer-plus.reply-cards-read` (client.js
+     REPLY_READ_KEY ~4304), `{ [chat]: { floor, read: [seq] } }`. readReplyMarks (~4425) keeps only integer seqs;
+     markReplies (~4434) moves the floor over seqs; replyUnread(mark, seq) (~4439).
+   - Every caller passes the reply's seq: ReplyCard `read = () => onRead?.(card.seq)` (~4555); ReplyFeed unread and
+     ReplyCard props (~4627, ~4660); the canvas island and replyEl (~5187-5194); onSelCard reads `key.split(':')[0]`
+     (~5190). The parts of a split reply share one seq (replyCardsOf key `${seq}:${i}`), so one click reads all parts:
+     this is the cause of Furkan's report.
+   - Tether has no read state for reply cards: no read mark, no New label, no Mark all as read (grep of
+     replyRead/reply-cards-read/cardRead in tether/ios/Sources: 0 hits; UI.swift cardHead shows only time, title and the
+     For you line). So Tether has nothing to split: write that in tether/FEATURES.md (no change), do not add a phone
+     read store without a new request.
+   Plan (smallest change): a card's read id is its seq for a reply without `---` (stored data stays valid) and its key
+   "seq:i" for a part of a split reply; readReplyMarks also keeps strings /^\d{1,15}:\d{1,3}$/; replyUnread(mark, seq,
+   key) is unread when seq > floor and neither seq nor key is in `read` (an old whole-reply mark still reads all parts);
+   markReplies moves the floor over a seq only when the seq or all its part keys are read, and drops ids at or below the
+   floor; every caller passes the card (feed, canvas island, side panel onSelCard by card key). Docs: one sentence in the
+   13 `how` texts and llms. Tests: unit (two parts, read one, the other stays unread; reload keeps it; old numeric mark
+   reads all; floor moves only when all parts are read); browser-reply-order step: click the first card of the
+   DEMO-TWO-TOPICS reply, the second stays New, after a reload too; screenshots iki-konu-okundu-once.png (on the code
+   before the change) and iki-konu-okundu-sonra.png in the screenshot folder.
+
+## Last checkpoint
+- 2026-11-26 11:10 (new chat): step 8 done in 5515c04d.
+  - Before evidence: test/browser-reply-order.mjs step 6 on 3301064b's client.js (0.2.2-rc.5) failed with afterClick
+    [false, false] (one click read both topics); screenshot konu-okundu-once.png. After: [false, true], also after a
+    reload, PASS on 0.2.2-rc.5, 0.2.0-rc.2, 0.2.1-rc.2; screenshot konu-okundu-sonra.png. Both in
+    /Users/furkancakir/Damon/Belgeler/Composer Plus/kart-sirasi-20261126/.
+  - Unit: test/reply-cards.test.mjs fails on 3301064b's client.js (line 121, replyUnread with a card) and passes now.
+  - Last passing: `npm test` exit 0; browser-reply-order and browser-status-canvas PASS on the three dsh versions.
+  - iOS on main f86a0a4c (detached worktree build/main-ios, full suite): 122 tests, 0 failures; testPutShowsNewText
+    passed. So on main it is green in the full suite; on this branch it was red twice in the full suite (not verified
+    whether the cause is this branch or the simulator: not run again on the branch in this chat).
+  - origin/main is still f86a0a4c (in the branch): no merge needed.
+  - iOS full suite on the branch at 9ed818cd: 124 tests, 0 failures (testPutShowsNewText passed this run).
+  - Review loop (separate subagents, whole `git diff origin/main...HEAD`): review 2 at 9ed818cd P1 0, P2 0, P3 2, P4 4
+    -> 57cd2dec; review 3 at 57cd2dec P3 1, P4 2 -> 25b16649; review 4 at 25b16649 P3 0, P4 3 -> fixed in the next
+    commit (llms replyOrder words, this checkpoint, the Approve error line only on the part with the button, red check).
+  - Review 5 at 9950851c: P1 0, P2 0, P3 0, P4 1 (docs: Show the chat is an icon) -> dfb443c4. Review 6 at dfb443c4:
+    P1 0, P2 0, P3 0, P4 4 (tether/FEATURES.md row sentence and error-line cards, an iOS test comment, this checkpoint)
+    -> fixed in the next commit.
+  - 2026-11-26 14:1x: Furkan's approval (relayed): "Composer Plus okundu" branch: when the review is clean, merge into
+    main and push; the live copy needs a separate approval.
+  - Reviews 7 and 8: P1 0, P2 0, P3 0; their P4 findings are fixed. From here, each round's counts and fixes are in its
+    commit message (`git log origin/main..HEAD`), not in this file.
+  - Next: the first review round with no finding -> merge into main (--no-ff), npm test on main, push. No live copy, no
+    release, no DSH restart.
+  - Last passing (21c0f643): `npm test` exit 0; iOS suite 124 tests, 0 failures; browser-reply-order and
+    browser-status-canvas PASS on 0.2.2-rc.5, 0.2.0-rc.2, 0.2.1-rc.2 at 9950851c (client.js, index.js and the browser
+    tests did not change after it).
+- 2026-11-26 10:45 (about 170 tool calls: handover). Committed: review round 1 (P1 0, P2 0, P3 2, P4 6) fixes:
+  the Settings image assets/features/assistantReplyCards.webp again (SHOT=1, only this file changed), a browser step for
+  the scroll follow (a growing card at the bottom stays at the bottom; after a scroll up it does not jump), the limit
+  counts replies (a split reply shows whole) and the unread count reads the shown cards, no aria-pressed on the icon,
+  the prompt rule names the reply cards, the Swift fence regex uses JS `.`.
+- Last passing: `npm test` exit 0; `TMPDIR=$PWD/build/t PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-reply-order.mjs <0.2.2-rc.5> <0.2.0-rc.2> <0.2.1-rc.2>` PASS x3;
+  browser-status-canvas PASS x3 (tr) and PASS 0.2.2-rc.5 (LANG_UI=en).
+- iOS: full suite 124 tests, 1 failure twice after the round-1 fixes: CoreTests/testPutShowsNewText ("the keyboard stays
+  open", composer focus, not a card test). It passes alone (2 of 2), and the full suite passed twice earlier on this
+  branch (aa1a2de9: 123 tests; 441a333c: 124 tests). Not verified: whether it is a flake of the simulator or caused by
+  this branch; next: run the full suite on main f86a0a4c in a temp worktree for comparison.
+- Not verified: the SHOT=1 run of browser-status-canvas (deviceScaleFactor 2) failed later at step 3 ("a sideways wheel
+  moves the canvas") after it wrote the image; the same test without SHOT passed. Whether SHOT=1 also fails on main is
+  not checked.
+- Open steps, in order: 8 (per-part read state, Mac only) -> tests -> review-guard round 2 on the final diff (separate
+  subagent; repeat until a round is clean) -> fix the findings -> update from origin/main -> tests again -> merge into
+  main and push. No live copy, no release, no DSH restart, no iPhone install.
+
 # Damon canvas like the HTML mockup + reply cards (branch feat/canvas-match-html-mockup, 2026-11-25)
 
 Source: Furkan in the Assistant chat, 2026-11-25 (relayed by Damon):
