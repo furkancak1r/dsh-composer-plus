@@ -4814,3 +4814,12 @@ Objective (Furkan, 2026-11-24): "sürüyor kısmında damonın yapacağı ve akt
   (4) review-guard on the final diff against origin/main (separate subagent, repeat until no P1/P2, fix all findings,
   run again); (5) merge into main --no-ff, npm test on main, push. No live copy, no release, Tether unchanged.
 - Last passing test command: `npm test` exit 0 at d1dfdb14; `PLAYWRIGHT=$HOME/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-status-canvas.mjs <3 bins>` PASS x3.
+- 2026-11-26 15:5x (Furkan's approval of the browser test rewrite): origin/main still b3d67832. test/browser-reply-pages.mjs
+  rewritten for the time order (111b9600). PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5: 8 of 21 replies first, the feed
+  opens at scrollTop 531 with the newest card in view; after one click 16 cards, 4 cards on screen moved 0 px, scrollTop
+  1056 (545 px above the bottom: no jump); reload -> 8. Shots (0.2.2-rc.5, TAG yeni-3): guncellemeler-ilk-yeni-3.png,
+  -ilk-ust-yeni-3.png, -sonra-yeni-3.png, -sonra-ust-yeni-3.png in Damon/Belgeler/Composer Plus/guncellemeler-oncekini-yukle-20261126/.
+  `npm test` exit 0 at 111b9600. Review-guard round 2 started (subagent review-guard-r2).
+- Open steps: review round 2 result -> fix every finding -> review again until clean -> merge into main --no-ff,
+  npm test on main, push. No live copy, no release, Tether unchanged.
+- Last passing: `npm test` exit 0 (111b9600); `PLAYWRIGHT=$HOME/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-reply-pages.mjs <3 bins>` PASS x3; browser-status-canvas PASS x3 (d1dfdb14).
