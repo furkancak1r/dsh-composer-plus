@@ -4415,7 +4415,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
      * that an open dialog (`open`) shows or that the peek opened for is seen, so a closed dialog opens again only for a
      * newer decision. `empty(sessionId)`: the message box is empty. Draws nothing. */
     const decideSeen = new Map(); // chat id → the decision ids seen on this page (kept while the panel draws again)
-    const decideKept = new Map(); // chat id → the panel's `answered` and `drafts` (kept while the panel draws again)
+    const decideKept = new Map(); // chat id → the panel's Kararlar state (kept while the panel draws again or is away)
     function DecidePeek({ sessionId, ids, open, host, asked, empty, onPeek }) {
       const lastInput = React.useRef(0);
       const latest = React.useRef(); latest.current = { host, asked, empty, onPeek }; // the poll reads the newest
@@ -4851,8 +4851,10 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       // each card (`drafts`), both kept per chat for the page (a panel that draws again shows no answered note and loses
       // no text), the Sonra order and the reason of a send that failed (also after the dialog closed). `decideOpen` (the
       // dialog is open) is above, before the effect that reads it.
-      const [decide, setDecideState] = React.useState(() => ({ answered: new Map(), drafts: new Map(), ...decideKept.get(sessionId), later: [], error: null }));
-      const setDecide = (f) => setDecideState((d) => { const next = typeof f === 'function' ? f(d) : f; decideKept.set(sessionId, { answered: next.answered, drafts: next.drafts }); return next; });
+      // The newest state is the per-chat copy, written at once (not in a React updater): a send that ends after the panel
+      // unmounted (another chat on screen) still puts its card, its text and the reason back (review 2).
+      const [decide, setDecideState] = React.useState(() => decideKept.get(sessionId) ?? { answered: new Map(), drafts: new Map(), later: [], error: null });
+      const setDecide = (f) => { const now = decideKept.get(sessionId) ?? decide; const next = typeof f === 'function' ? f(now) : f; decideKept.set(sessionId, next); setDecideState(next); };
       const shownAt = React.useRef({ key: null, at: 0 }); // the active item and when it became active (the key guard)
       const choiceNow = React.useSyncExternalStore(offers.subscribe, () => offers.choiceOf?.(sessionId));
       const kids = typeof useSessions === 'function' ? useSessions((list) => childIdsOf(list, sessionId).join(' ')) : '';
