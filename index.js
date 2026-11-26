@@ -12137,12 +12137,14 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
 }
 
 /* Assistant reply guards (part of Assistant, error review of 2026-11-24): hidden notes in a later step of the assistant
- * chat, on the Approve button's note path (installApproveButton), for three mistakes that a prompt rule did not stop:
+ * chat, on the Approve button's note path (installApproveButton), for four mistakes that a prompt rule did not stop:
  * - a self-quote ("Önceki yanıtımda "…" yazdım") that no earlier answer of the chat has (2026-11-23 16:44, 2026-11-24 10:35);
  * - a call of the open turn that Auto review denied (2026-11-24 11:06: the next step replied only `[quiet]`);
  * - a to-do "Onay: …" of owner user in a turn without an `onay` block after the user's newest message (2026-11-24 13:51:
- *   the panel showed an Onay card without a button; since 2026-11-25 it shows nothing, so the user cannot approve).
- * The quote and to-do notes join the next step that already has a message with text (they never start a step or a turn);
+ *   the panel showed an Onay card without a button; since 2026-11-25 it shows nothing, so the user cannot approve);
+ * - a guess word ("muhtemelen", "büyük olasılıkla", "tahminen" …) in an answer, outside code blocks and quoted text
+ *   (error review of 2026-11-26: Damon's rules say "Damon tahmin yazmaz", but a cause and a speed were guessed).
+ * The quote, to-do and guess notes join the next step that already has a message with text (they never start a step or a turn);
  * the denial note joins the next step of the same turn (dsh runs it after a tool call). Each note goes once. */
 const GUARD_SOURCE = 'composer-plus-assistant-guard';
 const guardMessage = (text) => Object.freeze({ id: randomUUID(), role: 'user', content: Object.freeze([Object.freeze({ type: 'text', text })]),
@@ -12200,6 +12202,25 @@ const withoutSelfQuotes = (text) => {
   for (const { index, end } of selfQuoteMatches(text).sort((a, b) => a.index - b.index)) { if (index > at) out += text.slice(at, index); at = Math.max(at, end); }
   return out + text.slice(at);
 };
+// The Turkish guess words (Damon's rules). Whole words only: "olasılıklar", "tahminler" and "ihtimalleri" are other words,
+// and "bir olasılıkla" holds the whole word "olasılıkla". The longest form first, so "büyük olasılıkla" is one word.
+const GUESS_WORDS = new RegExp(String.raw`(?<![\p{L}\p{N}])(büyük\s+olasılıkla|büyük\s+ihtimalle|bir\s+olasılık|olasılıkla|ihtimalle|muhtemelen|tahminen|sanırım|galiba)(?![\p{L}\p{N}])`, 'gu');
+/** The guess words of `text` in order of their first place, each once (lower case, one space), and the text around the
+ * first one: `{words, context}`. Fenced code blocks and quoted text ("…", “…”, '…', ‘…’) do not count.
+ * ponytail: Turkish words of this list only; a guess in another form ("olabilir", "gibi görünüyor") is not found. Upgrade:
+ * a model check of the answer. */
+export function guessWords(text) {
+  const plain = blankFences(String(text ?? '').normalize('NFC')).replace(new RegExp(QUOTED, 'gu'), (m) => ' '.repeat(m.length));
+  const words = []; let context;
+  // toLocaleLowerCase('tr') keeps the length (İ → i, I → ı), so a place in `folded` is a place in `plain`.
+  for (const m of plain.toLocaleLowerCase('tr').matchAll(GUESS_WORDS)) {
+    context ??= plain.slice(m.index, m.index + 40).replace(/\s+/g, ' ').trim();
+    const word = m[1].replace(/\s+/g, ' ');
+    if (!words.includes(word)) words.push(word);
+  }
+  return { words, context };
+}
+export const guessNote = ({ words, context }) => `Composer Plus → Assistant: your last answer uses the guess word(s) ${words.slice(0, 4).map((w) => JSON.stringify(w)).join(', ')} (${JSON.stringify(context)}). Damon's rules forbid guesses: verify the claim with evidence, or write 'doğrulanmadı' and the missing evidence. Correct the sentence in your next answer only when it gave a cause, a number or a state as a guess.`;
 const AUTO_DENIED = 'Error: Auto review denied this tool call';
 const APPROVAL_ITEM = /^(?:onay|approval)\s*:\s*\S/iu; // the client's CARD_MARKS 'onay' (client.js cardMark)
 export const quoteNote = (quotes) => `Composer Plus → Assistant: your last answer quotes ${quotes.map((q) => JSON.stringify(cutEnd(q, 200))).join(', ')} as your own earlier words, but the quoted text is not in an earlier answer of this chat. Write one short line to the user that withdraws this correction. Never quote a sentence that the log does not have.`;
@@ -12277,6 +12298,8 @@ export function installAssistantGuards(ctx, assistant) {
     } else if (event.type === 'assistant/message') {
       const missing = missingQuotes(id, session, event);
       if (missing.length > 0) hold(id, event.seq, quoteNote(missing.map((q) => q.quote)), missing.map((q) => q.fold));
+      const guess = guessWords(textBlocks(d?.message?.content));
+      if (guess.words.length > 0) hold(id, event.seq, guessNote(guess));
     } else if (event.type === 'turn/end') {
       calls.delete(id); denials.delete(id);
       const items = approvalItems(session);

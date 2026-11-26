@@ -8,6 +8,9 @@
 // 4. A to-do "Onay: …" of owner user in a turn whose answers since the user's newest message have no `onay` block: a
 //    note at the next step that carries a message, once. An answer with a block, an item of owner agent, another mark
 //    or a refused call: none.
+// 5. A guess word (Damon's rules: "Damon tahmin yazmaz", error review of 2026-11-26) in an answer, outside fenced code
+//    blocks and outside quoted text: one note at the next step that carries a message, once per answer. A word inside a
+//    ``` block or inside quotes, and a longer word (olasılıklar, tahminler) give none; a rollback of the answer drops its note.
 // Each item prints its own line, so a red run shows which item fails.
 import assert from 'node:assert/strict';
 import './temp-home.mjs';
@@ -202,6 +205,74 @@ await check('item 4: an approval to-do for the user without an onay block', asyn
   say('damon', '[quiet]');
   push('damon', 'turn/end', { reason: { kind: 'completed' } });
   assert.match(notesOf(await step('damon'))[0] ?? '', /"Onay: B canlıya deploy"/, 'a news turn without a block: a note');
+});
+
+await check('item 5: a guess word in an answer', async () => {
+  await step('damon'); // drain a note of an earlier item
+  // 2026-11-26: the two real answers.
+  say('damon', 'Bir olasılık var: klasör ağ paylaşımındaysa kablo çıkınca bağlantı kopmuş olabilir.');
+  assert.deepEqual(notesOf(await step('damon', [])), [], 'a step without a message: the note waits');
+  const [note, more] = notesOf(await step('damon'));
+  assert.equal(more, undefined, 'one note');
+  assert.match(note, /^Composer Plus → Assistant: your last answer uses the guess word\(s\) "bir olasılık" \(.*Bir olasılık var: klasör/);
+  assert.match(note, /Damon's rules forbid guesses: verify the claim with evidence, or write 'doğrulanmadı' and the missing evidence\. Correct the sentence in your next answer only when it gave a cause, a number or a state as a guess\.$/);
+  assert.deepEqual(notesOf(await step('damon')), [], 'once');
+  say('damon', 'Modeller: A tahminen 45-55 tok/s, B tahminen 30 tok/s.');
+  { const [n, extra] = notesOf(await step('damon')); assert.equal(extra, undefined); assert.match(n, /guess word\(s\) "tahminen" \(/, 'the same word twice is listed once'); }
+  // Each word, whole word, Turkish case folding (İ, I), at the end of a sentence.
+  for (const w of ['büyük olasılıkla', 'olasılıkla', 'bir olasılık', 'muhtemelen', 'tahminen', 'büyük ihtimalle', 'ihtimalle', 'sanırım', 'galiba', 'BÜYÜK İHTİMALLE', 'SANIRIM', 'Muhtemelen', 'Büyük  olasılıkla']) {
+    say('damon', `Sunucu kapanmış, ${w}.`);
+    assert.equal(notesOf(await step('damon')).length, 1, `a note for: ${w}`);
+  }
+  // Longest word first: "büyük olasılıkla" is one word, not two.
+  say('damon', 'Büyük olasılıkla bu doğru.');
+  assert.match(notesOf(await step('damon'))[0], /guess word\(s\) "büyük olasılıkla" \(/);
+  // Choice: only a whole word counts. "olasılıklar", "tahminler", "sanırımki" and "bir olasılıkla" (= "olasılıkla") are not
+  // the words of the list, except "bir olasılıkla", which holds the whole word "olasılıkla".
+  for (const text of ['Üç olasılıklar listelendi.', 'Tahminler tabloda.', 'Muhtemelenx yok.', 'Rapor galibaya bağlı.', 'Bu olasılık hesabı doğru.', 'Hata ihtimalleri düşük.']) {
+    say('damon', text);
+    assert.deepEqual(notesOf(await step('damon')), [], `not a whole word: ${text}`);
+  }
+  say('damon', 'Bir olasılıkla ilgili değil.');
+  assert.match(notesOf(await step('damon'))[0] ?? '', /"olasılıkla"/, 'the whole word olasılıkla inside "bir olasılıkla"');
+  // Outside fenced code blocks and quoted text only.
+  say('damon', 'Örnek:\n```text\nmuhtemelen bu bir kod örneğidir, galiba\n```\nBitti.');
+  assert.deepEqual(notesOf(await step('damon')), [], 'inside a fenced code block');
+  say('damon', '~~~\ntahminen 3\n~~~\nSonuç: sanırım 4.');
+  assert.match(notesOf(await step('damon'))[0] ?? '', /"sanırım"/, 'only the text outside the fence');
+  say('damon', 'Furkan "muhtemelen yarın" dedi; “galiba bitti” yazdı; \'tahminen 45\' ve ‘sanırım tamam’ da var.');
+  assert.deepEqual(notesOf(await step('damon')), [], 'inside quotes');
+  say('damon', 'Furkan "yarın" dedi, ben galiba yanıldım.');
+  assert.match(notesOf(await step('damon'))[0] ?? '', /"galiba"/, 'outside the quotes, after one');
+  say('damon', "Bey'e söyledim, muhtemelen gelir; Ali'nin notu.");
+  assert.match(notesOf(await step('damon'))[0] ?? '', /"muhtemelen"/, 'an apostrophe in a name is not a quote');
+  // One note for many words in one answer; the note stays short.
+  say('damon', 'Büyük ihtimalle A, muhtemelen B, büyük olasılıkla C, galiba D, tahminen E, sanırım F, ihtimalle G.');
+  { const notes = notesOf(await step('damon')); assert.equal(notes.length, 1, 'one note per answer'); assert.ok(notes[0].length < 400, `under 400 characters (${notes[0].length})`);
+    assert.match(notes[0], /"büyük ihtimalle", "muhtemelen", "büyük olasılıkla"/); }
+  // A guess in the first answer and another in the second before one step: one note per answer.
+  say('damon', 'Galiba A.'); say('damon', 'Sanırım B.');
+  assert.equal(notesOf(await step('damon')).length, 2, 'two answers, two notes');
+  // An answer without a text block and another chat get none.
+  say('damon', '', { type: 'tool-call', id: 'g1', name: 'bash' });
+  say('s-web', 'Muhtemelen bu bir alt ajan.');
+  assert.deepEqual(notesOf(await step('damon')), [], 'no text: no note');
+  assert.deepEqual(notesOf(await step('s-web')), [], 'another chat: no note');
+  // A long answer stays fast.
+  { const started = performance.now(); say('damon', `${"'a ".repeat(20000)} ${'"b '.repeat(20000)} galiba`);
+    assert.ok(performance.now() - started < 1000, 'worst-case text stays fast'); await step('damon'); }
+  // A rollback or rewind of the answer drops its note.
+  for (const kind of ['composer-plus-rollback', 'dsh-rewind']) {
+    const old = say('damon', `Galiba bu cevap geri alındı (${kind}).`);
+    push('damon', 'user/message', { content: [], source: { kind } }, { sourceEventSeqs: [old.seq] });
+    assert.deepEqual(notesOf(await step('damon')), [], `${kind}: a withdrawn answer gets no note`);
+    say('damon', `Sanırım bu cevap kaldı (${kind}).`);
+    const keep = say('damon', `Muhtemelen bu da (${kind}).`);
+    push('damon', 'user/message', { content: [], source: { kind } }, { sourceEventSeqs: [keep.seq] });
+    const kept = notesOf(await step('damon'));
+    assert.equal(kept.length, 1, `${kind}: the earlier answer keeps its note`);
+    assert.match(kept[0], /"sanırım"/);
+  }
 });
 
 for (const [name, state] of checks) console.log(`${name}: ${state}`);
