@@ -39,7 +39,7 @@ assert.match(split, /notifyPerMac/, 'a flag makes the split run once');
 assert.ok(split.indexOf('removeObject') > split.indexOf('macKey(') && split.lastIndexOf('notifyPerMac') > split.indexOf('removeObject'), 'copy, then remove, then set the flag');
 
 // Unpair and re-pair remove the Mac's notification keys with its other per-Mac keys.
-assert.match(core, /static let perMacKeys = \["seenSessions", "finished", "drafts"\] \+ notifyKeys/, 'perMacKeys has the notification keys');
+assert.match(core, /static let perMacKeys = \["seenSessions", "finished", "drafts", "replyRead"\] \+ notifyKeys/, 'perMacKeys has the notification keys');
 assert.doesNotMatch(core, /for k in \["seenSessions"/, 'no second list of per-Mac keys');
 assert.ok([...core.matchAll(/for k in (?:Client|Self)\.perMacKeys/g)].length >= 2, 'adopt and forget use perMacKeys');
 

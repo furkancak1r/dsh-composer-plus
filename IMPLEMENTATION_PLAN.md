@@ -80,7 +80,8 @@ Not in scope: live copy, release, npm publish, DSH restart, iPhone install.
    - Tether has no read state for reply cards: no read mark, no New label, no Mark all as read (grep of
      replyRead/reply-cards-read/cardRead in tether/ios/Sources: 0 hits; UI.swift cardHead shows only time, title and the
      For you line). So Tether has nothing to split: write that in tether/FEATURES.md (no change), do not add a phone
-     read store without a new request.
+     read store without a new request. (Superseded 2026-11-26 evening: Furkan asked for Tether at the level of Composer
+     Plus; branch feat/sync-tether-damon-features adds the phone's own read store.)
    Plan (smallest change): a card's read id is its seq for a reply without `---` (stored data stays valid) and its key
    "seq:i" for a part of a split reply; readReplyMarks also keeps strings /^\d{1,15}:\d{1,3}$/; replyUnread(mark, seq,
    key) is unread when seq > floor and neither seq nor key is in `read` (an old whole-reply mark still reads all parts);

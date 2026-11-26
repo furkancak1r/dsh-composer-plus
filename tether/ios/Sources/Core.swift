@@ -1156,7 +1156,8 @@ func markReplies(_ m: ReplyMark, _ ids: [String], _ cards: [ReplyCardID]) -> Rep
 /// Load earlier (Mac, 2026-11-26): first the cards of the newest `replyPageSize` replies, and every unread card among
 /// the newest `replyMax` replies; each tap adds `replyPageSize` older replies. `cut`: the oldest seq shown; `held`: an
 /// unread card holds the cut below the floor (the view keeps `cut` as its floor, so the card stays after you read it);
-/// `older`: Load earlier has more; `next`: the floor after one more tap; `more`: the replies past `replyMax`.
+/// `older`: Load earlier has more; `next`: the floor after one more tap; `more`: the replies past `replyMax` (always 0 with
+/// the phone's `max: .max`; kept for the shared table).
 let replyPageSize = 8, replyMax = 40
 struct ReplyPage: Equatable { var cut: Int; var held: Bool; var older: Bool; var next: Int?; var more: Int }
 /// `max`: the Mac's cap (its older replies are in the hidden chat); the phone passes `.max`, because it pages on through
@@ -1177,6 +1178,16 @@ func replyCards(_ t: [Line]) -> [ReplyCardID] {
     t.flatMap { l -> [ReplyCardID] in
         guard let s = l.seq, isCardLine(l) else { return [] }
         return l.kind == .error ? [ReplyCardID(seq: s, id: "\(s)")] : replyCardIDs(seq: s, parts: replySections(l.text).count)
+    }
+}
+/// `replyCards` of the drawn lines, kept while they are the same lines (the Mac's `replySig`): the rows only grow at the
+/// end or are made again with new ids (a rebuild), so the count and the first and last ids name them.
+final class ReplyCardCache {
+    private var key: (Int, UUID?, UUID?)?, value: [ReplyCardID] = []
+    func cards(_ t: [Line]) -> [ReplyCardID] {
+        let k = (t.count, t.first?.id, t.last?.id)
+        if let key, key == k { return value }
+        key = k; value = replyCards(t); return value
     }
 }
 /// Load earlier: the rows from the first card at or after seq `cut`, with the rows just before it (its question and
@@ -2123,7 +2134,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     static let notifyKeys = [notifyKey, hoursKey, fromKey, toKey, damonOnlyKey]
     /// Every UserDefaults key that belongs to one Mac: unpairing (and a new certificate for the same Mac) removes them.
     /// `seenSessions` is no longer written (older builds guessed dots from it); it stays here so that unpairing removes it.
-    static let perMacKeys = ["seenSessions", "finished", "drafts"] + notifyKeys
+    static let perMacKeys = ["seenSessions", "finished", "drafts", "replyRead"] + notifyKeys
     /// The values of the Mac on screen; `loadNotify` reads them when the Mac changes.
     @Published private(set) var notifyOn = false
     /// The iOS permission ask runs: the switch waits, so a second tap cannot start a second ask.

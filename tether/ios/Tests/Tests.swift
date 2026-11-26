@@ -840,6 +840,24 @@ final class CoreTests: XCTestCase {
         return { keys.forEach { d.removeObject(forKey: $0) }; c.pairings = saved; c.activeFp = savedFp }
     }
 
+    /// Damon card read marks: the first view reads the older replies once, a tap reads one topic, Mark all reads all; each
+    /// Mac keeps its own marks (saved, loaded again on a switch) and unpairing a Mac removes them.
+    @MainActor func testReplyMarksPerMac() {
+        let c = Client(), undo = twoMacs(c)
+        defer { undo() }
+        c.startReplyMarks("damon", top: 10); c.startReplyMarks("damon", top: 50)
+        XCTAssertEqual(c.replyMarks["damon"], ReplyMark(floor: 10, read: []), "the first view only")
+        let cards = replyCardIDs(seq: 20, parts: 2) + [ReplyCardID(seq: 30, id: "30")]
+        c.readReplies("damon", ["20:1"], cards: cards)
+        XCTAssertEqual(c.replyMarks["damon"], ReplyMark(floor: 10, read: ["20:1"]))
+        XCTAssertTrue(replyUnread(c.replyMarks["damon"], cards[0]), "the other topic stays New")
+        c.switchMac("b2"); XCTAssertNil(c.replyMarks["damon"], "Mac B has its own marks")
+        c.switchMac("a1"); XCTAssertEqual(c.replyMarks["damon"]?.read, ["20:1"], "Mac A's marks are kept")
+        c.readAllReplies("damon", top: 30); XCTAssertEqual(c.replyMarks["damon"], ReplyMark(floor: 30, read: []))
+        XCTAssertNotNil(UserDefaults.standard.data(forKey: macKey("replyRead", "a1", legacy: nil)))
+        c.forget(fp: "a1"); XCTAssertNil(UserDefaults.standard.data(forKey: macKey("replyRead", "a1", legacy: nil)), "unpairing removes the marks")
+    }
+
     /// Notifications: off by default and no iOS permission ask; switched on, it stays on (saved for the Mac on screen).
     @MainActor func testNotificationsSwitch() async {
         let c = Client(), undo = twoMacs(c)

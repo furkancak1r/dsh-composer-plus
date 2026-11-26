@@ -13602,6 +13602,23 @@
           }
         }
       }
+    },
+    "replies.markRead": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark as read"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Okundu say"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

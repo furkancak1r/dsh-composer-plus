@@ -1,5 +1,5 @@
 {
-  "about": "One table for the read marks and the pages of the Damon reply cards: client.js markReplies, replyUnread and replyPage, and Tether's ports in Core.swift (markReplies, replyUnread, replyPage). A read id is a reply's seq (a number) or \"seq:i\" for topic i of a split reply. Tether keeps every id as text. replyPage: the cards in time order (seqs), the floor after Load earlier (null: the first view), the unread seqs; the Mac caps at 40 replies (Tether passes no cap: it pages on through dsh's history). cut is left out when there is no card (the Mac uses Infinity).",
+  "about": "One table for the read marks and the pages of the Damon reply cards (kept by hand; test/reply-cards.test.mjs checks every want against client.js): client.js markReplies, replyUnread and replyPage, and Tether's ports in Core.swift (markReplies, replyUnread, replyPage). A read id is a reply's seq (a number) or \"seq:i\" for topic i of a split reply. Tether keeps every id as text. replyPage: the cards in time order (seqs), the floor after Load earlier (null: the first view), the unread seqs; the Mac caps at 40 replies (Tether passes no cap: it pages on through dsh's history). cut is left out when there is no card (the Mac uses Infinity).",
   "read": [
     {
       "name": "a card in the middle",

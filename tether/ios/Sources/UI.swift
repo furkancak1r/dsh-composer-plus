@@ -598,6 +598,8 @@ struct ConversationView: View {
     @State private var loadingOlder = false
     /// Damon reply cards, Load earlier: the oldest reply seq that the chat shows (nil: the newest page; `replyPage`).
     @State private var replyFloor: Int?
+    /// The cards of the drawn lines, kept while the lines stay the same (a keystroke draws the chat again).
+    @State private var cardCache = ReplyCardCache()
     /// VoiceOver: after the last Load earlier, the newest card that it added (the Mac moves the keyboard focus there).
     @AccessibilityFocusState private var replyFocus: UUID?
     /// Finished turns the user opened. A new chat starts with every finished turn folded, as DSH desktop does.
@@ -775,9 +777,10 @@ struct ConversationView: View {
                 // Damon reply cards (Mac assistantReplyCards): this phone's read marks, and Load earlier (`replyPage`): the
                 // cards of the newest 8 replies and every unread card first, 8 older replies per tap. No 40 cap: the chat
                 // and the cards are one list here, so older replies come from dsh's history (Client.loadOlder).
-                let cards = damon ? replyCards(lines) : []
+                // While the find bar is open, every loaded row shows, so each hit can be reached.
+                let cards = damon ? cardCache.cards(lines) : []
                 let mark = damon ? c.current.flatMap { c.replyMarks[$0] } : nil
-                let page = damon ? replyPage(cards, floor: replyFloor, unread: { replyUnread(mark, $0) }, max: .max) : nil
+                let page = damon && finding == nil ? replyPage(cards, floor: replyFloor, unread: { replyUnread(mark, $0) }, max: .max) : nil
                 let rows = page.map { rowsFrom(all, cut: $0.cut) } ?? all
                 let unread = cards.filter { replyUnread(mark, $0) }
                 let read = CardRead(mark: mark, newest: unread.last?.id, cards: cards)
@@ -796,7 +799,7 @@ struct ConversationView: View {
                     LazyVStack(alignment: .leading, spacing: 14, pinnedViews: .sectionHeaders) {
                         if c.hasOlder || page?.older == true {
                             Button {
-                                if let page { loadEarlierCards(page, first: rows.first?.id, proxy) } else {
+                                if let page { loadEarlierCards(page, proxy) } else {
                                     loadingOlder = true
                                     c.run(waits: false) { defer { loadingOlder = false }; try await c.loadOlder() }
                                 }
@@ -929,12 +932,13 @@ struct ConversationView: View {
     /// Load earlier in the Damon chat: 8 older replies of the loaded chat, else dsh's next history page and then 8 of its
     /// replies. The first row on screen keeps its place; with VoiceOver, the last tap moves the focus to the newest card
     /// that it added (the Mac's keyboard rule).
-    private func loadEarlierCards(_ page: ReplyPage, first: UUID?, _ proxy: ScrollViewProxy) {
+    private func loadEarlierCards(_ page: ReplyPage, _ proxy: ScrollViewProxy) {
         follow = false
         let done = { (floor: Int?) in
             replyFloor = floor
             DispatchQueue.main.async {
-                if let first { proxy.scrollTo(first, anchor: .top) }
+                // The row that was first on screen, found again by its seq: a dsh page makes every row again (new ids).
+                if let first = rowsFrom(chatRows(damonLines, open: openTurns, running: c.running), cut: page.cut).first { proxy.scrollTo(first.id, anchor: .top) }
                 let cards = replyCards(damonLines)
                 guard UIAccessibility.isVoiceOverRunning, !c.hasOlder, !replyPage(cards, floor: floor, max: .max).older,
                       let seq = cards.last(where: { $0.seq < page.cut })?.seq else { return }
@@ -973,12 +977,14 @@ struct ConversationView: View {
                             let id = ids?[i], new = id.map { replyUnread(read?.mark, $0) } ?? false
                             replyCard(unread: new, newest: new && id?.id == read?.newest) { lineContent(l, approval: approval, part: part, last: i == parts.count - 1, unread: new) }
                                 .simultaneousGesture(TapGesture().onEnded { readCard(id, read) })
+                                .accessibilityAction(named: Text(String(localized: "replies.markRead", defaultValue: "Mark as read", bundle: uiStrings))) { readCard(id, read) }
                         }
                     }
                 } else if damon, l.kind == .error {
                     let id = l.seq.map { ReplyCardID(seq: $0, id: "\($0)") }, new = id.map { replyUnread(read?.mark, $0) } ?? false
                     replyCard(unread: new, newest: new && id?.id == read?.newest) { lineContent(l, approval: approval, part: "", unread: new) }
                         .simultaneousGesture(TapGesture().onEnded { readCard(id, read) })
+                        .accessibilityAction(named: Text(String(localized: "replies.markRead", defaultValue: "Mark as read", bundle: uiStrings))) { readCard(id, read) }
                 }
                 else { lineContent(l, approval: approval) }
             case .turn(let l, let foldable):
@@ -999,7 +1005,7 @@ struct ConversationView: View {
     private func replyCard(unread: Bool = false, newest: Bool = false, @ViewBuilder _ content: () -> some View) -> some View {
         let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
         return VStack(alignment: .leading, spacing: 10) { content() }
-            .padding(14).padding(.leading, unread ? 2 : 0).frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14).padding(.leading, 2).frame(maxWidth: .infinity, alignment: .leading)
             .background(Color(.secondarySystemBackground), in: shape)
             .overlay(alignment: .leading) { if unread { Rectangle().fill(Color.accentColor).frame(width: 4) } }
             .clipShape(shape)
@@ -1042,8 +1048,12 @@ struct ConversationView: View {
         let target = c.current == j.sessionId ? jumpTarget(chatRows(c.transcript, open: openTurns, running: c.running), seq: j.seq) : nil
         if c.jump == j { c.jump = nil }
         guard let target else { c.error = String(localized: "This message is not in the chat any more."); return }
-        if damon, j.seq < replyFloor ?? .max { // Load earlier: the page reaches the message before the scroll
-            replyFloor = j.seq; try? await Task.sleep(for: .milliseconds(100))
+        // Load earlier: when the target row is above the page, the page starts at the first card at or after it (its rows
+        // go back to the card before), before the scroll.
+        if damon, let s = c.transcript.first(where: { $0.id == target })?.seq {
+            let cards = cardCache.cards(damonLines), mark = c.current.flatMap { c.replyMarks[$0] }
+            let cut = replyPage(cards, floor: replyFloor, unread: { replyUnread(mark, $0) }, max: .max).cut
+            if let need = cards.first(where: { $0.seq >= s })?.seq, need < cut { replyFloor = need; try? await Task.sleep(for: .milliseconds(100)) }
         }
         follow = false
         withAnimation { proxy.scrollTo(target, anchor: .center) }
