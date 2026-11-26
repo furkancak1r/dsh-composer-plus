@@ -123,6 +123,10 @@ export async function fakeModel(calls = [], lang = 'tr') {
       // Damon reply cards (test/browser-status-canvas.mjs): "DEMO-REPLY-CARD" gets one answer with a bold title, a Senden
       // line, a closed details section, an `onay` block and an option list (one card with Onayla and option buttons).
       if (damonStep && newest.trim() === 'DEMO-REPLY-CARD') return say(S.card);
+      // test/browser-reply-pages.mjs: "DEMO-REPLY <n>" gets a short made-up update (one card each).
+      const update = damonStep ? /^DEMO-REPLY (\d{1,3})$/.exec(newest.trim()) : null;
+      if (update !== null) return say(lang === 'en' ? `**Update ${update[1]}: the sample task is done.** Step ${update[1]} of the acme-web demo is complete; nothing real ran.`
+        : `**Güncelleme ${update[1]}: örnek iş bitti.** acme-web örneğinin ${update[1]}. adımı tamamlandı; gerçek bir iş yapılmadı.`);
       if (damonStep && newest.trim() === 'DEMO-AUTO-SETUP') {
         const at = new Date(Date.now() + 8000).toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
         // The answer repeats the `onay` block: a block counts only after your newest message.

@@ -2855,6 +2855,7 @@
     "replies.choice": "Choisissez une option",
     "replies.none": "Pas encore de réponse.",
     "replies.more": "{count} réponses plus anciennes sont dans le chat (Afficher le chat).",
+    "replies.loadEarlier": "Charger les précédents",
     "canvas.onlyMine": "Seulement ce qui m'attend",
     "canvas.home": "Revenir à {name}",
     "canvas.hint": "Glisser : déplacer · Molette : zoom · Flèches, + et −",

@@ -2855,6 +2855,7 @@
     "replies.choice": "एक विकल्प चुनें",
     "replies.none": "अभी कोई उत्तर नहीं।",
     "replies.more": "{count} पुराने उत्तर चैट में हैं (चैट दिखाएँ)।",
+    "replies.loadEarlier": "पहले के लोड करें",
     "canvas.onlyMine": "केवल जो मेरी प्रतीक्षा में है",
     "canvas.home": "{name} पर लौटें",
     "canvas.hint": "खींचें: घुमाएँ · व्हील: ज़ूम · तीर कुंजियाँ, + और −",

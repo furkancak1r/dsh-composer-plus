@@ -4519,6 +4519,7 @@
     "replies.choice": "Bir seçenek seç",
     "replies.none": "Henüz yanıt yok.",
     "replies.more": "{count} eski yanıt sohbette (Sohbeti göster).",
+    "replies.loadEarlier": "Öncekileri yükle",
     "canvas.onlyMine": "Yalnız bana bekleyenler",
     "canvas.home": "{name}'a dön",
     "canvas.hint": "Sürükle: gez · Tekerlek: yakınlaş · Ok tuşları, + ve −",

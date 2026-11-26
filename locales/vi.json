@@ -2855,6 +2855,7 @@
     "replies.choice": "Chọn một phương án",
     "replies.none": "Chưa có câu trả lời.",
     "replies.more": "{count} câu trả lời cũ hơn nằm trong cuộc trò chuyện (Hiện cuộc trò chuyện).",
+    "replies.loadEarlier": "Tải cũ hơn",
     "canvas.onlyMine": "Chỉ việc đang chờ tôi",
     "canvas.home": "Về {name}",
     "canvas.hint": "Kéo: di chuyển · Con lăn: thu phóng · Phím mũi tên, + và −",
