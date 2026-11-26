@@ -37,10 +37,47 @@ Not in scope: live copy, release, npm publish, DSH restart, iPhone install.
    test/fixtures/reply-sections.json); the options only on the last part; the Approve buttons on the part with the block;
    ASSISTANT_SECTION asks for one topic per card.
 
+8. Per-part read state (added 2026-11-26 10:40, "ayrı konuları ayrı yazsan da hepsine tek okundu geliyor ama farklı
+   okundular gelmesi lazım"). OPEN, not started. Findings (verified in code):
+   - The read state lives only in the Mac browser: localStorage `dsh-composer-plus.reply-cards-read` (client.js
+     REPLY_READ_KEY ~4304), `{ [chat]: { floor, read: [seq] } }`. readReplyMarks (~4425) keeps only integer seqs;
+     markReplies (~4434) moves the floor over seqs; replyUnread(mark, seq) (~4439).
+   - Every caller passes the reply's seq: ReplyCard `read = () => onRead?.(card.seq)` (~4555); ReplyFeed unread and
+     ReplyCard props (~4627, ~4660); the canvas island and replyEl (~5187-5194); onSelCard reads `key.split(':')[0]`
+     (~5190). The parts of a split reply share one seq (replyCardsOf key `${seq}:${i}`), so one click reads all parts:
+     this is the cause of Furkan's report.
+   - Tether has no read state for reply cards: no read mark, no New label, no Mark all as read (grep of
+     replyRead/reply-cards-read/cardRead in tether/ios/Sources: 0 hits; UI.swift cardHead shows only time, title and the
+     For you line). So Tether has nothing to split: write that in tether/FEATURES.md (no change), do not add a phone
+     read store without a new request.
+   Plan (smallest change): a card's read id is its seq for a reply without `---` (stored data stays valid) and its key
+   "seq:i" for a part of a split reply; readReplyMarks also keeps strings /^\d{1,15}:\d{1,3}$/; replyUnread(mark, seq,
+   key) is unread when seq > floor and neither seq nor key is in `read` (an old whole-reply mark still reads all parts);
+   markReplies moves the floor over a seq only when the seq or all its part keys are read, and drops ids at or below the
+   floor; every caller passes the card (feed, canvas island, side panel onSelCard by card key). Docs: one sentence in the
+   13 `how` texts and llms. Tests: unit (two parts, read one, the other stays unread; reload keeps it; old numeric mark
+   reads all; floor moves only when all parts are read); browser-reply-order step: click the first card of the
+   DEMO-TWO-TOPICS reply, the second stays New, after a reload too; screenshots iki-konu-okundu-once.png (on the code
+   before the change) and iki-konu-okundu-sonra.png in the screenshot folder.
+
 ## Last checkpoint
-- 2026-11-26 10:10: phases 1-3 and the card split done (commit after aa1a2de9). Last passing: `npm test` exit 0;
-  browser-reply-order and browser-status-canvas PASS on 0.2.2-rc.5, 0.2.0-rc.2, 0.2.1-rc.2; iOS 124 tests, 0 failures.
-  After shots in the folder. Open: review rounds, update from origin/main, merge, push.
+- 2026-11-26 10:45 (about 170 tool calls: handover). Committed: review round 1 (P1 0, P2 0, P3 2, P4 6) fixes:
+  the Settings image assets/features/assistantReplyCards.webp again (SHOT=1, only this file changed), a browser step for
+  the scroll follow (a growing card at the bottom stays at the bottom; after a scroll up it does not jump), the limit
+  counts replies (a split reply shows whole) and the unread count reads the shown cards, no aria-pressed on the icon,
+  the prompt rule names the reply cards, the Swift fence regex uses JS `.`.
+- Last passing: `npm test` exit 0; `TMPDIR=$PWD/build/t PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-reply-order.mjs <0.2.2-rc.5> <0.2.0-rc.2> <0.2.1-rc.2>` PASS x3;
+  browser-status-canvas PASS x3 (tr) and PASS 0.2.2-rc.5 (LANG_UI=en).
+- iOS: full suite 124 tests, 1 failure twice after the round-1 fixes: CoreTests/testPutShowsNewText ("the keyboard stays
+  open", composer focus, not a card test). It passes alone (2 of 2), and the full suite passed twice earlier on this
+  branch (aa1a2de9: 123 tests; 441a333c: 124 tests). Not verified: whether it is a flake of the simulator or caused by
+  this branch; next: run the full suite on main f86a0a4c in a temp worktree for comparison.
+- Not verified: the SHOT=1 run of browser-status-canvas (deviceScaleFactor 2) failed later at step 3 ("a sideways wheel
+  moves the canvas") after it wrote the image; the same test without SHOT passed. Whether SHOT=1 also fails on main is
+  not checked.
+- Open steps, in order: 8 (per-part read state, Mac only) -> tests -> review-guard round 2 on the final diff (separate
+  subagent; repeat until a round is clean) -> fix the findings -> update from origin/main -> tests again -> merge into
+  main and push. No live copy, no release, no DSH restart, no iPhone install.
 
 # Damon canvas like the HTML mockup + reply cards (branch feat/canvas-match-html-mockup, 2026-11-25)
 

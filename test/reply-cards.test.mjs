@@ -230,7 +230,7 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   const one = replyCardsOf(chatOf([step(1, 0, 30, [txt('**Tek.** Metin.\n\n```\n---\n```')]), tail(1, 30)]));
   assert.deepEqual(one.map((c) => c.key), ['30:0'], '--- in a code block: one card');
   // The prompt asks for it.
-  assert.match(read('index.js'), /- One reply card holds one topic: each part of a reply between lines of only \\`---\\` shows as its own card\. When a reply must also report an independent topic, put a line \\`---\\` before it and start that part with its own bold line[^\n]*Do not add a side topic that needs nothing from the user\./, 'the reply-form rule in the assistant prompt');
+  assert.match(read('index.js'), /- One reply card holds one topic: the reply cards show each part of a reply between lines of only \\`---\\` as its own card\. When a reply must also report an independent topic, put a line \\`---\\` before it and start that part with its own bold line[^\n]*Do not add a side topic that needs nothing from the user\./, 'the reply-form rule in the assistant prompt');
 }
 
 // The chat's feed (Furkan, 2026-11-26: "yeni gelen kart en altta gözüksün"): time order, the oldest on top, the newest
@@ -253,6 +253,19 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   assert.deepEqual(seqs, many.slice(-REPLY_MAX).map((n) => n.data.finalNode.seq), 'the newest REPLY_MAX cards, oldest on top, newest at the bottom');
   assert.deepEqual(arts.filter((n) => n.p.newest).map((n) => n.p.card.seq), [420], 'the shadow on the newest unread card');
   assert.deepEqual(arts.filter((n) => n.p.unread).map((n) => n.p.card.seq), [400, 420], 'unread marks stay');
+  // A split reply at the limit shows whole: the limit counts replies (seqs), not cards.
+  {
+    const split = chatOf([...many.slice(-REPLY_MAX), step(99, 0, 990, [txt('Bir.\n---\nİki.')])]);
+    const st = [split, true, { left: 0, top: 0, width: 800, height: 500 }]; const R0 = React.useState;
+    React.useState = (v) => [st.length > 0 ? st.shift() : typeof v === 'function' ? v() : v, () => {}];
+    const r2 = { ...replies, chatOf: () => ({ subscribe: () => () => {}, getSnapshot: () => split }) };
+    const t2 = ReplyFeed({ sessionId: 's', host, replies: r2, shown: store(false), statusSeats: { subscribe: () => () => {}, getSnapshot: () => new Map() }, offers: { subscribe: () => () => {}, of: () => undefined, choiceOf: () => undefined }, picks: {}, locale: () => 'tr', t });
+    React.useState = R0;
+    const a2 = find(t2, (n) => n.t === ReplyCard).map((n) => n.p.card.key);
+    assert.equal(a2.length, REPLY_MAX + 1, 'the newest 40 replies with both parts of the split one'); assert.deepEqual(a2.slice(-2), ['990:0', '990:1']);
+    assert.equal(text(find(t2, (n) => n.p?.className === 'cp-rf-note')[0]), `replies.more:${JSON.stringify({ count: 1 })}`, 'the hidden replies (41 replies, the newest 40 show)');
+    assert.equal(find(t2, (n) => n.p?.['data-reply-unread'] !== undefined)[0].p['data-reply-unread'], String(find(t2, (n) => n.t === ReplyCard && n.p.unread).length), 'the unread count: the shown cards');
+  }
   const note = find(tree, (n) => n.p?.className === 'cp-rf-note');
   assert.equal(text(note[0]), `replies.more:${JSON.stringify({ count: 3 })}`, 'the note of the older replies is above the cards');
   const inner = find(tree, (n) => n.p?.className === 'cp-rf-in')[0];

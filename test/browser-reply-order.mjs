@@ -118,8 +118,15 @@ try {
       });
       await toggle.click();
       await until(async () => (await feed.count()) === 0, 'the toggle shows the chat', 5000);
-      m.toggle.afterClick = { label: await toggle.getAttribute('aria-label'), title: await toggle.getAttribute('title'), state: await toggle.getAttribute('data-composer-plus-chat-toggle'), pressed: await toggle.getAttribute('aria-pressed') };
-      await toggle.click(); await feed.waitFor({ timeout: 10000 });
+      m.toggle.afterClick = { label: await toggle.getAttribute('aria-label'), title: await toggle.getAttribute('title'), state: await toggle.getAttribute('data-composer-plus-chat-toggle') };
+      await toggle.click(); await feed.waitFor({ timeout: 10000 }); await pause(500);
+      // The follow: at the bottom, a card that grows (its details opened) keeps the feed at the bottom; after a scroll up,
+      // a card that grows does not move the feed to the bottom.
+      const grow = () => feed.evaluate((f) => { const d = [...f.querySelectorAll('article.cp-rc details')].at(-1); d.open = !d.open; });
+      await feed.evaluate((f) => { f.scrollTop = f.scrollHeight; }); await pause(300);
+      await grow(); await pause(500); m.follow = { grownAtEnd: (await feedState(page)).atEnd };
+      await grow(); await pause(300); await feed.evaluate((f) => { f.scrollTop = Math.max(0, f.scrollTop - 250); }); await pause(300);
+      await grow(); await pause(500); m.follow.grownAfterScrollUp = (await feedState(page)).atEnd; await grow();
       // 5. A reply with two independent topics split by a `---` line: two cards with their own titles (a `---` in a code
       // block does not split).
       await ask('DEMO-TWO-TOPICS'); await pause(500);
@@ -144,7 +151,8 @@ try {
       assert.deepEqual([m.toggle.icon, m.toggle.text, m.toggle.label, m.toggle.title, m.toggle.state], [true, '', 'Sohbeti göster', 'Sohbeti göster', 'show'], `the toggle is an icon named Sohbeti göster: ${JSON.stringify(m.toggle)}`);
       assert.ok(m.toggle.className.split(' ').includes('cp-td-btn') && m.toggle.sameRow, 'in the row of the header icons, with their class');
       assert.deepEqual([m.toggle.size, m.toggle.color], [m.toggle.refSize, m.toggle.refColor], 'the same size and color as the other icons');
-      assert.deepEqual(m.toggle.afterClick, { label: 'Sohbeti gizle', title: 'Sohbeti gizle', state: 'hide', pressed: 'true' }, 'a click shows the chat');
+      assert.deepEqual(m.toggle.afterClick, { label: 'Sohbeti gizle', title: 'Sohbeti gizle', state: 'hide' }, 'a click shows the chat');
+      assert.deepEqual(m.follow, { grownAtEnd: true, grownAfterScrollUp: false }, 'the feed follows a growing card only while at the bottom');
       assert.deepEqual(m.twoTopics.map((c) => c.title), ['Kur kolonu dört firmada aynı raporlarda.', 'Yerel model 11 dakika kapalı kaldı.'], 'two topics: two cards, each with its title');
       assert.match(m.twoTopics[0].forYou, /4 raporu/, 'the first card keeps its Senden line');
       assert.deepEqual(errors, [], 'no page errors');

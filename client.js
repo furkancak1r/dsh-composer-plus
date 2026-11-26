@@ -4305,7 +4305,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
     const REPLY_SHOWN_KEY = 'dsh-composer-plus.assistant-chat-shown';
     const REPLY_FEED_ATTR = 'data-composer-plus-reply-feed';
     const REPLIES_ATTR = 'data-composer-plus-replies'; // on dsh's chat body while the cards cover the chat
-    const REPLY_MAX = 40; // ponytail: the feed shows the newest 40 cards; older replies are in the chat (Sohbeti göster)
+    const REPLY_MAX = 40; // ponytail: the feed shows the newest 40 replies (all their cards); older replies are in the chat (Sohbeti göster)
     const replyMemo = new WeakMap();
     /** The cards of a chat snapshot (dsh's chat nodes): `{ kind: 'reply', seq, turn, time, text }` for each settled reply
      * that the chat shows (a step with text and no tool call, or its turn's closing answer), not only `[quiet]` and not in a
@@ -4619,8 +4619,12 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       React.useLayoutEffect(() => { if (box === null) return undefined; host.setAttribute?.(REPLIES_ATTR, 'hidden'); return () => host.removeAttribute?.(REPLIES_ATTR); }, [host, box === null]);
       // Time order, as in a chat (Furkan, 2026-11-26: "yeni gelen kart en altta gözüksün"): the oldest card on top, the
       // newest at the bottom; the newest REPLY_MAX cards show.
-      const shownCards = cards.slice(-REPLY_MAX);
-      const unread = cards.filter((c) => replyUnread(mark, c.seq));
+      // The parts of one reply (replySections) share its seq: the limit counts replies, so a reply shows whole.
+      const replySeqs = [...new Set(cards.map((c) => c.seq))];
+      const cut = replySeqs.length > REPLY_MAX ? replySeqs[replySeqs.length - REPLY_MAX] : -Infinity;
+      const shownCards = cards.filter((c) => c.seq >= cut);
+      // The read mark is per reply (seq): reading one part reads all parts of the reply.
+      const unread = shownCards.filter((c) => replyUnread(mark, c.seq));
       const lastUnread = unread.at(-1)?.key ?? null;
       // The newest card is in view when the feed opens and when a new card comes. While you are at the bottom, the feed
       // stays there when a card or the feed changes its height (dsh's Markdown, a closed details section, the window);
@@ -4651,7 +4655,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
             React.createElement('span', { className: 'cp-rf-grow' }),
             unread.length === 0 ? null : React.createElement('button', { type: 'button', className: 'cp-rc-btn', 'data-reply-read-all': '', onClick: readAll }, t('replies.readAll')),
             panel ? null : toggle(true)), // with the status panel, its header has the toggle
-          cards.length > REPLY_MAX ? React.createElement('p', { className: 'cp-rf-note' }, t('replies.more', { count: new Set(cards.slice(0, -REPLY_MAX).map((c) => c.seq)).size })) : null,
+          replySeqs.length > REPLY_MAX ? React.createElement('p', { className: 'cp-rf-note' }, t('replies.more', { count: replySeqs.length - REPLY_MAX })) : null,
           cards.length === 0 ? React.createElement('p', { className: 'cp-rf-note' }, t('replies.none')) : null,
           shownCards.map((card) => React.createElement(ReplyCard, { key: card.key, card, sessionId, unread: replyUnread(mark, card.seq), newest: card.key === lastUnread,
             offerNow, choiceNow, picks, t, lang, failure, onRead: (seq) => read([seq]) }))));
@@ -5169,7 +5173,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       // bubble (dsh's primitives have no chat bubble; IconNewChat means a new chat), struck through while the chat shows.
       const chatLabel = t(chatIsShown ? 'replies.hideChat' : 'replies.showChat');
       const chatToggle = !replyOn || chatShown === undefined ? null : React.createElement('button', { key: 'chat', type: 'button', className: 'cp-td-btn', 'data-composer-plus-chat-toggle': chatIsShown ? 'hide' : 'show',
-        'aria-pressed': chatIsShown, 'aria-label': chatLabel, title: chatLabel, onClick: () => chatShown.set(!chatIsShown) },
+        'aria-label': chatLabel, title: chatLabel, onClick: () => chatShown.set(!chatIsShown) },
         lineIcon(`M3.5 3h9a1.5 1.5 0 0 1 1.5 1.5v5a1.5 1.5 0 0 1-1.5 1.5H7l-3 2.5V11h-.5A1.5 1.5 0 0 1 2 9.5v-5A1.5 1.5 0 0 1 3.5 3zM5 6h6M5 8h4${chatIsShown ? 'M2 2l12 12' : ''}`));
       escRef.current = closeCanvas;
       if (canvas) {

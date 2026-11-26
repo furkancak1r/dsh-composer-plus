@@ -146,7 +146,7 @@ try {
       await toggle.click();
       await until(async () => (await feed.count()) === 0, 'Sohbeti göster shows the chat', 5000);
       assert.equal(await scroller.evaluate((el) => getComputedStyle(el).visibility), 'visible', 'the chat shows');
-      assert.equal(await toggle.getAttribute('aria-pressed'), 'true');
+      assert.equal(await toggle.getAttribute('aria-label'), EN ? 'Hide the chat' : 'Sohbeti gizle', 'the icon names the next action');
       assert.deepEqual(await timeCovered(), [], 'no button covers the list time (chat shown)');
       await shot('sohbet-acik');
       await page.reload();

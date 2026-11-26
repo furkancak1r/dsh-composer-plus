@@ -1041,7 +1041,7 @@ func mdCallouts(_ parts: [MdPart]) -> [MdBlock] {
 /// and a `[!DETAILS]` section are not text there (the Mac shows them as buttons and a closed section). `body` is the reply
 /// without the title and the For you line: the chat's Markdown draws it, with its Approve and option buttons.
 struct ReplyHead: Equatable { var title = "", forYou = "", body = "" }
-private let sectionFenceRE = try! NSRegularExpression(pattern: #"^ {0,3}(`{3,}|~{3,})(.*)$"#)
+private let sectionFenceRE = try! NSRegularExpression(pattern: #"^ {0,3}(`{3,}|~{3,})([^\n\r\u2028\u2029]*)$"#)
 private let sectionRuleRE = try! NSRegularExpression(pattern: #"^ {0,3}-{3,}[ \t]*$"#)
 /// The topics of a reply, one card each (client.js `replySections`, one table: test/fixtures/reply-sections.json): the
 /// parts between `---` lines outside a code block or an `onay` block, trimmed, without empty parts.
