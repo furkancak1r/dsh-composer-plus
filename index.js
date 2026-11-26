@@ -12212,9 +12212,10 @@ const GUESS_WORDS = new RegExp(String.raw`(?<![\p{L}\p{N}])(?<![\p{L}\p{N}_][._/
 // rescans the text behind it (a text of 300k opening marks stays linear). QUOTED stays as it is: selfQuotes uses it.
 const GUESS_QUOTED = new RegExp(String.raw`"[^"\n]{1,2000}"|“[^“”\n]{1,2000}”|(?<![\p{L}\p{N}])'(?:[^'\n]|(?<=[\p{L}\p{N}])'(?=\p{L})){1,2000}?'(?![\p{L}\p{N}])|‘(?:[^‘’\n]|’(?=\p{L})){1,2000}?’(?![\p{L}\p{N}])`, 'gu');
 const blankOut = (m) => ' '.repeat(m.length);
-/** The text of `raw` that guessWords reads: a plain `>` quote line, a nested `> >` line and a fenced code block (also one
- * inside a callout box) are spaces, the same length. A callout box (`> [!DETAILS] …` and its `>` lines) is Damon's own
- * text: its first `>` becomes a space and its body goes through blankFences on its own. */
+/** The text of `raw` that guessWords reads. A plain `>` quote line, a nested `> >` line and a fenced code block (also one
+ * inside a callout box) become spaces, the same length (a nested line becomes an empty line in the box). A callout box
+ * (`> [!DETAILS] …` and its `>` lines) is Damon's own text: each of its lines loses its `> ` prefix (so the line is
+ * shorter, and an indented fence is found), and the body goes through blankFences on its own. */
 const guessText = (raw) => {
   const lines = blankFences(raw).split('\n'); const out = []; let box = []; let quote = false; // quote: the line before is a `>` line
   // A for loop, not push(...rows): a callout of 150k lines would overflow the call stack.
@@ -12222,7 +12223,7 @@ const guessText = (raw) => {
   let callout = false;
   for (const line of lines) {
     if (!/^ {0,3}>/.test(line)) { close(); callout = false; quote = false; out.push(line); continue; }
-    // The client marks a quote as a callout only when its first line is the marker (client.js cardMark).
+    // The client marks a quote as a callout only when its first line is the marker (client.js CALLOUT_MARK and calloutOf).
     if (!quote && /^ {0,3}>\s*\[![A-Za-z]+\]/.test(line)) { close(); callout = true; }
     quote = true;
     const body = line.replace(/^ {0,3}> ?/, ''); // the box body without its prefix, so an indented fence is found
@@ -12244,7 +12245,7 @@ export function guessWords(text) {
   const words = []; let context;
   for (const line of guessText(raw).split('\n')) {
     if (!GUESS_LOOSE.test(line.toLocaleLowerCase('tr'))) continue;
-    const clean = line.replace(/`[^`\n]*`/g, blankOut).replace(/\]\((?:[^()\n]|\([^()\n]*\))*\)/g, blankOut).replace(/https?:\/\/[^\s<>)\]]*/gi, blankOut).replace(GUESS_QUOTED, blankOut);
+    const clean = line.replace(/`[^`\n]*`/g, blankOut).replace(/\]\((?:\\.|[^()\n\\]|\((?:\\.|[^()\n\\]|\((?:\\.|[^()\n\\])*\))*\))*\)/g, blankOut).replace(/https?:\/\/[^\s<>)\]]*/gi, blankOut).replace(GUESS_QUOTED, blankOut);
     // toLocaleLowerCase('tr') keeps the length (İ → i, I → ı), so a place in the lower case text is a place in `clean`.
     for (const m of clean.toLocaleLowerCase('tr').matchAll(GUESS_WORDS)) {
       context ??= clean.slice(m.index, m.index + 40).replace(/\s+/g, ' ').trim();

@@ -306,6 +306,15 @@ await check('item 5: a guess word in an answer', async () => {
   assert.deepEqual(host.guessWords('> [!NOTE]\n> a\n> [!TIP]\n> muhtemelen').words, ['muhtemelen'], 'a second marker inside the box is body text');
   // Final review round 2 (P4): the callout ends the open fence; the line after it counts.
   assert.deepEqual(host.guessWords('> [!NOTE] Kod\n> ```text\n> galiba\nSonuç: sanırım doğru.').words, ['sanırım'], 'the line after the callout counts, its open fence does not');
+  // Final review round 3 (P4): a link target with two levels of parentheses or an escaped parenthesis is cut whole.
+  assert.deepEqual(host.guessWords('Bak [x](docs/a_(b_(muhtemelen))) tamam.').words, [], 'two levels of parentheses');
+  assert.deepEqual(host.guessWords('Bak [x](a\\(muhtemelen) tamam.').words, [], 'an escaped parenthesis');
+  assert.deepEqual(host.guessWords('Bak [x](docs/a_(b_(c))) ve galiba.').words, ['galiba'], 'the text after such a target counts');
+  for (const unit of ['](\\', '](\\(', '](a(b(']) {
+    const big = `${unit.repeat(Math.floor(300000 / unit.length))} galiba`; const t = performance.now();
+    assert.deepEqual(host.guessWords(big).words, ['galiba'], `the word after 300k characters of ${unit}`);
+    assert.ok(performance.now() - t < 300, `300k characters of ${unit} are fast (${Math.round(performance.now() - t)} ms)`);
+  }
   // The limit of ponytail: the ASCII spelling is not a word of the list.
   assert.deepEqual(host.guessWords('Sanirim, buyuk olasilikla ve galibA yok.').words, ['galiba'], 'only the Turkish spelling');
   assert.deepEqual(host.guessWords('Sanirim, buyuk olasilikla.').words, [], 'the ASCII spelling is not found');
