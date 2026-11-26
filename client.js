@@ -4692,13 +4692,15 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         const place = kept.current; kept.current = null; const f = feedRef.current;
         if (place === null || f == null) return;
         if (place.card?.isConnected) { const moved = place.card.getBoundingClientRect().top - place.top; if (Math.abs(moved) > 0.5) f.scrollTop += moved; }
-        // The button had the focus and is gone (all shown): the focus goes to the first card that the click added.
-        if (place.focus && f.querySelector?.('[data-reply-older]') == null) [...f.querySelectorAll('article.cp-rc')].find((el) => Number(el.dataset.reply) < place.cut)?.focus?.({ preventScroll: true });
+        // A keyboard click and the button is gone (all shown): the focus goes to the newest card that the click added (just
+        // above the cards that showed), and that card comes into view with the smallest move.
+        const next = place.focus && f.querySelector?.('[data-reply-older]') == null ? [...f.querySelectorAll('article.cp-rc')].filter((el) => Number(el.dataset.reply) < place.cut).at(-1) : undefined;
+        if (next !== undefined) { next.focus?.({ preventScroll: true }); next.scrollIntoView?.({ block: 'nearest' }); }
       }, [floor]);
       const loadEarlier = (ev) => {
         const f = feedRef.current; const top = f?.getBoundingClientRect().top ?? 0;
         const card = [...(f?.querySelectorAll('article.cp-rc') ?? [])].find((el) => el.getBoundingClientRect().bottom > top);
-        kept.current = { card, top: card?.getBoundingClientRect().top ?? 0, cut: page.cut, focus: ev?.currentTarget != null && ev.currentTarget === globalThis.document?.activeElement };
+        kept.current = { card, top: card?.getBoundingClientRect().top ?? 0, cut: page.cut, focus: ev?.detail === 0 }; // detail 0: Enter or Space, not a pointer
         follow.current = false; // the cards that come above must not move the feed to its bottom
         setFloor(page.next);
       };

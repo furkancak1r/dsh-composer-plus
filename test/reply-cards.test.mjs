@@ -419,20 +419,22 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   const inner = find(out, (n) => n.p?.className === 'cp-rf-in')[0].c.flat(Infinity).filter((c) => c !== null);
   assert.deepEqual([inner.findIndex((c) => c.p?.className === 'cp-rf-older'), inner.findIndex((c) => c.t === ReplyCard)], [1, 2], 'above the cards, at the older end');
   // The click keeps the first card on screen at its place (a fake feed: the card moves 200 px down as cards come above).
-  const section = find(out, (n) => n.t === 'section')[0]; let cardTop = 100; const focused = [];
-  const fakeCard = (seq) => ({ isConnected: true, dataset: { reply: String(seq) }, getBoundingClientRect: () => ({ top: cardTop, bottom: cardTop + 50 }), focus: () => focused.push(seq) });
-  const feedEl = { scrollTop: 40, getBoundingClientRect: () => ({ top: 0 }), querySelector: () => null, querySelectorAll: () => [fakeCard(10), fakeCard(40), fakeCard(120), fakeCard(200)] };
+  const section = find(out, (n) => n.t === 'section')[0]; let cardTop = 100; const focused = []; const shownBy = []; let buttonLeft = true;
+  const fakeCard = (seq) => ({ isConnected: true, dataset: { reply: String(seq) }, getBoundingClientRect: () => ({ top: cardTop, bottom: cardTop + 50 }), focus: () => focused.push(seq), scrollIntoView: (o) => shownBy.push([seq, o?.block]) });
+  const feedEl = { scrollTop: 40, getBoundingClientRect: () => ({ top: 0 }), querySelector: (q) => (q === '[data-reply-older]' && buttonLeft ? {} : null), querySelectorAll: () => [fakeCard(10), fakeCard(20), fakeCard(40), fakeCard(120), fakeCard(200)] };
   section.p.ref.current = feedEl;
   const before = cardsOf(out);
-  older.p.onClick({ currentTarget: older }); cardTop = 300; out = render();
+  // A keyboard click (Enter or Space: event detail 0) while the button stays: the focus stays on the button.
+  older.p.onClick({ currentTarget: older, detail: 0 }); cardTop = 300; out = render();
+  assert.deepEqual([focused, shownBy], [[], []], 'the button stays: no focus move');
   assert.equal(feedEl.scrollTop, 240, 'the first card on screen keeps its place');
   assert.deepEqual(cardsOf(out).slice(-8), before, 'the first page stays as it was, at the bottom (order, read and New marks)');
   assert.deepEqual(cardsOf(out).map((c) => c.seq).slice(0, 8), [50, 60, 70, 80, 90, 100, 110, 120], 'the next 8, above them');
   older = olderOf(out); assert.equal(older.p['data-reply-older'], '16');
-  // The last click with the keyboard: the button goes, the focus goes to the first card that the click added (in the
-  // list's order: where the button was).
-  globalThis.document.activeElement = older; older.p.onClick({ currentTarget: older }); out = render(); delete globalThis.document.activeElement;
-  assert.deepEqual(focused, [10], 'the focus on the first card that the last click added (below seq 50)'); section.p.ref.current = null;
+  // The last click with the keyboard: the button goes, the focus goes to the newest card that the click added (just above
+  // the cards that showed, below seq 50), and that card comes into view with the smallest move.
+  buttonLeft = false; older.p.onClick({ currentTarget: older, detail: 0 }); out = render();
+  assert.deepEqual([focused, shownBy], [[40], [[40, 'nearest']]], 'the focus on the newest added card, in view'); section.p.ref.current = null;
   assert.equal(cardsOf(out).length, 20); assert.equal(olderOf(out), undefined, 'all shown: no button');
   assert.equal(find(out, (n) => n.p?.className === 'cp-rf-note').length, 0, 'no note under 40 replies');
   // Read marks still work on a card of a later page; a new reply shows at once.
@@ -452,6 +454,9 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   assert.equal(olderOf(out).p['data-reply-older'], '18', 'Load earlier for the 2 older ones');
   // dsh's own label (its chat.loadOlder now, e.g. dsh 0.2.2's German "Früher laden"), else our copy.
   props.loadOlder = () => 'Früher laden'; out = render(); assert.equal(text(olderOf(out)), 'Früher laden', "dsh's own label");
+  // The last click with the mouse (event detail 1; Chromium also focuses a clicked button): no focus move, no scroll.
+  find(out, (n) => n.t === 'section')[0].p.ref.current = feedEl; olderOf(out).p.onClick({ currentTarget: olderOf(out), detail: 1 }); out = render();
+  assert.deepEqual([cardsOf(out).length, olderOf(out), focused, shownBy], [20, undefined, [40], [[40, 'nearest']]], 'a mouse click: all shown, the focus stays');
   props.sessionId = 'feed'; delete props.loadOlder;
   // The click stops the follow to the bottom, so the cards that come above do not move the feed (a structure check: the
   // mock runs no ResizeObserver; test/browser-reply-pages.mjs measures it).

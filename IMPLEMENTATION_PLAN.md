@@ -4840,3 +4840,10 @@ Objective (Furkan, 2026-11-24): "sürüyor kısmında damonın yapacağı ve akt
   and browser-status-canvas on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5; (4) review-guard round 3 (separate subagent) until
   clean; (5) merge into main --no-ff, npm test on main, push. No live copy, no release, Tether app unchanged.
 - Last passing: `npm test` exit 0 (111b9600); browser-reply-pages PASS x3 (111b9600); browser-status-canvas PASS x3 (d1dfdb14).
+- 2026-11-26 16:5x (Furkan's approval of the review-2 fixes): applied. Keyboard click = `ev.detail === 0` (a mouse click
+  does not move the focus); after the last keyboard click the focus goes to the newest added card and
+  `scrollIntoView({ block: 'nearest' })`. Unit test: keyboard click with the button left (no move), last keyboard click
+  (focus 40, in view), last mouse click (no move). features.json llms text + llms.txt; README.pt-BR.md note.
+  `npm test` exit 0 (one earlier run stopped in test/complete.test.mjs "unsettled top-level await", exit 13; the test
+  passed alone 3 of 3 and the next full run passed). browser-reply-pages and browser-status-canvas PASS on 0.2.0-rc.2,
+  0.2.1-rc.2, 0.2.2-rc.5. Next: review-guard round 3.
