@@ -36,7 +36,11 @@ Scope: Tether only (and shared tables, docs). No phone install, no signing, no l
     branch does not change that test or client.js. The same run passed at 00:05.
   - Markdown images in Tether: not in this branch (a gateway route that reads Mac files is a security decision for
     Furkan); the gap row is the last row of tether/FEATURES.md. The Mac part is branch fix/reply-card-markdown-images,
-    not in main; its own FEATURES.md row will conflict with this branch at its merge: keep both texts.
+    not in main. Its merge conflicts with this branch in the 13 READMEs, `docs/features.json`, `llms.txt` and
+    `tether/FEATURES.md` (`git merge-tree`, review 8). Keep this branch's Tether text (read marks per Mac, Load earlier
+    done) and add only that branch's new sentences; keep one Images row (the Mac text from that branch, the State text
+    from this branch); edit `docs/features.json`, run `npm run build:readme` (no hand merge of the generated blocks),
+    then `npm test`.
   - Screenshots (keep all, never delete under Belgeler): /Users/furkancakir/Damon/Belgeler/Composer Plus/tether-esitleme-20261126/
     tether-damon-read.png, tether-damon-pages.png (759df990), tether-damon-read-b0109d88.png, tether-damon-pages-b0109d88.png.
 - Open steps, in order:
