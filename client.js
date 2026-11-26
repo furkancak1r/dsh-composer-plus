@@ -4338,10 +4338,12 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
           // asks you for something (an approval, options, a "Senden:" line), which dsh 0.2.2 shows in the hidden chat (review 2).
           if (n.data.blocks.some((b) => b?.kind === 'tool-call') && closing.get(n.data.turn) !== seq && !asksYou(text)) continue;
           // One card per topic (Furkan, 2026-11-26): a `---` line splits the reply; `key` names the part, `last` holds the options.
+          // `id` is the read id (Furkan, 2026-11-26: "farklı okundular gelmesi lazım"): each part of a split reply has its own
+          // ("seq:i"); a reply without `---` keeps its seq, so the read marks saved before stay valid.
           const parts = replySections(text);
-          parts.forEach((part, i) => cards.push({ kind: 'reply', key: `${seq}:${i}`, seq, turn: n.data.turn, time: n.data.finalNode.time ?? n.data.time, text: part, last: i === parts.length - 1 }));
+          parts.forEach((part, i) => cards.push({ kind: 'reply', key: `${seq}:${i}`, id: parts.length > 1 ? `${seq}:${i}` : seq, seq, turn: n.data.turn, time: n.data.finalNode.time ?? n.data.time, text: part, last: i === parts.length - 1 }));
         } else if (n?.kind === 'turn-error' && Number.isSafeInteger(n.data?.seq) && kept(n.data.seq)) {
-          cards.push({ kind: 'error', key: `${n.data.seq}:0`, seq: n.data.seq, turn: n.data.turn, time: n.data.time, message: String(n.data.message ?? ''), code: typeof n.data.code === 'string' ? n.data.code : '' });
+          cards.push({ kind: 'error', key: `${n.data.seq}:0`, id: n.data.seq, seq: n.data.seq, turn: n.data.turn, time: n.data.time, message: String(n.data.message ?? ''), code: typeof n.data.code === 'string' ? n.data.code : '' });
         }
       }
       cards.sort((a, b) => a.seq - b.seq); // stable: the parts of a reply keep their order
@@ -4421,25 +4423,34 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       }
       return { title, forYou, body: body.join('\n').replace(/\n{3,}/g, '\n\n').trim(), details, approvals, options };
     }
-    /** The read marks that this browser keeps (REPLY_READ_KEY): `{ [chat id]: { floor, read: [seq] } }`; junk reads as empty. */
+    /** The read marks that this browser keeps (REPLY_READ_KEY): `{ [chat id]: { floor, read: [read id] } }`, a read id is a
+     * reply's seq or "seq:i" for a part of a split reply (replyCardsOf `id`); junk reads as empty. */
     function readReplyMarks() {
       let raw; try { raw = JSON.parse(localStorage.getItem(REPLY_READ_KEY) ?? 'null'); } catch { raw = null; }
       const out = {};
       if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) {
-        for (const [id, m] of Object.entries(raw)) if (Number.isSafeInteger(m?.floor)) out[id] = { floor: m.floor, read: Array.isArray(m.read) ? m.read.filter(Number.isSafeInteger) : [] };
+        for (const [id, m] of Object.entries(raw)) if (Number.isSafeInteger(m?.floor)) out[id] = { floor: m.floor, read: Array.isArray(m.read) ? m.read.filter((x) => Number.isSafeInteger(x) || (typeof x === 'string' && /^\d{1,16}:\d{1,6}$/.test(x))) : [] };
       }
       return out;
     }
-    /** `seqs` read: the floor moves up over the cards (`cardSeqs`) that are read in a row, so the list stays short. */
-    function markReplies(mark, seqs, cardSeqs) {
-      const read = new Set([...mark.read, ...seqs]); let floor = mark.floor;
-      for (const s of [...cardSeqs].sort((a, b) => a - b)) { if (s <= floor) continue; if (!read.has(s)) break; floor = s; }
-      return { floor, read: [...read].filter((s) => s > floor).sort((a, b) => a - b) };
+    const idSeq = (x) => (typeof x === 'number' ? x : Number(x.split(':')[0])); // the reply's seq of a read id
+    const byReadId = (a, b) => idSeq(a) - idSeq(b) || String(a).localeCompare(String(b));
+    /** `ids` read: the floor moves up over the replies of `cards` that are read in a row (the reply's seq, or each of its
+     * parts), so the list stays short. */
+    function markReplies(mark, ids, cards) {
+      const read = new Set([...mark.read, ...ids]); let floor = mark.floor;
+      for (const s of [...new Set(cards.map((c) => c.seq))].sort((a, b) => a - b)) {
+        if (s <= floor) continue;
+        if (!read.has(s) && !cards.every((c) => c.seq !== s || read.has(c.id))) break;
+        floor = s;
+      }
+      return { floor, read: [...read].filter((x) => idSeq(x) > floor).sort(byReadId) };
     }
-    const replyUnread = (mark, seq) => mark !== undefined && seq > mark.floor && !mark.read.includes(seq);
+    /** A card is unread after the floor while neither its reply (an older whole-reply mark reads every part) nor the card is read. */
+    const replyUnread = (mark, card) => mark !== undefined && card.seq > mark.floor && !mark.read.includes(card.seq) && !mark.read.includes(card.id);
     /** The canvas's Updates island: unread first, then the read ones; each part newest first. The chat's feed (ReplyFeed)
      * keeps the time order of replyCardsOf instead (Furkan, 2026-11-26: "yeni gelen kart en altta gözüksün"). */
-    const replyOrder = (cards, mark) => [...cards].sort((a, b) => Number(replyUnread(mark, b.seq)) - Number(replyUnread(mark, a.seq)) || b.seq - a.seq);
+    const replyOrder = (cards, mark) => [...cards].sort((a, b) => Number(replyUnread(mark, b)) - Number(replyUnread(mark, a)) || b.seq - a.seq);
     /** The read store: at the first view of a chat (`start`), every reply up to the chat's newest seq counts as read. A
      * write merges what another window saved (the higher floor, both lists). */
     function createReplyRead() {
@@ -4447,7 +4458,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const save = (id, next) => {
         const now = readReplyMarks(); const old = now[id];
         const floor = Math.max(old?.floor ?? next.floor, next.floor);
-        const merged = { floor, read: [...new Set([...(old?.read ?? []), ...next.read])].filter((x) => x > floor).sort((a, b) => a - b).slice(-200) };
+        const merged = { floor, read: [...new Set([...(old?.read ?? []), ...next.read])].filter((x) => idSeq(x) > floor).sort(byReadId).slice(-200) };
         now[id] = merged; const ids = Object.keys(now); for (const k of ids.slice(0, Math.max(0, ids.length - 50))) delete now[k];
         try { localStorage.setItem(REPLY_READ_KEY, JSON.stringify(now)); } catch { /* storage blocked: this page only */ }
         marks = { ...marks, [id]: merged };
@@ -4459,9 +4470,9 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         // A whole seq: dsh's turn-tail node (the chat's newest) sits at its turn's end seq + 0.1, and readReplyMarks keeps
         // only whole floors (a fraction would make every card read again at the next load).
         start: (id, floor) => { if (marks[id] === undefined) save(id, { floor: Math.floor(floor), read: [] }); },
-        mark(id, seqs, cardSeqs) {
+        mark(id, ids, cards) {
           const m = marks[id]; if (m === undefined) return;
-          const next = markReplies(m, seqs, cardSeqs);
+          const next = markReplies(m, ids, cards);
           if (next.floor !== m.floor || next.read.join() !== m.read.join()) save(id, next);
         },
         all: (id, top) => save(id, { floor: Math.max(Math.floor(top), marks[id]?.floor ?? -1), read: [] }),
@@ -4501,7 +4512,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const top = key === null ? -1 : Number(key.split(':')[1]);
       React.useEffect(() => { if (replies !== undefined && ready && mark === undefined && top >= 0) replies.read.start(sessionId, top); }, [sessionId, ready, mark === undefined, top >= 0]);
       const cards = chat === null || replies === undefined || !ready ? [] : replyCardsOf(chat, rb?.withdrawn ?? NO_SPANS, rb?.inherited ?? 0);
-      return { ready: replies !== undefined && ready, cards, mark, read: (seqs) => replies?.read.mark(sessionId, seqs, cards.map((c) => c.seq)), readAll: () => replies?.read.all(sessionId, top) };
+      return { ready: replies !== undefined && ready, cards, mark, read: (ids) => replies?.read.mark(sessionId, ids, cards), readAll: () => replies?.read.all(sessionId, top) };
     }
     const REPLY_CSS = `.cp-rc{box-sizing:border-box;display:flex;flex-direction:column;gap:10px;padding:16px 18px;border:.5px solid var(--dsw-alias-border-l1,rgba(127,127,127,.3));border-left:4px solid transparent;border-radius:var(--dsw-radius-xl,16px);background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-primary,#111);font-size:14px;line-height:20px;text-align:left;overflow-wrap:anywhere;cursor:default}`
       // The pointer (Furkan, 2026-11-26: "text alanları ... I ya benzeyen şeyin çıkması lazım"): in the chat's feed and the
@@ -4552,7 +4563,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const choice = choiceNow?.offer?.seq === card.seq && card.last !== false && choiceNow.empty === true ? choiceNow : undefined; // the options end the reply
       const md = (text) => (primitives.MarkdownText === undefined ? React.createElement('div', { style: { whiteSpace: 'pre-wrap' } }, text)
         : React.createElement(primitives.MarkdownText, { text, labels: { code: { copyLabel: t('board.copy'), copiedLabel: t('board.copied') }, footnotes: t('board.footnotes') } }));
-      const read = () => onRead?.(card.seq);
+      const read = () => onRead?.(card.id ?? card.seq);
       // A mouse drag that selects text of the card is no click on it: the card stays unread.
       const onClick = (ev) => { const s = globalThis.getSelection?.(); if (s != null && !s.isCollapsed && ev?.currentTarget?.contains?.(s.anchorNode)) return; read(); };
       return React.createElement('article', { className: 'cp-rc', 'data-reply': String(card.seq), 'data-kind': card.kind, ...(unread ? { 'data-unread': '' } : {}), ...(newest ? { 'data-newest': '' } : {}),
@@ -4623,8 +4634,8 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const replySeqs = [...new Set(cards.map((c) => c.seq))];
       const cut = replySeqs.length > REPLY_MAX ? replySeqs[replySeqs.length - REPLY_MAX] : -Infinity;
       const shownCards = cards.filter((c) => c.seq >= cut);
-      // The read mark is per reply (seq): reading one part reads all parts of the reply.
-      const unread = shownCards.filter((c) => replyUnread(mark, c.seq));
+      // The read mark is per card: each part of a split reply is read on its own.
+      const unread = shownCards.filter((c) => replyUnread(mark, c));
       const lastUnread = unread.at(-1)?.key ?? null;
       // The newest card is in view when the feed opens and when a new card comes. While you are at the bottom, the feed
       // stays there when a card or the feed changes its height (dsh's Markdown, a closed details section, the window);
@@ -4657,8 +4668,8 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
             panel ? null : toggle(true)), // with the status panel, its header has the toggle
           replySeqs.length > REPLY_MAX ? React.createElement('p', { className: 'cp-rf-note' }, t('replies.more', { count: replySeqs.length - REPLY_MAX })) : null,
           cards.length === 0 ? React.createElement('p', { className: 'cp-rf-note' }, t('replies.none')) : null,
-          shownCards.map((card) => React.createElement(ReplyCard, { key: card.key, card, sessionId, unread: replyUnread(mark, card.seq), newest: card.key === lastUnread,
-            offerNow, choiceNow, picks, t, lang, failure, onRead: (seq) => read([seq]) }))));
+          shownCards.map((card) => React.createElement(ReplyCard, { key: card.key, card, sessionId, unread: replyUnread(mark, card), newest: card.key === lastUnread,
+            offerNow, choiceNow, picks, t, lang, failure, onRead: (id) => read([id]) }))));
     }
     /** The card stack in the Damon chat (the Durum panel's data, statusCards' groups): the count bar (Get summary,
      * Projects, Refresh, fold), the summary card, the Onay card (both stay in place while the cards scroll), then Sorun,
@@ -5184,14 +5195,14 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         const qn = (key) => { const i = queue.findIndex((e) => e.key === key); return i < 0 ? '' : ` · ${i + 1}/${queue.length}`; };
         const cardOf = (c) => ({ key: `${c.group}|${c.key}`, label: `${t(`cards.${c.group}`)}${qn(`senden|${c.key}`)}: ${c.title}`, el: ul(card(c)), side: () => ul(card(c, '-side')), mine: c.group === 'senden', run: runs.includes(c) });
         const replies = replyOn ? replyOrder(replyCards.cards, replyCards.mark) : [];
-        const unreadReplies = replies.filter((rc) => replyUnread(replyCards.mark, rc.seq));
-        const replyEl = (rc) => React.createElement(ReplyCard, { card: rc, sessionId, unread: replyUnread(replyCards.mark, rc.seq), offerNow, choiceNow: choice, picks, t, lang, failure, focusable: false, onRead: (seq) => replyCards.read([seq]) });
-        // A reply card opened in the side panel counts as read.
-        const onSelCard = (key) => { setSel(key); if (key?.startsWith('reply|')) replyCards.read([Number(key.slice(6).split(':')[0])]); };
+        const unreadReplies = replies.filter((rc) => replyUnread(replyCards.mark, rc));
+        const replyEl = (rc) => React.createElement(ReplyCard, { card: rc, sessionId, unread: replyUnread(replyCards.mark, rc), offerNow, choiceNow: choice, picks, t, lang, failure, focusable: false, onRead: (id) => replyCards.read([id]) });
+        // A reply card opened in the side panel counts as read (only that card: each part of a split reply on its own).
+        const onSelCard = (key) => { setSel(key); const rc = key?.startsWith('reply|') ? replies.find((c) => `reply|${c.key}` === key) : undefined; if (rc !== undefined) replyCards.read([rc.id]); };
         const islands = [
           ...(replyOn ? [{ key: 'updates', title: t('replies.title'), count: unreadReplies.length, tone: 'business', quiet: t('replies.none'),
             // The card in the side panel stays on the island after it is read (it can move below the first five).
-            cards: replies.filter((rc, i) => i < Math.max(5, unreadReplies.length) || sel === `reply|${rc.key}`).map((rc) => ({ key: `reply|${rc.key}`, label: `${t('replies.title')} · ${clockText(rc.time, lang)}`, el: replyEl(rc), mine: replyUnread(replyCards.mark, rc.seq) })) }] : []),
+            cards: replies.filter((rc, i) => i < Math.max(5, unreadReplies.length) || sel === `reply|${rc.key}`).map((rc) => ({ key: `reply|${rc.key}`, label: `${t('replies.title')} · ${clockText(rc.time, lang)}`, el: replyEl(rc), mine: replyUnread(replyCards.mark, rc) })) }] : []),
           { key: 'onay', title: t('cards.onay'), count: approval === null ? 0 : 1, tone: 'business',
             cards: approval === null ? [] : [{ key: 'onay', label: `${t('cards.onay')}${qn('onay')}`, el: onayCard, side: () => onayCardOf('-side'), mine: true }] },
           { key: 'senden', title: t('cards.senden'), count: cards.groups.senden.length + (kararCard === null ? 0 : 1), tone: 'warn',

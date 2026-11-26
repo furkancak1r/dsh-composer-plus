@@ -10,9 +10,10 @@
 //    "Sohbeti göster" (aria-label and title); a click shows the chat (its label is then "Sohbeti gizle"), a second click
 //    hides it again.
 // 5. A reply with two independent topics (a `---` line between them) shows as two cards, each with its own title.
+// 6. Each topic has its own read mark: a click on the first topic reads only it, also after a reload.
 // The measurements print first (MEASURE {...}), then the checks run. SHOTS=<folder> [TAG=<text>] writes
 // kart-sirasi-<TAG>.png (after a reload), yeni-kart-<TAG>.png (after a new card) and panel-basligi-<TAG>.png (the
-// panel header) and iki-konu-<TAG>.png (a reply with two topics).
+// panel header), iki-konu-<TAG>.png (a reply with two topics) and iki-konu-okundu-<TAG>.png (its first topic read).
 // PLAYWRIGHT=/path/to/playwright node test/browser-reply-order.mjs /path/to/dsh/lib/bin.js [...]
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -133,6 +134,19 @@ try {
       m.twoTopics = await feed.evaluate((f) => { const all = [...f.querySelectorAll('article.cp-rc')]; const seq = all.at(-1).dataset.reply;
         return all.filter((el) => el.dataset.reply === seq).map((el) => ({ title: el.querySelector('h3').textContent, forYou: el.querySelector('[data-reply-for]')?.textContent ?? '' })); });
       await shot('iki-konu');
+      // 6. Each topic has its own read mark (Furkan, 2026-11-26: "ayrı konuları ayrı yazsan da hepsine tek okundu geliyor
+      // ama farklı okundular gelmesi lazım"): a click on the first topic reads only it; the second stays New, after a
+      // reload too.
+      const topicSeq = await feed.evaluate((f) => [...f.querySelectorAll('article.cp-rc')].at(-1).dataset.reply);
+      const topicsUnread = () => feed.evaluate((f, seq) => [...f.querySelectorAll(`article.cp-rc[data-reply="${seq}"]`)].map((el) => el.hasAttribute('data-unread')), topicSeq);
+      m.partRead = { before: await topicsUnread() };
+      await feed.locator(`article.cp-rc[data-reply="${topicSeq}"]`).first().locator('h3').click(); await pause(300);
+      m.partRead.afterClick = await topicsUnread();
+      await shot('iki-konu-okundu');
+      await page.reload();
+      if (!(await stack.waitFor({ timeout: 10000 }).then(() => true, () => false))) { await page.keyboard.press('Escape'); await openDamon(); }
+      await feed.waitFor({ timeout: 20000 }); await until(async () => (await topicsUnread()).length === 2, 'the topics after the reload'); await pause(500);
+      m.partRead.afterReload = await topicsUnread();
       console.log(`  MEASURE ${JSON.stringify(m)}`);
       // The checks.
       for (const [k, s] of Object.entries({ afterReplies: m.afterReplies, opened: m.opened, newCard: m.newCard })) {
@@ -155,6 +169,7 @@ try {
       assert.deepEqual(m.follow, { grownAtEnd: true, grownAfterScrollUp: false }, 'the feed follows a growing card only while at the bottom');
       assert.deepEqual(m.twoTopics.map((c) => c.title), ['Kur kolonu dört firmada aynı raporlarda.', 'Yerel model 11 dakika kapalı kaldı.'], 'two topics: two cards, each with its title');
       assert.match(m.twoTopics[0].forYou, /4 raporu/, 'the first card keeps its Senden line');
+      assert.deepEqual(m.partRead, { before: [true, true], afterClick: [false, true], afterReload: [false, true] }, 'a click reads only its topic; the other topic stays New (after a reload too)');
       assert.deepEqual(errors, [], 'no page errors');
       passed = true; console.log(`PASS dsh ${version}`);
     } finally {

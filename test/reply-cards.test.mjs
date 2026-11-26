@@ -6,8 +6,8 @@
 //   rollback's and dsh-rewind-plugin's spans) and not a fork's inherited one (rule 10).
 // - replyParts: the bold first line is the title, "Senden:" the action line, `onay` blocks the approval sentences, the
 //   option list at the end the option buttons, [!DETAILS] stays closed.
-// - Read marks: at the first view every older reply is read; a click or a button marks a card read; the newest unread
-//   card is first; junk in storage reads as empty; another window's marks are merged.
+// - Read marks: at the first view every older reply is read; a click or a button marks a card read (each part of a split
+//   reply on its own); the newest unread card is first; junk in storage reads as empty; another window's marks are merged.
 // - ReplyCard: Onayla only on the card that holds the chat's newest approval offer, option buttons only on the card of
 //   the choice offer, both through Option picks' store (one send per chat); an older card shows them as text.
 // - The feature: its own switch (dock seat + overlay entry, removed when off), the chat toggle in the status panel.
@@ -116,29 +116,30 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   for (const junk of ['{', '[]', '42', '{"s":{"floor":"1"}}', '{"s":null}']) { mem.set(REPLY_READ_KEY, junk); assert.deepEqual(readReplyMarks(), {}, `junk: ${junk}`); }
   mem.set(REPLY_READ_KEY, '{"s":{"floor":5,"read":[7,"x",9]}}'); assert.deepEqual(readReplyMarks(), { s: { floor: 5, read: [7, 9] } }, 'only numbers');
   mem.delete(REPLY_READ_KEY);
+  const c = (seq) => ({ seq, id: seq }); const cs = (...seqs) => seqs.map(c);
   const m = { floor: 10, read: [] };
-  assert.equal(replyUnread(m, 10), false); assert.equal(replyUnread(m, 12), true); assert.equal(replyUnread(undefined, 12), false, 'before the first view: no card is new');
-  assert.deepEqual(markReplies(m, [14], [12, 14, 16]), { floor: 10, read: [14] }, 'a card in the middle');
-  assert.deepEqual(markReplies({ floor: 10, read: [14] }, [12], [12, 14, 16]), { floor: 14, read: [] }, 'the floor moves over the cards read in a row');
-  const order = replyOrder([{ seq: 8 }, { seq: 12 }, { seq: 14 }, { seq: 16 }], { floor: 10, read: [14] });
-  assert.deepEqual(order.map((c) => c.seq), [16, 12, 14, 8], 'unread first (newest first), then the read ones');
+  assert.equal(replyUnread(m, c(10)), false); assert.equal(replyUnread(m, c(12)), true); assert.equal(replyUnread(undefined, c(12)), false, 'before the first view: no card is new');
+  assert.deepEqual(markReplies(m, [14], cs(12, 14, 16)), { floor: 10, read: [14] }, 'a card in the middle');
+  assert.deepEqual(markReplies({ floor: 10, read: [14] }, [12], cs(12, 14, 16)), { floor: 14, read: [] }, 'the floor moves over the cards read in a row');
+  const order = replyOrder(cs(8, 12, 14, 16), { floor: 10, read: [14] });
+  assert.deepEqual(order.map((x) => x.seq), [16, 12, 14, 8], 'unread first (newest first), then the read ones');
   const store = createReplyRead(); let calls = 0; store.subscribe(() => { calls += 1; });
   store.start('s', 30); assert.deepEqual(store.of('s'), { floor: 30, read: [] }, 'the first view: every older reply is read');
   store.start('s', 99); assert.equal(store.of('s').floor, 30, 'only once');
-  store.mark('s', [40], [40, 50]); assert.deepEqual(store.of('s'), { floor: 40, read: [] });
-  store.mark('s', [40], [40, 50]); assert.equal(calls, 2, 'no write without a change');
+  store.mark('s', [40], cs(40, 50)); assert.deepEqual(store.of('s'), { floor: 40, read: [] });
+  store.mark('s', [40], cs(40, 50)); assert.equal(calls, 2, 'no write without a change');
   // Another window read 50 meanwhile: a write merges it.
   const other = JSON.parse(mem.get(REPLY_READ_KEY)); other.s = { floor: 50, read: [] }; mem.set(REPLY_READ_KEY, JSON.stringify(other));
-  store.mark('s', [60], [40, 50, 60, 70]); assert.deepEqual(JSON.parse(mem.get(REPLY_READ_KEY)).s, { floor: 50, read: [60] }, 'merged with the other window');
+  store.mark('s', [60], cs(40, 50, 60, 70)); assert.deepEqual(JSON.parse(mem.get(REPLY_READ_KEY)).s, { floor: 50, read: [60] }, 'merged with the other window');
   store.all('s', 70); assert.deepEqual(store.of('s'), { floor: 70, read: [] }, 'Tümünü okundu say');
   const blocked = globalThis.localStorage.setItem; globalThis.localStorage.setItem = () => { throw Error('quota'); };
-  store.mark('t', [1], [1]); store.start('u', 5); globalThis.localStorage.setItem = blocked; // no throw
+  store.mark('t', [1], cs(1)); store.start('u', 5); globalThis.localStorage.setItem = blocked; // no throw
   assert.equal(store.of('u').floor, 5, 'storage blocked: this page only');
   // dsh's turn-tail node is the newest node at its turn's end seq + 0.1 (review 1): the floor is a whole seq, so a new
   // reply stays New after a reload (a fraction was dropped at the next load and made every card read).
   const chat = chatOf([step(1, 0, 42, [txt('Eski yanıt.')]), tail(1, 42)]); [...chat.nodes.values()][1].anchorSeq = 43.1;
   store.start('f', Number(chatStateKey(chat).split(':')[1])); assert.deepEqual(store.of('f'), { floor: 43, read: [] }, 'a whole floor');
-  const reloaded = createReplyRead(); assert.equal(replyUnread(reloaded.of('f'), 50), true, 'a newer reply is still New after a reload');
+  const reloaded = createReplyRead(); assert.equal(replyUnread(reloaded.of('f'), c(50)), true, 'a newer reply is still New after a reload');
   store.all('f', 60.1); assert.equal(createReplyRead().of('f').floor, 60, 'Tümünü okundu say: a whole floor too');
   // A streamed chunk is no new state for the cards (no draw at each frame); a settled step is.
   const live = (text, status) => chatOf([step(1, 0, 42, [txt(text)], status)]);
@@ -229,6 +230,36 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   assert.deepEqual(btns(cards[2]), ['cp-rc-btnreply', 'cp-rc-opt', 'cp-rc-opt'], 'the last topic: Onayla and the options');
   const one = replyCardsOf(chatOf([step(1, 0, 30, [txt('**Tek.** Metin.\n\n```\n---\n```')]), tail(1, 30)]));
   assert.deepEqual(one.map((c) => c.key), ['30:0'], '--- in a code block: one card');
+  // One read mark per topic (Furkan, 2026-11-26: "ayrı konuları ayrı yazsan da hepsine tek okundu geliyor ama farklı
+  // okundular gelmesi lazım"): each part of a split reply has its own read id; a reply without `---` keeps its seq, so the
+  // marks saved before stay valid.
+  assert.deepEqual(cards.map((c) => c.id), [10, '20:0', '20:1'], 'read ids: the seq for one topic, "seq:i" for each part');
+  assert.deepEqual(one.map((c) => c.id), [30], 'a `---` in a code block: still the seq');
+  const reads = []; const card1 = ReplyCard({ card: cards[1], sessionId: 's', t, lang: 'tr', picks, onRead: (id) => reads.push(id) });
+  card1.p.onClick({ currentTarget: { contains: () => false } }); card1.p.onKeyDown({ key: 'Enter', target: 1, currentTarget: 1 });
+  assert.deepEqual(reads, ['20:0', '20:0'], 'a click and Enter read the part, not the reply');
+  const mk = { floor: 5, read: [] };
+  const first = markReplies(mk, ['20:0'], cards);
+  assert.deepEqual(first, { floor: 5, read: ['20:0'] }, 'reply 10 is unread: the floor stays');
+  assert.deepEqual(cards.map((c) => replyUnread(first, c)), [true, false, true], 'only the read part: the other part stays New');
+  assert.deepEqual(markReplies(first, [10], cards), { floor: 10, read: ['20:0'] }, 'the floor stops before a reply with an unread part');
+  assert.deepEqual(markReplies({ floor: 10, read: ['20:0'] }, ['20:1'], cards), { floor: 20, read: [] }, 'all parts read: the floor moves over the reply and drops its ids');
+  assert.deepEqual(cards.map((c) => replyUnread({ floor: 5, read: [20] }, c)), [true, false, false], 'an older whole-reply mark (its seq) reads every part');
+  assert.deepEqual(markReplies({ floor: 10, read: [] }, [20], cards).floor, 20, 'a whole-reply mark moves the floor too');
+  assert.deepEqual(replyOrder(cards, { floor: 5, read: ['20:1'] }).map((c) => c.key), ['20:0', '10:0', '20:1'], 'the canvas: the unread part first');
+  // Saved and read again (a reload): the part mark stays; junk ids are dropped.
+  mem.set(REPLY_READ_KEY, JSON.stringify({ s: { floor: 10, read: ['20:0', '20:x', 'x:1', ':1', '20:0:1', 12, '12'] } }));
+  assert.deepEqual(readReplyMarks().s.read, ['20:0', 12], 'only seqs and "seq:i" ids');
+  mem.delete(REPLY_READ_KEY);
+  const ps = createReplyRead(); ps.start('p', 5);
+  ps.mark('p', ['20:0'], cards); ps.mark('p', [10], cards);
+  assert.deepEqual(JSON.parse(mem.get(REPLY_READ_KEY)).p, { floor: 10, read: ['20:0'] }, 'saved: the floor before the split reply, its read part');
+  const back = createReplyRead().of('p');
+  assert.deepEqual(cards.map((c) => replyUnread(back, c)), [false, false, true], 'after a reload: only the other part is New');
+  // Another window read the other part: the write merges the part ids.
+  const win = JSON.parse(mem.get(REPLY_READ_KEY)); win.p.read.push('30:0'); mem.set(REPLY_READ_KEY, JSON.stringify(win));
+  ps.mark('p', ['20:1'], cards); assert.deepEqual(JSON.parse(mem.get(REPLY_READ_KEY)).p, { floor: 20, read: ['30:0'] }, 'merged with the other window, sorted by seq');
+  mem.delete(REPLY_READ_KEY);
   // The prompt asks for it.
   assert.match(read('index.js'), /- One reply card holds one topic: the reply cards show each part of a reply between lines of only \\`---\\` as its own card\. When a reply must also report an independent topic, put a line \\`---\\` before it and start that part with its own bold line[^\n]*Do not add a side topic that needs nothing from the user\./, 'the reply-form rule in the assistant prompt');
 }
