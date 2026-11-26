@@ -12204,19 +12204,44 @@ const withoutSelfQuotes = (text) => {
 };
 // The Turkish guess words (Damon's rules). Whole words only: "olasılıklar", "tahminler" and "ihtimalleri" are other words,
 // and "bir olasılıkla" holds the whole word "olasılıkla". The longest form first, so "büyük olasılıkla" is one word.
-const GUESS_WORDS = new RegExp(String.raw`(?<![\p{L}\p{N}])(büyük\s+olasılıkla|büyük\s+ihtimalle|bir\s+olasılık|olasılıkla|ihtimalle|muhtemelen|tahminen|sanırım|galiba)(?![\p{L}\p{N}])`, 'gu');
-/** The guess words of `text` in order of their first place, each once (lower case, one space), and the text around the
- * first one: `{words, context}`. Fenced code blocks and quoted text ("…", “…”, '…', ‘…’) do not count.
- * ponytail: Turkish words of this list only; a guess in another form ("olabilir", "gibi görünüyor") is not found. Upgrade:
- * a model check of the answer. */
+const GUESS_LIST = String.raw`(büyük\s+olasılıkla|büyük\s+ihtimalle|bir\s+olasılık|olasılıkla|ihtimalle|muhtemelen|tahminen|sanırım|galiba)`;
+const GUESS_LOOSE = new RegExp(String.raw`(?<![\p{L}\p{N}])${GUESS_LIST}(?![\p{L}\p{N}])`, 'u'); // the cheap test
+// The same, not joined by . _ / - to another token (a file name, a slug, a path: "muhtemelen.md", "büyük-olasılıkla-x").
+const GUESS_WORDS = new RegExp(String.raw`(?<![\p{L}\p{N}])(?<![\p{L}\p{N}_][._/-])${GUESS_LIST}(?![\p{L}\p{N}])(?![._/-][\p{L}\p{N}_])`, 'gu');
+const QUOTED_ALL = new RegExp(QUOTED, 'gu');
+const blankOut = (m) => ' '.repeat(m.length);
+/** The guess words of `text` in order of their first place, each once (lower case, one space; at most 4), and the text
+ * around the first one: `{words, context}`. These do not count: fenced code blocks, inline `code`, Markdown link targets
+ * `](…)`, URLs, words joined to a token by . _ / - (file names, slugs), quoted text ("…", “…”, '…', ‘…’) and plain `>`
+ * quote lines (a callout box `> [!DETAILS]` and its `>` lines are Damon's own text and count).
+ * A text without a guess word returns at once (one pattern test); only the lines and chunks (4000 characters, cut at a
+ * space) that have one are cleaned, so a long text of quote marks stays fast.
+ * ponytail: Turkish words with their Turkish letters only ("Sanirim", "Buyuk olasilikla" are not found), and only these
+ * words; a guess in another form ("olabilir", "gibi görünüyor") is not found. A quote that crosses a chunk border of a line
+ * over 4000 characters is not paired. Upgrade: a model check of the answer. */
 export function guessWords(text) {
-  const plain = blankFences(String(text ?? '').normalize('NFC')).replace(new RegExp(QUOTED, 'gu'), (m) => ' '.repeat(m.length));
-  const words = []; let context;
-  // toLocaleLowerCase('tr') keeps the length (İ → i, I → ı), so a place in `folded` is a place in `plain`.
-  for (const m of plain.toLocaleLowerCase('tr').matchAll(GUESS_WORDS)) {
-    context ??= plain.slice(m.index, m.index + 40).replace(/\s+/g, ' ').trim();
-    const word = m[1].replace(/\s+/g, ' ');
-    if (!words.includes(word)) words.push(word);
+  const raw = String(text ?? '').normalize('NFC');
+  if (!GUESS_LOOSE.test(raw.toLocaleLowerCase('tr'))) return { words: [], context: undefined };
+  const words = []; let context; let callout = false;
+  for (const line of blankFences(raw).split('\n')) {
+    if (!/^ {0,3}>/.test(line)) callout = false;
+    else if (/^ {0,3}>\s*\[![A-Za-z]+\]/.test(line)) callout = true;
+    else if (!callout) continue;
+    if (!GUESS_LOOSE.test(line.toLocaleLowerCase('tr'))) continue;
+    for (let at = 0; at < line.length;) {
+      let end = Math.min(line.length, at + 4000);
+      if (end < line.length) { const space = line.lastIndexOf(' ', end); if (space > at + 3000) end = space; }
+      const chunk = line.slice(at, end); at = end;
+      if (!GUESS_LOOSE.test(chunk.toLocaleLowerCase('tr'))) continue;
+      const clean = chunk.replace(/`[^`\n]*`/g, blankOut).replace(/\]\([^)\n]*\)/g, blankOut).replace(/https?:\/\/[^\s<>)\]]*/gi, blankOut).replace(QUOTED_ALL, blankOut);
+      // toLocaleLowerCase('tr') keeps the length (İ → i, I → ı), so a place in the lower case text is a place in `clean`.
+      for (const m of clean.toLocaleLowerCase('tr').matchAll(GUESS_WORDS)) {
+        context ??= clean.slice(m.index, m.index + 40).replace(/\s+/g, ' ').trim();
+        const word = m[1].replace(/\s+/g, ' ');
+        if (!words.includes(word)) words.push(word);
+        if (words.length >= 4) return { words, context };
+      }
+    }
   }
   return { words, context };
 }
@@ -12234,6 +12259,7 @@ export function installAssistantGuards(ctx, assistant) {
   const denials = new Map(); // chat id → tool names of the open turn's denials that no step was told yet
   const eventsOf = (session) => { try { return session?.snapshotEvents?.() ?? []; } catch { return []; } };
   const fromOf = (session) => (Number.isSafeInteger(session?.inheritedEventCount) && session.inheritedEventCount > 0 ? session.inheritedEventCount : 0);
+  // ponytail: the newest 5 notes; a guess note can push out an older note when five answers come before one step.
   const hold = (id, seq, text, quotes) => { notes.set(id, [...(notes.get(id) ?? []), { seq, text, ...(quotes === undefined ? {} : { quotes }) }].slice(-5)); };
   /** The quotes of answer `event` that no earlier answer of the chat has (a withdrawn answer does not count, rule 9), and
    * that did not get a note before (review 1: the line that withdraws the correction quotes the wrong sentence again).

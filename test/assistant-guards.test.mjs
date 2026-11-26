@@ -246,6 +246,32 @@ await check('item 5: a guess word in an answer', async () => {
   assert.match(notesOf(await step('damon'))[0] ?? '', /"galiba"/, 'outside the quotes, after one');
   say('damon', "Bey'e söyledim, muhtemelen gelir; Ali'nin notu.");
   assert.match(notesOf(await step('damon'))[0] ?? '', /"muhtemelen"/, 'an apostrophe in a name is not a quote');
+  // Review 1 (P2): inline code, link targets, URLs, file names and slugs, and plain quote lines are not Damon's guess.
+  for (const text of ['Komut `muhtemelen --galiba` çalıştı.', 'Bak [rapor](https://example.com/tahminen/galiba-sayfasi) tamam.', 'Adres https://example.com/muhtemelen/x ve http://a.b/sanırım.',
+    'Dosya muhtemelen.md ve galiba_notlari.txt ile docs/sanırım/ozet.md.', 'Slug: tahminen-hesap ve büyük-olasılıkla-x.', '> muhtemelen böyle yazmış\n> galiba bitti\nTamam.',
+    'Özet:\n> [!DETAILS]\n> notlar\n\n> galiba bu bir alıntı\nBitti.']) {
+    say('damon', text);
+    assert.deepEqual(notesOf(await step('damon')), [], `not a guess of Damon: ${JSON.stringify(text)}`);
+  }
+  // The text around them still counts: link text, a word after a code span, a sentence end ("sanırım.").
+  for (const [text, word] of [['Bak [galiba bu](https://example.com/x) tamam.', 'galiba'], ['`x` komutu çalıştı, muhtemelen doğru.', 'muhtemelen'], ['Dosya x.md, sanırım.', 'sanırım'],
+    ['Bak https://example.com/x galiba doğru.', 'galiba'], ['> [!DETAILS]\n> Detay: muhtemelen bu.\n> ikinci satır\nSon.', 'muhtemelen'], ['> [!NOTE]\n> tahminen 5 dakika', 'tahminen'],
+    ['> [!WARNING]\n> sanırım risk var', 'sanırım'], ['> alıntı\n\nGaliba olur.', 'galiba']]) {
+    say('damon', text);
+    assert.match(notesOf(await step('damon'))[0] ?? '', new RegExp(`"${word}"`), `a note for: ${JSON.stringify(text)}`);
+  }
+  // Review 1 (P3): the cheap test comes first, and a match checks only the text around it.
+  assert.deepEqual(host.guessWords('"‘a'.repeat(100000)), { words: [], context: undefined }, 'no word: nothing');
+  { const big = '"‘a'.repeat(100000); let t = performance.now(); host.guessWords(big);
+    assert.ok(performance.now() - t < 60, `300k characters without a word are fast (${Math.round(performance.now() - t)} ms)`);
+    t = performance.now(); const r = host.guessWords(`${big} galiba`);
+    assert.deepEqual(r.words, ['galiba']);
+    assert.ok(performance.now() - t < 120, `300k characters of quote marks and one word are fast (${Math.round(performance.now() - t)} ms)`);
+    t = performance.now(); assert.deepEqual(host.guessWords('"galiba" '.repeat(10000)).words, []); // a match inside a quote, 10000 times
+    assert.ok(performance.now() - t < 400, `many words inside quotes are fast (${Math.round(performance.now() - t)} ms)`); }
+  // The limit of ponytail: the ASCII spelling is not a word of the list.
+  assert.deepEqual(host.guessWords('Sanirim, buyuk olasilikla ve galibA yok.').words, ['galiba'], 'only the Turkish spelling');
+  assert.deepEqual(host.guessWords('Sanirim, buyuk olasilikla.').words, [], 'the ASCII spelling is not found');
   // One note for many words in one answer; the note stays short.
   say('damon', 'Büyük ihtimalle A, muhtemelen B, büyük olasılıkla C, galiba D, tahminen E, sanırım F, ihtimalle G.');
   { const notes = notesOf(await step('damon')); assert.equal(notes.length, 1, 'one note per answer'); assert.ok(notes[0].length < 400, `under 400 characters (${notes[0].length})`);
