@@ -1638,12 +1638,14 @@ struct LineView: View {
     @State private var open = false
     @State private var copied = false
     @State private var selecting = false
+    /// The text that this row shows: the card's topic of a split reply, else the whole line (Copy, Share, Quote, Select Text).
+    private var shown: String { line.kind == .assistant ? part ?? line.text : line.text }
     var body: some View {
         content.contextMenu {
-            Button { UIPasteboard.general.string = [line.text, line.output].compactMap { $0 }.joined(separator: "\n\n") } label: { Label("Copy", systemImage: "doc.on.doc") }
+            Button { UIPasteboard.general.string = [shown, line.output].compactMap { $0 }.joined(separator: "\n\n") } label: { Label("Copy", systemImage: "doc.on.doc") }
             if line.kind == .assistant || line.kind == .reasoning, !live { Button { selecting = true } label: { Label("Select Text", systemImage: "selection.pin.in.out") } }
-            if line.kind == .assistant, !live { ShareLink(item: line.text) { Label("Share", systemImage: "square.and.arrow.up") } }
-            if line.kind == .assistant, !live, let onQuote { Button { onQuote(line.text) } label: { Label("Quote", systemImage: "quote.opening") } }
+            if line.kind == .assistant, !live { ShareLink(item: shown) { Label("Share", systemImage: "square.and.arrow.up") } }
+            if line.kind == .assistant, !live, let onQuote { Button { onQuote(shown) } label: { Label("Quote", systemImage: "quote.opening") } }
             // Copy message link (Composer Plus): the chat's link and this message's seq; dsh on the Mac opens it.
             if line.kind == .user || line.kind == .assistant, !live, let seq = line.seq, let sid = c.current {
                 Button { UIPasteboard.general.string = messageLink(sid, seq); UINotificationFeedbackGenerator().notificationOccurred(.success) } label: { Label("Copy message link", systemImage: "link") }
@@ -1659,7 +1661,7 @@ struct LineView: View {
         }
         .sheet(isPresented: $selecting) {
             NavigationStack {
-                SelectableText(text: line.text)
+                SelectableText(text: shown)
                     .navigationTitle("Select Text").navigationBarTitleDisplayMode(.inline)
                     .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { selecting = false } } }
             }
