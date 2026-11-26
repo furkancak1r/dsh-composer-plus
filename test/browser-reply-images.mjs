@@ -6,6 +6,7 @@
 //    through dsh's /api/file.
 // 2. A relative image path loads from the chat's folder; a missing image shows its alt text; a .pdf is no image (its alt
 //    text shows, no img element).
+// 3. The canvas at close zoom: after the images load, the Updates island is still above the Damon hub.
 // SHOTS=<folder> [TAG=<text>] writes kart-resim<TAG>.png (the card with two images) and kart-resim-kenar<TAG>.png (the edge
 // cases); it never replaces a file. BEFORE=1: only the measurement and the pictures (for a client.js without the fix).
 // TMPDIR=<folder> PLAYWRIGHT=/path/to/playwright node test/browser-reply-images.mjs /path/to/dsh/lib/bin.js [...]
@@ -94,6 +95,35 @@ try {
       assert.deepEqual(m.edge.imgs.filter((i) => i.natural[0] > 0).map((i) => [i.alt, i.path]), [['Göreli', join(where.home, 'Assistant', 'resim', 'goreli.png')]], 'only the relative image loads');
       assert.ok(!m.edge.imgs.some((i) => i.alt === 'Rapor'), 'a .pdf is no img');
       for (const alt of ['Eksik görüntü', 'Rapor']) assert.ok(m.edge.text.includes(alt), `the alt text shows: ${alt}`);
+      // 3. The canvas at close zoom: the Updates island takes the height of its images when they load (review 3: before, it
+      //    grew down over the Damon hub until the next draw of the canvas). The file route answers 3 s late, so the images load
+      //    after the last draw that the test causes (the zoom and the arrow keys draw the canvas again).
+      let late = 0;
+      await page.route(/\/api\/file\?/, async (route) => { late++; await pause(3000); await route.continue().catch(() => {}); });
+      await page.locator('[data-composer-plus-canvas-open]').click();
+      await page.locator('[data-composer-plus-todos][data-canvas] .cp-cv-view').waitFor({ timeout: 5000 }); await pause(400);
+      for (let n = 0; n < 2; n++) { await page.locator('[data-cv-zoom="in"]').click(); await pause(150); }
+      // dsh's images load lazily: the arrow keys move the canvas down until the island's first image is on screen.
+      const island = page.locator('[data-cv-island="updates"]');
+      await page.locator('.cp-cv-view').focus();
+      for (let n = 0; n < 40; n++) {
+        const above = await page.evaluate(() => { const img = document.querySelector('[data-cv-island="updates"] img'); const v = document.querySelector('.cp-cv-view').getBoundingClientRect();
+          return img === null ? null : img.getBoundingClientRect().top < v.top + 40; });
+        if (above !== true) break;
+        await page.keyboard.press('ArrowUp'); await pause(60);
+      }
+      await until(() => island.evaluate((el) => [...el.querySelectorAll('img')].filter((img) => img.complete && img.naturalWidth > 0).length >= 2), 'the canvas images load', 10000);
+      await pause(800);
+      const cv = await page.evaluate(() => {
+        const r = (q) => { const b = document.querySelector(q).getBoundingClientRect(); return { top: Math.round(b.top), bottom: Math.round(b.bottom) }; };
+        return { zoom: document.querySelector('.cp-cv-world').dataset.zoom, updates: r('[data-cv-island="updates"]'), hub: r('[data-cv-hub]'),
+          loaded: [...document.querySelectorAll('[data-cv-island="updates"] img')].filter((img) => img.naturalWidth > 0).length };
+      });
+      await page.unrouteAll({ behavior: 'ignoreErrors' });
+      console.log(`  CANVAS ${JSON.stringify({ ...cv, late })}`);
+      assert.ok(late > 0, 'the canvas asked the file route again (the late answer applies)');
+      assert.equal(cv.zoom, 'close', 'the canvas at close zoom');
+      assert.ok(cv.updates.bottom <= cv.hub.top, `the Updates island stays above the hub after its images load: ${JSON.stringify(cv)}`);
       assert.deepEqual(errors, [], 'no page errors');
       passed = true; console.log(`PASS dsh ${version}`);
     } finally {

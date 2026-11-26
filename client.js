@@ -4618,9 +4618,10 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
           const bold = /^\s*(\*\*|__)(.+?)\1\s*(.*)$/.exec(line);
           const sentence = /^(.+?[.!?…])(?=\s|$)\s*(.*)$/u.exec(line.trim());
           // A title that would hold an image is no title: the line and its image stay in the body (reviews 1 and 2 of the
-          // card images); "**Title** ![x](…)" keeps its bold title and the image goes to the body.
+          // card images); "**Title** ![x](…)" keeps its bold title and the image goes to the body. Only "![" is tested: the first
+          // sentence can end inside the alt text ("![Step 1. Login](…)", review 3).
           const pick = heading !== null ? heading[1] : bold !== null ? bold[2] : sentence !== null && sentence[1].length <= 200 ? sentence[1] : line;
-          if (!/!\[[^\]]*\]\(/.test(pick)) {
+          if (!pick.includes('![')) {
             if (heading !== null) title = plainText(heading[1]);
             else if (bold !== null) { title = plainText(bold[2]); if (bold[3].trim() !== '') body.push(bold[3]); }
             else if (sentence !== null && sentence[1].length <= 200) { title = plainText(sentence[1]); if (sentence[2] !== '') body.push(sentence[2]); }
@@ -5580,6 +5581,15 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         }
         if (svg.innerHTML !== out) svg.innerHTML = out;
       });
+      // A reply card's image (dsh's <img loading="lazy">) loads or fails after the measure above: draw again, so that the
+      // islands and the lines take its height (review 3 of the card images). `load` and `error` do not bubble: capture.
+      React.useEffect(() => {
+        const el = viewRef.current;
+        if (typeof el?.addEventListener !== 'function') return undefined;
+        const again = (ev) => { if (ev.target?.tagName === 'IMG') setBox((b) => ({ ...b })); };
+        el.addEventListener('load', again, true); el.addEventListener('error', again, true);
+        return () => { el.removeEventListener('load', again, true); el.removeEventListener('error', again, true); };
+      }, []);
       // Wheel: zoom at the pointer (a trackpad pinch comes as Ctrl+wheel); Shift or a sideways wheel moves the canvas. Not
       // passive: the page and the browser's own zoom must not move. The side panel scrolls as a page.
       React.useEffect(() => {

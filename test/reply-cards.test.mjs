@@ -492,7 +492,9 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   assert.equal(replyParts(`**Resim.** Bak:\n\n![İlk görünüm](<${abs}>)`).body, `Bak:\n\n![İlk görünüm](<${abs}>)`, 'the image line stays in the card body');
   // Review 1: a reply (or a topic) that starts with an image keeps the image; it is no title ("!İlk görünüm" before).
   // Review 2: also an image after text on the first line (a sentence, a heading, a plain line).
-  for (const first of [`![İlk görünüm](<${abs}>)`, `![İlk görünüm](<${abs}>) Sonra metin.`, `Ekran görüntüsü: ![a](</a/b.png>)`, `# Durum ![x](</a/b.png>)`, `Görünüm ![x](</a/b.png>) hazır.`]) {
+  // Review 3: alt text with ". ", "! " or "? " (the first sentence ends inside the image).
+  for (const first of [`![İlk görünüm](<${abs}>)`, `![İlk görünüm](<${abs}>) Sonra metin.`, `Ekran görüntüsü: ![a](</a/b.png>)`, `# Durum ![x](</a/b.png>)`, `Görünüm ![x](</a/b.png>) hazır.`,
+    '![Adım 1. Giriş ekranı](</a/b.png>)', '![Dikkat! Hata](</a/b.png>)', 'Bak: ![Neden? Bu](</a/b.png>)']) {
     const p = replyParts(`${first}\n\nMetin burada.`);
     assert.deepEqual([p.title, p.body], ['', `${first}\n\nMetin burada.`], `an image in the first line: no title, the image in the body (${first})`);
   }

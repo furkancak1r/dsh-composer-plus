@@ -4948,8 +4948,18 @@ review. Not in scope: live copy (after Furkan's "tamam" on the screenshots), rel
   the review-2 fixes); browser-reply-pages and browser-status-canvas PASS x3 at eaf047fa (review-2 fixes touch only the
   title rule and the labels object). Bins: ~/Documents/testdeepseekharness/work/dsh-0.2.0-rc.2|dsh-0.2.1-rc.2/node_modules/@deepseek-ai/dsh/lib/bin.js,
   ~/ai-maintenance/dsh-composer-plus/dsh/0.2.2-rc.5/node_modules/@deepseek-ai/dsh/lib/bin.js.
-- Open steps: (a) the README limits sentence in 13 READMEs (item 3 above); (b) review-guard round 3 in a separate subagent
+- (Done in the next chat, see the 2026-11-26 21:5x entry below.) Open steps were: (a) the README limits sentence in 13 READMEs (item 3 above); (b) review-guard round 3 in a separate subagent
   on origin/main...HEAD (the diff is > 100 lines and > 3 files: repeat until a round has no P1/P2; fix every finding and
   run review-guard again before the merge); (c) git fetch, merge origin/main, npm test, browser tests; (d) merge into main
   --no-ff, npm test on main, push main. No live copy (Furkan must say "tamam" to the screenshots first), no release,
   Tether app unchanged.
+- 2026-11-26 21:5x (new chat): (a) done in 3f4aaf80 (README limits sentence, 13 languages; `npm test` exit 0).
+  Review-guard round 3 (review-guard-r3, origin/main...3f4aaf80): P1 0, P2 0, P3 2, P4 2; the security points (request
+  target, base check, relative join, React hooks) check out. Fixed in the next commit:
+  - P3 title rule: the first sentence can end inside the alt text ("![Adım 1. Giriş](…)" gave the title "![Adım 1.");
+    now any "![" in the title text keeps the line in the body. Unit cases red before the fix.
+  - P3 canvas: an image that loads after the canvas measured its islands made the Updates island grow over the Damon hub
+    until the next draw. StatusCanvas now draws again on a capture `load`/`error` of an img. browser-reply-images step 3
+    (close zoom, the file route answers 3 s late): red without the listener (island bottom 1237 > hub top 763), green with it.
+  - P4 README sentence: scoped to an image from a file path (an http(s) image loads in DSH before pathImages), 13 languages.
+  - P4 this checkpoint.
