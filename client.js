@@ -4498,7 +4498,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
     function chatTextOf(locale, key) {
       try { const text = locale?.bind?.('chat')?.(key); return typeof text === 'string' && text !== key ? text : ''; } catch { return ''; }
     }
-    const asksYou = (text) => { const p = replyParts(text); return p.approvals.length > 0 || p.options.length > 0 || p.forYou !== ''; };
+    const asksYou = (text) => { const p = replyParts(text); return p.approvals.length > 0 || p.options.length > 0 || p.asks; };
     function replyCardsOf(chat, withdrawn = NO_SPANS, inherited = 0) {
       if (typeof chat !== 'object' || chat === null) return [];
       const hit = replyMemo.get(chat);
@@ -4597,7 +4597,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         while (at >= 0 && (lines[at].trim() === '' || /^[ \t]/.test(lines[at]) || OPTION_ITEM.test(lines[at]))) at--;
         lines = lines.slice(0, at); // the heading and the list are the option buttons
       }
-      const body = []; const details = []; let forYou = ''; let title = ''; let code = false;
+      const body = []; const details = []; let forYou = ''; let title = ''; let code = false; let asks = false;
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         if (/^ {0,3}(```|~~~)/.test(line)) code = !code;
@@ -4612,8 +4612,12 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
           i = j - 1; continue;
         }
         const you = code ? null : /^\s*(?:[-*+]\s+)?(?:\*\*|__)?(?:senden|for you)(?:\*\*|__)?\s*:\s*(?:\*\*|__)?\s*(.*?)\s*$/iu.exec(line);
-        // A "Senden:" line with an image stays in the body, so the image shows (the action line is plain text; review 4).
-        if (you !== null && forYou === '' && plainText(you[1]) !== '' && !you[1].includes('![')) { forYou = plainText(you[1]); continue; }
+        // A "Senden:" line with an image stays in the body, so the image shows (the action line is plain text; review 4); it
+        // still asks you (`asks`: a card next to a tool call, review 5) and is no title.
+        if (you !== null && forYou === '' && plainText(you[1]) !== '') {
+          asks = true; if (!you[1].includes('![')) forYou = plainText(you[1]); else body.push(line);
+          continue;
+        }
         // A list line is no title ("1. Run the tests." would give "1." and break the list's numbering): it stays in the body.
         if (title === '' && !code && line.trim() !== '' && body.every((l) => l.trim() === '') && !/^\s*(?:[-*+]|\d{1,9}[.)])\s/.test(line)) {
           const heading = /^#{1,6}\s+(.+?)\s*#*\s*$/.exec(line);
@@ -4633,7 +4637,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         }
         body.push(line);
       }
-      return { title, forYou, body: body.join('\n').replace(/\n{3,}/g, '\n\n').trim(), details, approvals, options };
+      return { title, forYou, asks, body: body.join('\n').replace(/\n{3,}/g, '\n\n').trim(), details, approvals, options };
     }
     /** The read marks that this browser keeps (REPLY_READ_KEY): `{ [chat id]: { floor, read: [read id] } }`, a read id is a
      * reply's seq or "seq:i" for a part of a split reply (replyCardsOf `id`); junk reads as empty. */

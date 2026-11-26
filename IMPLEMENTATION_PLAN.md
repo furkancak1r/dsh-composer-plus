@@ -4970,3 +4970,10 @@ review. Not in scope: live copy (after Furkan's "tamam" on the screenshots), rel
   now that line stays in the body (the summary's image goes to the section's text); unit cases red on 13dd627d;
   tether/FEATURES.md gap row names it (Tether keeps the old rule, no shared-table case). P4 this checkpoint.
   Open: review round 5 (separate subagent) until clean; then (c) and (d).
+- 2026-11-26 23:3x: review-guard round 5 (review-guard-r5, origin/main...2f003580): P1 0, P2 0, P3 1, P4 1. Fixed in the
+  next commit: P3 (a side effect of the round 4 fix) a "Senden:" line with an image set no forYou, so a reply next to a
+  tool call was no card any more (asksYou), and "**Senden:** … ![x](…)" became the title "Senden:"; now replyParts gives
+  `asks` (true for any Senden line), asksYou uses it, and the Senden line skips the title rule (unit cases red on
+  2f003580). P4 an image in an option item shows as alt text on the option button (shared parseOptions, unchanged):
+  named in the limits sentence (docs/features.json llms + build:readme, 13 READMEs).
+  Open: review round 6 (separate subagent) until clean; then (c) update from origin/main and tests, (d) merge and push.

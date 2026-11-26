@@ -72,6 +72,9 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
     step(1, 4, 14, [txt('Bitti.')]), tail(1, 14),
   ]);
   assert.deepEqual(replyCardsOf(ask).map((c) => c.seq), [11, 12, 13, 14], 'an approval, options or a Senden line next to a tool call is a card');
+  // Review 5: a Senden line with an image (it stays in the body, review 4) still asks you: a card next to a tool call.
+  const askImg = chatOf([step(1, 0, 10, [txt('Senden: şu ekrana bak ![Ekran](</a/b.png>)'), tool]), step(1, 1, 12, [txt('Bitti.')]), tail(1, 12)]);
+  assert.deepEqual(replyCardsOf(askImg).map((c) => c.seq), [10, 12], 'a Senden line with an image next to a tool call is a card');
 }
 
 // replyParts.
@@ -504,6 +507,8 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   const youImg = replyParts('**Başlık**\n\nSenden: şu ekrana bak ![Ekran](</a/b.png>)\n\nMetin.');
   assert.deepEqual([youImg.forYou, youImg.body], ['', 'Senden: şu ekrana bak ![Ekran](</a/b.png>)\n\nMetin.'], 'a Senden line with an image stays in the body');
   assert.equal(replyParts('**Başlık**\n\nSenden: rapora bak.').forYou, 'rapora bak.', 'a Senden line without an image is still the action line');
+  const boldYou = replyParts('**Senden:** şu ekrana bak ![x](</a/b.png>)\n\nMetin.');
+  assert.deepEqual([boldYou.title, boldYou.forYou, boldYou.asks, boldYou.body], ['', '', true, '**Senden:** şu ekrana bak ![x](</a/b.png>)\n\nMetin.'], 'a bold Senden line with an image is no title (review 5)');
   assert.deepEqual(replyParts('**Başlık**\n\n> [!DETAILS] ![x](</a/b.png>)\n> gövde').details, [{ summary: '', body: '![x](</a/b.png>)\n\ngövde' }], 'an image in a DETAILS summary goes to its text');
   const l1 = mdLabelsOf((k) => `tr:${k}`); const l2 = mdLabelsOf((k) => `de:${k}`);
   assert.ok(l1 !== l2 && l2.code.copyLabel === 'de:board.copy' && l2.footnotes === 'de:board.footnotes', 'a new language: a new labels object with its texts');
