@@ -4172,7 +4172,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       + `dialog[${DECIDE_ATTR}][data-peek]{position:fixed;inset:64px 0 auto;z-index:50;margin:0 auto}dialog[${DECIDE_ATTR}][data-peek] .cp-dc-in{max-height:calc(100vh - 260px)}`
       + `@media (prefers-reduced-motion:reduce){[${DECIDE_ATTR}] .cp-dc-card{animation:none}}`;
     /** The Kararlar dialog of chat `sessionId` (portaled into the page body; open while it is drawn). `notes`: statusCards'
-     * notes; `decide` ({ answered, later, error }) and `setDecide`: the panel's state, so the panel's counts match and a
+     * notes; `decide` ({ answered, drafts, later, error }) and `setDecide`: the panel's state, so the panel's counts match and a
      * send that fails after the dialog closed still shows its reason (in the panel); `picks`: Option picks' store (`say`:
      * the send path and guard of Onayla and the option buttons); `remove(id)`: the panel's remove of an item ({ ok, error })
      * for Sil (the old × of a note; Damon's decision, 2026-11-24). Furkan, 2026-11-26 ("kararlara ok tuşları koy ileri geri
@@ -4409,11 +4409,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       if (doc?.visibilityState !== 'visible' || empty !== true || asked !== '' || now - lastInput < DECIDE_PEEK_QUIET_MS) return false;
       return onScreen(host) && !popupShown(doc);
     }
-    /** Opens the Kararlar dialog by itself (`onPeek`) once for each new decision (`ids`: the open decisions, space-separated;
-     * null before the panel's first good read) while canPeek allows it. The decisions on the list at the panel's first read of the page are not new; each decision
-     * that an open dialog (`open`) shows or that the peek opened for is seen, so a closed dialog opens again only for a
-     * newer decision. `empty(sessionId)`: the message box is empty. Draws nothing. */
-    const decideSeen = new Map(); // chat id → the decision ids seen on this page (kept while the panel draws again)
+    const decideSeen = new Map(); // DecidePeek: chat id → the decision ids seen on this page (kept while the panel draws again)
     /** The panel's Kararlar state per chat ({ answered, drafts, later, error }), kept for the page: a panel that draws
      * again or mounts again reads it, and a send that ends after its panel went away (another chat on screen) still
      * reaches the panel that shows now (reviews 2 and 3). `decideOf` gives one stable object per state (a React store). */
@@ -4421,6 +4417,11 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
     const decideOf = (id) => { let st = decideKept.get(id); if (st === undefined) { st = { answered: new Map(), drafts: new Map(), later: [], error: null }; decideKept.set(id, st); } return st; };
     const decideSubscribe = (fn) => { decideSubs.add(fn); return () => { decideSubs.delete(fn); }; };
     const setDecideOf = (id, f) => { const next = typeof f === 'function' ? f(decideOf(id)) : f; decideKept.set(id, next); for (const fn of [...decideSubs]) fn(); };
+    /** Opens the Kararlar dialog by itself (`onPeek`) once for each new decision (`ids`: the open decisions, space-separated;
+     * null before the panel's first good read) while canPeek allows it. The decisions on the list at the panel's first
+     * read of the page are not new; each decision that an open dialog (`open`) shows or that the peek opened for is seen
+     * (decideSeen), so a closed dialog opens again only for a newer decision. `empty(sessionId)`: the message box is
+     * empty. Draws nothing. */
     function DecidePeek({ sessionId, ids, open, host, asked, empty, onPeek }) {
       const lastInput = React.useRef(0);
       const latest = React.useRef(); latest.current = { host, asked, empty, onPeek }; // the poll reads the newest
@@ -5175,7 +5176,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       };
       // Your own notes (your items without a mark): one Kararlar button (Furkan, 2026-11-24) with the count of the open
       // decisions and of the other notes; it opens the decision dialog. Nothing open: one line says so.
-      const dq = decisionQueue(cards.notes, decide, now);
+      const dq = decisionQueue(cards.notes, decide);
       // The focus goes back to the button; when the button is gone (nothing waits), to the panel's title.
       // On the canvas the title is the canvas itself (homeId). dsh's question closed the canvas while the dialog was open:
       // the focus goes into that question (the effect of focusSeat), not to the button.
