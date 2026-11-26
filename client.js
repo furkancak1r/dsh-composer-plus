@@ -4613,16 +4613,20 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         const you = code ? null : /^\s*(?:[-*+]\s+)?(?:\*\*|__)?(?:senden|for you)(?:\*\*|__)?\s*:\s*(?:\*\*|__)?\s*(.*?)\s*$/iu.exec(line);
         if (you !== null && forYou === '' && plainText(you[1]) !== '') { forYou = plainText(you[1]); continue; }
         // A list line is no title ("1. Run the tests." would give "1." and break the list's numbering): it stays in the body.
-        // A line that starts with an image is no title either: the image stays in the body (review 1 of the card images).
-        if (title === '' && !code && line.trim() !== '' && body.every((l) => l.trim() === '') && !/^\s*(?:[-*+]|\d{1,9}[.)])\s/.test(line) && !/^\s*!\[/.test(line)) {
+        if (title === '' && !code && line.trim() !== '' && body.every((l) => l.trim() === '') && !/^\s*(?:[-*+]|\d{1,9}[.)])\s/.test(line)) {
           const heading = /^#{1,6}\s+(.+?)\s*#*\s*$/.exec(line);
           const bold = /^\s*(\*\*|__)(.+?)\1\s*(.*)$/.exec(line);
           const sentence = /^(.+?[.!?…])(?=\s|$)\s*(.*)$/u.exec(line.trim());
-          if (heading !== null) title = plainText(heading[1]);
-          else if (bold !== null) { title = plainText(bold[2]); if (bold[3].trim() !== '') body.push(bold[3]); }
-          else if (sentence !== null && sentence[1].length <= 200) { title = plainText(sentence[1]); if (sentence[2] !== '') body.push(sentence[2]); }
-          else { const one = plainText(line); title = one.length > 160 ? `${one.slice(0, 159)}…` : one; }
-          if (title !== '') continue;
+          // A title that would hold an image is no title: the line and its image stay in the body (reviews 1 and 2 of the
+          // card images); "**Title** ![x](…)" keeps its bold title and the image goes to the body.
+          const pick = heading !== null ? heading[1] : bold !== null ? bold[2] : sentence !== null && sentence[1].length <= 200 ? sentence[1] : line;
+          if (!/!\[[^\]]*\]\(/.test(pick)) {
+            if (heading !== null) title = plainText(heading[1]);
+            else if (bold !== null) { title = plainText(bold[2]); if (bold[3].trim() !== '') body.push(bold[3]); }
+            else if (sentence !== null && sentence[1].length <= 200) { title = plainText(sentence[1]); if (sentence[2] !== '') body.push(sentence[2]); }
+            else { const one = plainText(line); title = one.length > 160 ? `${one.slice(0, 159)}…` : one; }
+            if (title !== '') continue;
+          }
         }
         body.push(line);
       }

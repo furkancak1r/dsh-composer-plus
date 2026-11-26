@@ -488,13 +488,18 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   assert.equal(new URL(own.resolve('resim/a.png')).searchParams.get('path'), '/Users/demo/Assistant/resim/a.png', 'and the chat\'s folder');
   assert.equal(own.resolve('/a/rapor.pdf'), undefined, 'a .pdf stays its alt text');
   delete globalThis.document.baseURI;
-  assert.match(src, /React\.createElement\(primitives\.MarkdownText, \{ text, pathImages: pathImagesOf\(cwd\), labels:/, 'structure: the card passes the resolver to dsh\'s Markdown');
+  assert.match(src, /React\.createElement\(primitives\.MarkdownText, \{ text, pathImages: pathImagesOf\(cwd\), labels: mdLabelsOf\(t\) \}\)/, 'structure: the card passes the resolver and the stable labels to dsh\'s Markdown');
   assert.equal(replyParts(`**Resim.** Bak:\n\n![İlk görünüm](<${abs}>)`).body, `Bak:\n\n![İlk görünüm](<${abs}>)`, 'the image line stays in the card body');
   // Review 1: a reply (or a topic) that starts with an image keeps the image; it is no title ("!İlk görünüm" before).
-  for (const first of [`![İlk görünüm](<${abs}>)`, `![İlk görünüm](<${abs}>) Sonra metin.`]) {
+  // Review 2: also an image after text on the first line (a sentence, a heading, a plain line).
+  for (const first of [`![İlk görünüm](<${abs}>)`, `![İlk görünüm](<${abs}>) Sonra metin.`, `Ekran görüntüsü: ![a](</a/b.png>)`, `# Durum ![x](</a/b.png>)`, `Görünüm ![x](</a/b.png>) hazır.`]) {
     const p = replyParts(`${first}\n\nMetin burada.`);
-    assert.deepEqual([p.title, p.body], ['', `${first}\n\nMetin burada.`], `an image first: no title, the image in the body (${first.slice(-12)})`);
+    assert.deepEqual([p.title, p.body], ['', `${first}\n\nMetin burada.`], `an image in the first line: no title, the image in the body (${first})`);
   }
+  const boldFirst = replyParts('**Başlık** ![x](</a/b.png>)\n\nMetin.');
+  assert.deepEqual([boldFirst.title, boldFirst.body], ['Başlık', '![x](</a/b.png>)\n\nMetin.'], 'a bold title keeps its title; the image goes to the body');
+  const l1 = mdLabelsOf((k) => `tr:${k}`); const l2 = mdLabelsOf((k) => `de:${k}`);
+  assert.ok(l1 !== l2 && l2.code.copyLabel === 'de:board.copy' && l2.footnotes === 'de:board.footnotes', 'a new language: a new labels object with its texts');
   assert.equal(mdLabelsOf((k) => k), mdLabelsOf((k) => k), 'one labels object per language (MarkdownText memoizes by it)');
   assert.equal(replyImageUrl('/a/b.png', '/x', undefined), undefined, 'no base: no image, no throw (review 1)');
   for (const re of [/ReplyCard, \{ key: card\.key, card, sessionId, cwd,/, /ReplyCard, \{ card: rc, sessionId, cwd,/]) assert.match(src, re, 'structure: the feed and the canvas give the card the chat folder');

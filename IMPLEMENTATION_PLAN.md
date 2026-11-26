@@ -4933,3 +4933,23 @@ review. Not in scope: live copy (after Furkan's "tamam" on the screenshots), rel
   repository" folder was inside this worktree; without that TMPDIR it passes, alone 3/3 and in the full run);
   browser-reply-images, browser-reply-pages, browser-reply-order, browser-status-canvas PASS on 0.2.0-rc.2, 0.2.1-rc.2,
   0.2.2-rc.5. Next: review-guard round 2.
+- 2026-11-26 20:4x: review-guard round 2 (review-guard-r2, origin/main...eaf047fa): P1 0, P2 0, P3 0, P4 3.
+  Fixed: (1) an image anywhere in the title text of the first line (sentence, heading, plain line) is no title, the line
+  stays in the body; a bold title keeps its title and the image goes to the body (unit cases); tether/FEATURES.md wording;
+  (2) the structure regex now checks `labels: mdLabelsOf(t)`, plus a test that a new language gives a new labels object.
+  OPEN (not done in this chat): (3) README.md:325 limits bullet + the same sentence in the 12 translated README.<id>.md
+  (zh + 11 locales), each in its own language: "only png, jpg, jpeg, webp and gif images show in the cards; another file
+  or an image that does not load shows its alt text; Tether shows only the alt text." Then `npm run build:readme`
+  (check), npm test.
+- Checkpoint (2026-11-26 ~20:55, about 145 tool calls in this chat): branch fix/reply-card-markdown-images, commit below.
+  Last passing: `npm test` exit 0 (do NOT set TMPDIR inside the repo for npm test: turn-rollback.test.mjs:232 then finds a
+  git repo above its "plain" folder); `TMPDIR=$PWD/build/t PLAYWRIGHT=$HOME/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright
+  node test/browser-reply-images.mjs <3 bins>` and browser-reply-order PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5 (after
+  the review-2 fixes); browser-reply-pages and browser-status-canvas PASS x3 at eaf047fa (review-2 fixes touch only the
+  title rule and the labels object). Bins: ~/Documents/testdeepseekharness/work/dsh-0.2.0-rc.2|dsh-0.2.1-rc.2/node_modules/@deepseek-ai/dsh/lib/bin.js,
+  ~/ai-maintenance/dsh-composer-plus/dsh/0.2.2-rc.5/node_modules/@deepseek-ai/dsh/lib/bin.js.
+- Open steps: (a) the README limits sentence in 13 READMEs (item 3 above); (b) review-guard round 3 in a separate subagent
+  on origin/main...HEAD (the diff is > 100 lines and > 3 files: repeat until a round has no P1/P2; fix every finding and
+  run review-guard again before the merge); (c) git fetch, merge origin/main, npm test, browser tests; (d) merge into main
+  --no-ff, npm test on main, push main. No live copy (Furkan must say "tamam" to the screenshots first), no release,
+  Tether app unchanged.
