@@ -523,6 +523,7 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   assert.equal(replyParts('Bitti!`npm test`[log](u)').title, 'Bitti!npm testlog', 'no "![" in the text: the title as before');
   assert.equal(replyParts('Bak `` ![a](</p.png>) `y` tamam').title, '', 'a real image between unequal backtick runs: no title');
   assert.equal(replyParts('``a ` ![x](y)`` tamam').title, 'a  !x tamam', 'one code span with "![" inside: the title stays');
+  assert.equal(replyParts('\\`![x](</a/b.png>)\\` sonra').title, '', 'an escaped backtick opens no code span: the image is no title (review 9)');
   assert.deepEqual(replyParts('**Başlık**\n\n> [!DETAILS] ![x](</a/b.png>)\n> gövde').details, [{ summary: '', body: '![x](</a/b.png>)\n\ngövde' }], 'an image in a DETAILS summary goes to its text');
   const l1 = mdLabelsOf((k) => `tr:${k}`); const l2 = mdLabelsOf((k) => `de:${k}`);
   assert.ok(l1 !== l2 && l2.code.copyLabel === 'de:board.copy' && l2.footnotes === 'de:board.footnotes', 'a new language: a new labels object with its texts');

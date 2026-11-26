@@ -4995,3 +4995,8 @@ review. Not in scope: live copy (after Furkan's "tamam" on the screenshots), rel
   Now a code span is a same-length backtick run pair (CommonMark) and becomes a space. The reviewer checked this regex in
   memory: 0 differences on the 195,905 replies. Unit cases red on 4910c350.
   Open: review round 9 (separate subagent) until clean; then (c) update from origin/main and tests, (d) merge and push.
+- 2026-11-27 02:3x: review-guard round 9 (review-guard-r9, origin/main...88240a11): P1 0, P2 0, P3 0, P4 1 (an escaped
+  "\`" opened a code span in hasImage). Fixed in the next commit (lookbehind `(?<![`\\])`, unit case red on 88240a11).
+  The reviewer's fuzz: 150,000 replies without "![" and 30,000 tool-call chats: 0 differences against origin/main;
+  hasImage worst case 95 ms at 128 KB (not reported). Open: review round 10 (separate subagent) until clean; then (c)
+  update from origin/main and tests, (d) merge into main --no-ff and push. No live copy, no release, Tether unchanged.
