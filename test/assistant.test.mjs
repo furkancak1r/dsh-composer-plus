@@ -457,6 +457,16 @@ assert.match(section.text({ agent: assistant }), /topic "profil"[^\n]*not in the
 // Parallel topics: long work goes to background subagents, one per topic, and the turn ends at once.
 assert.match(section.text({ agent: assistant }), /subagent tool in the background[^\n]*end your turn at once/, 'long work goes to a background subagent');
 assert.match(section.text({ agent: assistant }), /Each topic is its own subagent[^\n]*do not stop or merge the running ones/, 'a new topic does not stop the others');
+// 2026-11-27 (Furkan): a small task gets no "I started X" line: only [quiet], and its result in its own reply. Other work
+// keeps the line; a denial, a step of the user and a live error or risk always show.
+{
+  const line = section.text({ agent: assistant }).split('\n').find((l) => l.startsWith('- Talk like a friend'));
+  assert.match(line, /For a small task \(one subagent finishes it, and it needs no step or approval from the user: for example a mail, a copy, research or a check\), reply with only `\[quiet\]` and write no other text in that turn; when the task ends, write its result in its own reply\./);
+  assert.match(line, /For other work, say in one line what you started\./);
+  assert.match(line, /When the turn has an Auto review denial, a step that the user must do, or an error or a risk on a live system, write one short line for each \(a denial with its reason\) instead of only `\[quiet\]`\./);
+  assert.doesNotMatch(line, /in the background \(run_in_background true when the tool has it\), say in one line/, 'no started line for every task');
+  assert.match(section.text({ agent: assistant }), /Say in one line which chat you started and end your turn\./, 'project work (chat_new) keeps its line');
+}
 // Short replies: news goes to the panel unless the user must act; a fixed reply form; no internal IDs.
 const rules = section.text({ agent: assistant });
 assert.match(rules, /News rule[^\n]*write to the user only when the user asked for this task and it is done, when the user must do a step[^\n]*failed or is blocked[^\n]*live system has an error or a risk/);

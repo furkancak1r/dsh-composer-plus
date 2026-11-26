@@ -1260,6 +1260,9 @@ func quietTurn(reply: String, reason: String?) -> Bool {
 }
 /// A reply that is only `[quiet]` (spaces trimmed, any case): the views hide it (index.js quietReply, client.js quietText;
 /// one table: test/fixtures/quiet-replies.json).
+/// Damon's reply while it streams (2026-11-27): true while its text (spaces trimmed, any case) can still become only
+/// `[quiet]`, so the live row does not show `[quiet]` before botLines hides the reply. The Mac's cards show no streaming text.
+func quietStart(_ text: String) -> Bool { "[quiet]".hasPrefix(text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) }
 func quietReply(_ text: String) -> Bool {
     text.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("[quiet]") == .orderedSame
 }

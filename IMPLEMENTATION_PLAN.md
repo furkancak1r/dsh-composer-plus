@@ -1,3 +1,39 @@
+# Quiet turns leave no card, and small tasks start quietly (branch fix/hide-quiet-only-turns, 2026-11-27)
+
+Source: Furkan in the Assistant chat, 2026-11-27 (relayed by Damon): "Yalnız `[quiet]` dönen bir turda Composer Damon
+sohbetinde ve Tether'de hiç kart görünmemeli …"; scope change: "Daha iyi bir yol görürsen onu uygula …" and small task =
+"Senin adımını ya da onayını gerektirmeyen, tek alt ajanla biten her iş: mail, kopyalama, araştırma, kontrol". Base: main
+e1343314. Standing approval: merge into main after a clean review. Not in scope: live copy, release, npm publish, DSH
+restart, iPhone install.
+
+## Phase 1 result (check of the `[quiet]` hiding)
+- a. Only `[quiet]` (spaces, newline): no card, no row on the Mac (reply-cards.test.mjs, assistant-subagent-rows.test.mjs,
+  browser-assistant-answers.mjs turn 3) and on Tether (botLines, QuietReplyTests). Passed before the change.
+- b. `[quiet]` with tool calls: no row, card or tool block (same tests; turn 3 has a `[quiet]` text with a tool call). Passed.
+- c. FAILED: a text sent with a tool call, then `[quiet]` (an Auto review denial): the Mac hid it in the chat view
+  (answerRowKeys keeps a tool-call step folded) and made no card (replyCardsOf skips a tool-call text that asks nothing).
+  Red before the fix: reply-cards ("actual [31], expected [10, 31]"), assistant-subagent-rows, browser test on 0.2.2-rc.5.
+- d. FAILED on Tether: while Damon streams `[quiet]`, the live row showed `[quiet]` (tether-damon-sessiz-once.png).
+- Push and unread: not changed. Proof: index.js agent/status handler (quietRun → no green dot; pushWords/damonPushWords →
+  no Turn finished push), test/quiet-replies.test.mjs, test/tether-push-words.test.mjs, Tether damonWords (Core.swift).
+
+## Phase 2 (fix, done)
+- client.js answerRowKeys and replyCardsOf: in a turn whose closing text is `[quiet]` (quietTurnsOf), a text with a tool
+  call shows and is a card. Tether already showed it (botLines).
+- Tether quietStart + LiveTail: no live row while the stream can still become `[quiet]` (Damon chat, Assistant messages only).
+- Prompt (index.js): ASSISTANT_SECTION "Talk like a friend" line, ASSISTANT_FREE_SECTION, FREE_REASON: a small task ends
+  with only `[quiet]`; other work keeps the one-line note; a denial, a user step and a live error or risk always show.
+  Docs: docs/features.json (13 languages, llms), build:readme. tether/FEATURES.md rows assistantChatView, assistantReplyCards.
+
+## Last checkpoint (2026-11-27 02:1x)
+- Last passing: `npm test` exit 0; iOS `xcodebuild … -destination 'platform=iOS Simulator,id=787CAECE-7075-4681-B0CE-7FBE5A5DFD49' test CODE_SIGNING_ALLOWED=NO`
+  125 tests, 2 skipped, 0 failures; `TMPDIR=~/Library/Caches/cp-quiet-tests PLAYWRIGHT=… node test/browser-assistant-answers.mjs`
+  PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5 (also FOLDED_REPLIES=all). TMPDIR must have no "." in its path (dsh's
+  session folder name check fails for this worktree path under build/).
+- Screenshots: /Users/furkancakir/Damon/Belgeler/Composer Plus/sessiz-tur-20261127/ (damon-sohbet, damon-kartlar,
+  tether-damon-sessiz; -once / -sonra).
+- Open steps: review-guard round(s) in a separate subagent, merge origin/main, tests, merge into main, push main.
+
 # Damon reply cards: time order, text cursor, chat toggle icon, Tether cards (branch fix/chat-card-order-tether, 2026-11-26)
 
 Source: Furkan in the Assistant chat, 2026-11-26 (relayed by Damon): "yeni gelen kart en altta gözüksün", "yeni kart

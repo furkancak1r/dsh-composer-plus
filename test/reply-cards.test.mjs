@@ -72,6 +72,15 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
     step(1, 4, 14, [txt('Bitti.')]), tail(1, 14),
   ]);
   assert.deepEqual(replyCardsOf(ask).map((c) => c.seq), [11, 12, 13, 14], 'an approval, options or a Senden line next to a tool call is a card');
+  // 2026-11-27: a turn that ends with only [quiet] has no closing card, so each other text in it is a card, also next to a
+  // tool call (an Auto review denial, a live error: Damon writes no other text in a [quiet] turn). Spaces and a newline
+  // around [quiet] count as [quiet].
+  const hushed = chatOf([
+    step(1, 0, 10, [txt('Auto review denied bash: the reason is X.'), tool]), step(1, 1, 11, [txt(' [quiet]\n')]), tail(1, 11),
+    step(2, 0, 20, [txt('[QUIET]'), tool]), step(2, 1, 21, [txt('\n[quiet] ')]), tail(2, 21), // a quiet turn with a tool call
+    step(3, 0, 30, [txt('Bakıyorum.'), tool]), step(3, 1, 31, [txt('Bitti.')]), tail(3, 31), // a real closing answer: the looking line stays out
+  ]);
+  assert.deepEqual(replyCardsOf(hushed).map((c) => c.seq), [10, 31], 'the denial before [quiet] is a card; a quiet turn and a looking line are not');
 }
 
 // replyParts.

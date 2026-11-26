@@ -109,6 +109,9 @@ assert.equal(free.text({ agent: web }), ''); assert.equal(free.text({ agent: sub
 const pre = (name, agent, decision = { kind: 'allow' }, args = '{}') => listeners.get('tools/pre-execute')[0]({ name, agent, arguments: args }, async () => decision);
 let d = await pre('bash', assistantAgent);
 assert.equal(d.kind, 'deny'); assert.match(d.reason, /Assistant always free.*subagent tool in the background/);
+// 2026-11-27: a small task ends with only [quiet] (no "I started X" line); other work keeps the line.
+assert.match(d.reason, /end your turn: for a small task, reply with only \[quiet\]; for other work, say in one line what you started\.$/);
+assert.match(ASSISTANT_FREE_SECTION, /start a subagent in the background and end your turn: for a small task \(one subagent finishes it, and it needs no step or approval from the user\), reply with only `\[quiet\]`; for other work, say in one line what you started\./);
 assert.equal((await pre('web_fetch', assistantAgent)).kind, 'deny');
 assert.equal((await pre('mcp__ddg__search', assistantAgent)).kind, 'deny');
 for (const t of ['chats_list', 'schedule_create', 'memory_remember', 'subagent', 'job_output']) assert.equal((await pre(t, assistantAgent)).kind, 'allow', `${t} allowed`);

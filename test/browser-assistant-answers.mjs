@@ -13,7 +13,7 @@ import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, mkdir, writeFile, symlink, realpath, rm } from 'node:fs/promises';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as zlib from 'node:zlib';
 import { join } from 'node:path';
@@ -27,8 +27,20 @@ const REPLIES = ['Promes is fine.', 'GIB has no code.', 'Second result.'];
 const HIDDEN = ['RELAY-ONE from the subagent', 'RELAY-TWO from the subagent', 'chats_list'];
 const QUIET = '[quiet]'; // turn 3: a news turn whose reply is only [quiet] (the assistant has nothing to say): hidden
 // Turn 3's news note goes with its quiet reply; turn 4 is a news turn with a real reply: its note and reply stay as dsh draws them.
-const NEWS = ['[Composer Plus → Assistant news] QUIET-NEWS acme finished.', '[Composer Plus → Assistant news] LOUD-NEWS deploy failed.'];
+const NEWS = ['[Composer Plus → Assistant news] QUIET-NEWS acme finished.', '[Composer Plus → Assistant news] LOUD-NEWS deploy failed.', '[Composer Plus → Assistant news] DENY-NEWS a copy ended.'];
 const NEWS_ANSWER = 'The acme deploy failed: the login test is red.';
+// Turn 5 (2026-11-27): a text sent with a tool call, then [quiet]: the text (an Auto review denial) is for you and shows,
+// in the chat and as a card.
+const DENY = 'Auto review denied bash: it writes to the live server.';
+const SHOTS = process.env.SHOTS; const TAG = process.env.TAG ? `-${process.env.TAG}` : ''; const BEFORE = process.env.BEFORE === '1';
+/** SHOTS=<folder>: the page as `<name><TAG>.png` (damon-sohbet: the chat shown; damon-kartlar: the cards); never replaces a
+ * file. BEFORE=1: only the two shots, no checks (for a client.js before the 2026-11-27 fix). */
+async function shot(page, name) {
+  if (!SHOTS) return;
+  const file = join(SHOTS, `${name}${TAG}.png`);
+  if (existsSync(file)) throw Error(`${file} exists`);
+  await page.screenshot({ path: file }); console.log(`  SHOT: ${file}`);
+}
 
 // The assistant chat's log: the event shapes of a real dsh 0.2.2 log (texts made up).
 function chatLog(sid, cwd) {
@@ -79,6 +91,7 @@ function chatLog(sid, cwd) {
   };
   newsTurn(3, NEWS[0], QUIET, QUIET); // [quiet] with a tool call, then [quiet]: the whole turn is quiet
   newsTurn(4, NEWS[1], NEWS_ANSWER);
+  newsTurn(5, NEWS[2], ` ${QUIET}\n`, DENY);
   // dsh wants the header line alone in the first zstd frame.
   return Buffer.concat([zlib.zstdCompressSync(Buffer.from(`${lines[0]}\n`)), zlib.zstdCompressSync(Buffer.from(`${lines.slice(1).join('\n')}\n`))]);
 }
@@ -113,7 +126,9 @@ try {
       const url = log.match(/http:\/\/[^\s]*token=[^\s]*/)?.[0]; assert.ok(url, 'test server URL available');
       // 1600 px: dsh hides its turn rail while the chat is 900 px wide or less (`@container (width<=900px)`).
       context = await browser.newContext({ locale: 'en-US', viewport: { width: 1600, height: 1000 } });
-      await context.addInitScript(() => { localStorage.setItem('dsh-composer-plus.features', '{"autoUpdate":false,"worktreeChats":false}'); });
+      // The chat is shown (Sohbeti göster): Assistant reply cards (on by default) hide it behind their cards. The cards are
+      // checked at the end, with the chat hidden again.
+      await context.addInitScript(() => { localStorage.setItem('dsh-composer-plus.features', '{"autoUpdate":false,"worktreeChats":false}'); if (sessionStorage.getItem('cards') !== '1') localStorage.setItem('dsh-composer-plus.assistant-chat-shown', '1'); });
       const page = await context.newPage(); page.on('pageerror', (e) => errors.push(String(e)));
       await page.goto(url);
       for (const name of [/^Continue$/, /^Configure later$/]) { const b = page.getByRole('button', { name }); if (await b.waitFor({ timeout: 2000 }).then(() => true, () => false)) { await b.click(); await b.waitFor({ state: 'hidden' }); } }
@@ -124,6 +139,11 @@ try {
       await chat.getByText(REPLIES[2]).first().waitFor({ timeout: 30000 }); await pause(1500); // the fold has run
       // Shown: drawn with a height, not in a hidden (content-visibility) or invisible subtree.
       const shown = (text) => chat.getByText(text).evaluateAll((els) => els.filter((el) => el.checkVisibility({ visibilityProperty: true, opacityProperty: true }) && el.getBoundingClientRect().height > 0).map((el) => el.getBoundingClientRect().top));
+      await chat.getByText(NEWS_ANSWER).first().scrollIntoViewIfNeeded(); await shot(page, 'damon-sohbet');
+      if (BEFORE) { await page.evaluate(() => { sessionStorage.setItem('cards', '1'); localStorage.removeItem('dsh-composer-plus.assistant-chat-shown'); });
+        await page.reload(); await page.locator('button[aria-label="Damon"]').click(); await page.locator('[data-composer-plus-reply-feed] article.cp-rc').filter({ hasText: NEWS_ANSWER }).first().waitFor({ timeout: 30000 }); await pause(1000);
+        await shot(page, 'damon-kartlar'); passed = true; console.log(`BEFORE dsh ${version}: shots only`); continue; }
+      assert.equal((await shown(DENY)).length, 1, 'a text with a tool call before [quiet] (an Auto review denial) shows');
       const tops = [];
       for (const text of REPLIES) { const at = await shown(text); assert.equal(at.length, 1, `the reply "${text}" shows`); tops.push(at[0]); }
       assert.ok(tops[0] < tops[1] && tops[1] < tops[2], `the replies are in time order (${tops.join(' < ')})`);
@@ -154,6 +174,16 @@ try {
         await page.mouse.move(10, 10);
       } else console.log(`  (dsh ${version}: no turn rail drawn)`);
       assert.ok(await chat.getByText('promes status?').first().isVisible(), 'your message shows');
+      // The reply cards (the chat hidden again): a card per reply, none for the [quiet] turn or a [quiet] text; the denial
+      // before [quiet] is a card.
+      await page.evaluate(() => { sessionStorage.setItem('cards', '1'); localStorage.removeItem('dsh-composer-plus.assistant-chat-shown'); });
+      await page.reload(); await page.locator('button[aria-label="Damon"]').click();
+      const cards = page.locator('[data-composer-plus-reply-feed] article.cp-rc');
+      await cards.filter({ hasText: NEWS_ANSWER }).first().waitFor({ timeout: 30000 }); await pause(1000);
+      await shot(page, 'damon-kartlar');
+      const texts = await cards.evaluateAll((els) => els.map((el) => el.querySelector('h3')?.textContent.trim()));
+      assert.deepEqual(texts, [...REPLIES, NEWS_ANSWER, DENY], 'one card per reply in time order, the denial too, none for [quiet]');
+      assert.equal(await page.locator('[data-composer-plus-reply-feed]').getByText(QUIET).count(), 0, 'no card shows [quiet]');
       assert.deepEqual(errors, [], 'no page errors');
       passed = true; console.log(`PASS dsh ${version}`);
     } finally {

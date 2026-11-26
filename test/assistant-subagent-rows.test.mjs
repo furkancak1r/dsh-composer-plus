@@ -169,6 +169,8 @@ stores.set('s-quiet', storeOf([
   // A [quiet] text sent with a tool call: dsh's default (foldedReplies: all) shows it, so it goes too (the Host's
   // quietRun counts it the same way); the turn's later real reply stays.
   step('16:1', 16, 1, '[quiet]', 'tool'), step('16:2', 16, 2, 'Found 2 issues.'),
+  // 2026-11-27: a text with a tool call in a turn that ends with [quiet] (an Auto review denial) is for you: it shows.
+  step('17:1', 17, 1, 'Auto review denied bash.', 'tool'), step('17:2', 17, 2, '\n[quiet] '),
 ]));
 open = 's-quiet'; id = 's-quiet';
 const quietView = mount(() => ({ status, chatOf, t: (k) => k }));
@@ -178,6 +180,8 @@ for (const key of ['11:1', '11:2', '16:1']) assert.ok(css().includes(`${quietRul
 for (const key of ['12:1', '12:2', '16:2']) assert.ok(!css().includes(`${quietRule(key)},`) && !css().includes(`${quietRule(key)} {`), `${key} is not hidden as quiet`);
 assert.ok(!css().includes(`${quietRule('11:1')}:not(`), 'a quiet reply is not shown again as a folded answer');
 assert.ok(css().includes(`${quietRule('13:1')}:not(`), 'the real answer before a quiet last step shows');
+assert.ok(css().includes(`${quietRule('17:1')}:not(`), 'a text with a tool call before a quiet last step shows');
+assert.ok(!css().includes(`${quietRule('16:1')}:not(`), 'a [quiet] text with a tool call is not shown again');
 assert.ok(css().includes(`${quietRule('13:2')},`) || css().includes(`${quietRule('13:2')} {`), 'the quiet last step is hidden');
 // The tail of a turn that ends quiet: only its Copy/time row goes (the tail keeps the Approve and option buttons).
 const tails = css().split('}').find((b) => b.includes('data-turn-tail')) ?? '';

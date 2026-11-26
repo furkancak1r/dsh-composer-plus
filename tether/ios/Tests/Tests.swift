@@ -1814,6 +1814,43 @@ final class AgentboxIdeasTests: XCTestCase {
         try XCTUnwrap(img.pngData()).write(to: URL(fileURLWithPath: dir).appendingPathComponent(name))
     }
 
+    /// A Damon turn whose every text is `[quiet]` shows nothing (2026-11-27): no card, no tool row, and no live text while
+    /// `[quiet]` streams; a text before `[quiet]` (an Auto review denial with a tool call) stays a card. With SHOT_DIR set
+    /// (TEST_RUNNER_SHOT_DIR, TEST_RUNNER_SHOT_NAME), it writes the screen as a PNG.
+    @MainActor func testDamonQuietTurnScreen() throws {
+        let c = Client(), strings = uiStrings
+        c.macLang = "tr"; defer { c.macLang = nil; uiStrings = strings }
+        c.plus = ["assistant-todos", "assistant-status"]; c.setAssistantIdForTest("damon")
+        c.sessions = [Sess(["sessionId": "damon", "projections": ["values": ["title": "Damon"]]])!]
+        c.state = .connected; c.current = "damon"; c.path = ["damon"]
+        let say = { (seq: Int, text: String, tool: Bool) -> [J] in
+            var e: [J] = [["type": "assistant/message", "seq": seq, "time": 1_764_140_000_000 + seq * 60_000, "data": ["message": ["content": [["type": "text", "text": text]] + (tool ? [["type": "tool-call", "id": "c\(seq)", "name": "bash"]] : [])]]]]
+            if tool { e.append(["type": "tool/call", "seq": seq + 1, "data": ["callId": "c\(seq)", "name": "bash", "arguments": ["command": "ls"]]]) }
+            return e
+        }
+        let deny = "Auto review bash çağrısını reddetti: neden canlı sunucuya yazmasıydı."
+        c.replaySnapshot(turn(1, "Bugün ne var?", "**Sabah özeti hazır.** İki iş bitti.")
+            + [["type": "turn/start", "seq": 10, "data": J()]] + say(11, "[quiet]", true) + say(13, " [QUIET]\n", false) + [["type": "turn/end", "seq": 14, "data": ["reason": ["kind": "completed"]]]]
+            + [["type": "turn/start", "seq": 20, "data": J()]] + say(21, deny, true) + say(23, "\n[quiet] ", false) + [["type": "turn/end", "seq": 24, "data": ["reason": ["kind": "completed"]]]]
+            + [["type": "turn/start", "seq": 30, "data": J()]])
+        c.streamFrame(["type": "start"]); c.streamFrame(["type": "chunk", "chunk": ["type": "text-delta", "text": "[quiet]"]])
+        XCTAssertEqual(botLines(c.transcript).filter { $0.kind == .assistant }.map(\.text), ["**Sabah özeti hazır.** İki iş bitti.", deny])
+        XCTAssertEqual(botLines(c.transcript).filter { $0.kind == .tool }.count, 0, "no tool row")
+        // The live row: `[quiet]` and each start of it show nothing; a real reply (also one that starts with `[`) shows.
+        for t in ["[quiet]", " [QUIET]\n", "[qu", "[", "  "] { XCTAssertTrue(quietStart(t), t) }
+        for t in ["[quiet]\nThe audit found 2 issues.", "[x]", "Bakıyorum.", "[quiet] ok"] { XCTAssertFalse(quietStart(t), t) }
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let w = UIWindow(windowScene: scene)
+        defer { w.isHidden = true }
+        w.overrideUserInterfaceStyle = .light
+        w.rootViewController = UIHostingController(rootView: NavigationStack { ConversationView() }.environmentObject(c).environment(\.locale, Locale(identifier: "tr_TR")))
+        w.makeKeyAndVisible(); RunLoop.main.run(until: Date().addingTimeInterval(2))
+        guard let dir = ProcessInfo.processInfo.environment["SHOT_DIR"], !dir.isEmpty else { return }
+        let img = UIGraphicsImageRenderer(bounds: w.bounds).image { _ in _ = w.drawHierarchy(in: w.bounds, afterScreenUpdates: true) }
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        try XCTUnwrap(img.pngData()).write(to: URL(fileURLWithPath: dir).appendingPathComponent(ProcessInfo.processInfo.environment["SHOT_NAME"] ?? "tether-damon-quiet.png"))
+    }
+
     /// Damon reply cards: the title and the For you line as client.js replyParts (test/fixtures/reply-titles.json); the
     /// card's body keeps the rest (the Approve and option buttons read the whole reply).
     func testReplyTitleMatchesTheMac() throws {

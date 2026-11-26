@@ -3006,10 +3006,14 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
     const newsRowKeys = (chat, quiet = quietTurnSet(chat)) => [...(chat?.nodes?.values?.() ?? [])]
       .filter((n) => (n?.kind === 'context' || n?.kind === 'turn-trigger') && n.data?.source?.kind === 'composer-plus-assistant-news'
         && quiet.has(String(n.location?.turn?.turn))).map((n) => n.key);
+    /** Also a text sent with a tool call in a turn that ends with a `[quiet]` reply (quietTurnsOf): that turn shows no other
+     * reply, so such a text (an Auto review denial, a live error) is for you (2026-11-27). */
     const answerRowKeys = (chat) => {
       const steps = [...(chat?.nodes?.values?.() ?? [])].filter((n) => n?.kind === 'assistant-step' && Array.isArray(n.data?.blocks));
       const last = new Map(); for (const n of steps) last.set(n.data.turn, Math.max(last.get(n.data.turn) ?? -Infinity, n.data.step));
-      return steps.filter((n) => n.data.step < last.get(n.data.turn) && n.data.blocks.some(replyBlock) && !n.data.blocks.some((b) => b?.kind === 'tool-call') && !quietStep(n)).map((n) => n.key);
+      const hushed = new Set(quietTurnsOf(chat));
+      return steps.filter((n) => n.data.step < last.get(n.data.turn) && n.data.blocks.some(replyBlock)
+        && (hushed.has(n.data.turn) || !n.data.blocks.some((b) => b?.kind === 'tool-call')) && !quietStep(n)).map((n) => n.key);
     };
     /** The assistant chat shows only its newest ASSISTANT_TURNS turns at first: the older rows that dsh drew (its window
      * can hold many turns of a long assistant chat) get `display: none`, and a button above the rows shows them all. The
@@ -4506,6 +4510,9 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const closing = new Map(); const nodes = [...(chat?.nodes?.values?.() ?? [])];
       for (const n of nodes) if (n?.kind === 'turn-tail' && Number.isSafeInteger(n.data?.closing?.finalNode?.seq)) closing.set(n.data.turn, n.data.closing.finalNode.seq);
       const quiet = quietTurnSet(chat); const cards = [];
+      // A turn that ends with a `[quiet]` reply has no closing card, so each other text in it (an Auto review denial, a live
+      // error) is a card, also next to a tool call: such a turn is not quiet (quietTurnSet) and its text is for you (2026-11-27).
+      const hushed = new Set(quietTurnsOf(chat));
       const kept = (seq) => seq >= inherited && !inSpans(withdrawn, seq);
       for (const n of nodes) {
         if (n?.kind === 'assistant-step' && n.data?.status === 'settled' && Array.isArray(n.data.blocks)) {
@@ -4513,7 +4520,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
           if (!Number.isSafeInteger(seq) || text.trim() === '' || quietText(text) || quiet.has(String(n.data.turn)) || !kept(seq)) continue;
           // Text next to a tool call (not the turn's closing answer) is mostly a "looking at it" line: a card only when it
           // asks you for something (an approval, options, a "Senden:" line), which dsh 0.2.2 shows in the hidden chat (review 2).
-          if (n.data.blocks.some((b) => b?.kind === 'tool-call') && closing.get(n.data.turn) !== seq && !asksYou(text)) continue;
+          if (n.data.blocks.some((b) => b?.kind === 'tool-call') && closing.get(n.data.turn) !== seq && !asksYou(text) && !hushed.has(n.data.turn)) continue;
           // One card per topic (Furkan, 2026-11-26): a `---` line splits the reply; `key` names the part, `last` holds the options.
           // `id` is the read id (Furkan, 2026-11-26: "farklı okundular gelmesi lazım"): each part of a split reply has its own
           // ("seq:i"); a reply without `---` keeps its seq, so the read marks saved before stay valid.
