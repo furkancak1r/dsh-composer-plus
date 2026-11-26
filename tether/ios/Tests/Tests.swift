@@ -1800,10 +1800,21 @@ final class AgentboxIdeasTests: XCTestCase {
         XCTAssertEqual(c.approvalOffer?.sentences, [ask])
         // The transcript order only (the oldest reply first); the screenshot below shows the cards.
         XCTAssertEqual(botLines(c.transcript).filter { $0.kind == .assistant }.compactMap(\.seq), [3, 12, 22])
+        // Read marks (SHOT_STATE=read): the first view read up to the first reply; the newest topic card is read, so the
+        // other topic of the same reply and the reply before it are New.
+        if ProcessInfo.processInfo.environment["SHOT_STATE"] == "read" { c.replyMarks["damon"] = ReplyMark(floor: 3, read: ["22:1"]) }
+        // Load earlier (SHOT_STATE=pages): 12 short replies; the chat shows the newest 8, the button is above them.
+        if ProcessInfo.processInfo.environment["SHOT_STATE"] == "pages" {
+            c.replaySnapshot((1...12).flatMap { n in turn(100 + n * 10, "Soru \(n)", "**Yanıt \(n).** Kısa bir güncelleme.") })
+            c.replyMarks["damon"] = ReplyMark(floor: 999, read: [])
+            XCTAssertEqual(replyPage(replyCards(botLines(c.transcript)), max: .max).older, true, "Load earlier shows")
+        }
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
         let w = UIWindow(windowScene: scene)
         defer { w.isHidden = true }
         w.overrideUserInterfaceStyle = .light
+        // Load earlier sits above the newest page: a tall window shows the page and the button in one picture.
+        if ProcessInfo.processInfo.environment["SHOT_STATE"] == "pages" { w.frame = CGRect(x: 0, y: 0, width: w.bounds.width, height: 2300) }
         w.rootViewController = UIHostingController(rootView: NavigationStack { ConversationView() }.environmentObject(c).environment(\.locale, Locale(identifier: "tr_TR")))
         w.makeKeyAndVisible(); RunLoop.main.run(until: Date().addingTimeInterval(2))
         // ponytail: a unit test gets no accessibility tree from SwiftUI, so it cannot read the button; the screenshot shows it.
@@ -1827,7 +1838,55 @@ final class AgentboxIdeasTests: XCTestCase {
         let h = replyHead("**Hazır.** Testler geçti.\n\nSenden: portu aç.\n\n```onay\nOnaylıyorum: dal main'e alınsın, canlı değil.\n```\n\n**Seçenekler:**\n1. Hemen\n2. Yarın")
         XCTAssertEqual(h.title, "Hazır."); XCTAssertEqual(h.forYou, "portu aç.")
         XCTAssertTrue(h.body.hasPrefix("Testler geçti."), h.body); XCTAssertFalse(h.body.contains("Senden"))
-        XCTAssertTrue(h.body.contains("```onay") && h.body.contains("2. Yarın"), "the block and the options stay for the buttons")
+        XCTAssertTrue(h.body.contains("```onay"), "the block stays for the button")
+        XCTAssertFalse(h.body.contains("2. Yarın"), "the options are the card's buttons or its plain list, as on the Mac")
+        XCTAssertEqual(h.options.map(\.label), ["Hemen", "Yarın"])
+    }
+
+    /// Damon reply cards: the read marks and Load earlier as client.js markReplies, replyUnread and replyPage
+    /// (test/fixtures/reply-read.json; a read id is text on the phone).
+    func testReplyReadMatchesTheMac() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../test/fixtures/reply-read.json")
+        let table = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? J)
+        let id = { (v: Any) in (v as? NSNumber).map { "\($0.intValue)" } ?? v as! String }
+        let mark = { (v: Any?) in (v as? J).map { ReplyMark(floor: ($0["floor"] as! NSNumber).intValue, read: ($0["read"] as! [Any]).map(id)) } }
+        let card = { (v: J) in ReplyCardID(seq: (v["seq"] as! NSNumber).intValue, id: id(v["id"]!)) }
+        for c in try XCTUnwrap(table["read"] as? [J]) {
+            let got = markReplies(mark(c["mark"])!, (c["ids"] as! [Any]).map(id), (c["cards"] as! [J]).map(card))
+            XCTAssertEqual(got, mark(c["want"]), c["name"] as! String)
+        }
+        for c in try XCTUnwrap(table["unread"] as? [J]) { XCTAssertEqual(replyUnread(mark(c["mark"]), card(c["card"] as! J)), c["want"] as? Bool, c["name"] as! String) }
+        for c in try XCTUnwrap(table["pages"] as? [J]) {
+            let seqs = (c["seqs"] as! [NSNumber]).map(\.intValue), un = Set((c["unread"] as! [NSNumber]).map(\.intValue))
+            let p = replyPage(seqs.map { ReplyCardID(seq: $0, id: "\($0)") }, floor: (c["floor"] as? NSNumber)?.intValue, unread: { un.contains($0.seq) })
+            let w = c["want"] as! J, name = c["name"] as! String
+            if let cut = w["cut"] as? NSNumber { XCTAssertEqual(p.cut, cut.intValue, name); XCTAssertEqual(seqs.filter { $0 >= p.cut }.count, (w["shown"] as! NSNumber).intValue, name) }
+            XCTAssertEqual([p.held, p.older], [w["held"] as! Bool, w["older"] as! Bool], name)
+            XCTAssertEqual(p.next, (w["next"] as? NSNumber)?.intValue, name); XCTAssertEqual(p.more, (w["more"] as! NSNumber).intValue, name)
+        }
+        // The phone has no 40 cap (it pages on through dsh's history): 45 replies, every page reaches the oldest.
+        let many = (956...1000).map { ReplyCardID(seq: $0, id: "\($0)") }
+        var p = replyPage(many, max: .max); while p.older { p = replyPage(many, floor: p.next, max: .max) }
+        XCTAssertEqual([p.cut, p.more], [956, 0])
+        // A split reply: one card per topic, each with its own read id; an error line has its seq.
+        XCTAssertEqual(replyCardIDs(seq: 20, parts: 2).map(\.id), ["20:0", "20:1"]); XCTAssertEqual(replyCardIDs(seq: 20, parts: 1).map(\.id), ["20"])
+        XCTAssertEqual(replyCards([Line(kind: .assistant, text: "A\n\n---\n\nB", seq: 5), Line(kind: .assistant, text: "[quiet]", seq: 7), Line(kind: .error, text: "x", seq: 9)]).map(\.id), ["5:0", "5:1", "9"])
+    }
+
+    /// Load earlier: the rows of the shown page start with the question and steps before the first shown card.
+    func testRowsFromCut() {
+        let l = [Line(kind: .user, text: "q1", seq: 1), Line(kind: .assistant, text: "a1", seq: 3), Line(kind: .user, text: "q2", seq: 4), Line(kind: .assistant, text: "a2", seq: 6)]
+        let rows = chatRows(l, open: [], running: false)
+        XCTAssertEqual(rowsFrom(rows, cut: 6).map(\.id), [l[2].id, l[3].id], "the question before the card stays")
+        XCTAssertEqual(rowsFrom(rows, cut: 0).count, 4); XCTAssertEqual(rowsFrom(rows, cut: 99).count, 4, "no card at or after the cut: all rows")
+    }
+
+    /// Options only as buttons: the answer keeps its heading and loses the numbered list; a card's options leave its body.
+    func testOptionListHidden() {
+        XCTAssertEqual(dropOptionList("Done.\n\n## Options\n1. Merge it\n2. Add a test (recommended)\n   with a fixture"), "Done.\n\n## Options")
+        XCTAssertEqual(dropOptionList("Plain text."), "Plain text.")
+        let h = replyHead("**Hazır.** Bitti.\n\n**Seçenekler:**\n1. Hemen\n2. Yarın")
+        XCTAssertEqual(h.options.map(\.label), ["Hemen", "Yarın"]); XCTAssertEqual(h.body, "Bitti.")
     }
 
     /// Damon reply cards: one card per topic, the parts between `---` lines as client.js replySections

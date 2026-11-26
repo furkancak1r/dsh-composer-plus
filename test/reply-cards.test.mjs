@@ -347,10 +347,16 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   const core = read('tether/ios/Sources/Core.swift'), ui = read('tether/ios/Sources/UI.swift');
   assert.match(core, /func replyHead\(_ text: String\) -> ReplyHead/, 'the Swift port');
   assert.match(ui, /if damon, l\.kind == \.assistant \{\s*let parts = replySections\(l\.text\)/, 'Tether: the Damon chat draws one card per topic of a reply');
-  assert.match(ui, /\} else if damon, l\.kind == \.error \{ replyCard \{/, 'Tether: a failed turn is a card');
+  assert.match(ui, /\} else if damon, l\.kind == \.error \{\n[^\n]*\n\s*replyCard\(unread: new/, 'Tether: a failed turn is a card');
   assert.match(core, /func replySections\(_ text: String\) -> \[String\]/, 'Tether: the split port (testReplySectionsMatchTheMac)');
-  assert.match(ui, /if last, l\.kind == \.assistant, let o = c\.optionOffer/, 'Tether: the options under the last topic');
-  assert.match(ui, /if card \{ cardHead\(title: head\.title, forYou: head\.forYou\) \}/, 'Tether: the card shows the title and the For you line');
+  assert.match(ui, /let options = last && l\.kind == \.assistant && c\.optionOffer/, 'Tether: the options under the last topic');
+  assert.match(ui, /if card \{ cardHead\(title: head\.title, forYou: head\.forYou, unread: unread\) \}/, 'Tether: the card shows the title and the For you line');
+  // Tether (2026-11-26, parity): the read marks (New, N unread, Mark all as read; this phone keeps them per Mac) and
+  // Load earlier (replyPage, 8 replies per tap) use the ports of the shared table above.
+  assert.match(core, /func markReplies\(_ m: ReplyMark/, 'Tether: the read port'); assert.match(core, /func replyPage\(_ cards: \[ReplyCardID\]/, 'Tether: the page port');
+  assert.match(ui, /replyPage\(cards, floor: replyFloor, unread: \{ replyUnread\(mark, \$0\) \}, max: \.max\)/, 'Tether: the Damon chat pages its cards');
+  assert.match(ui, /\.simultaneousGesture\(TapGesture\(\)\.onEnded \{ readCard\(id, read\) \}\)/, 'Tether: a tap reads the card');
+  assert.match(core, /forKey: key\("replyRead"\)/, 'Tether: the marks are kept per Mac');
   assert.match(ui, /Text\(verbatim: title\)[^\n]*\.textSelection\(\.enabled\)/, 'Tether: the title can be selected');
   assert.match(ui, /private var shown: String \{ line\.kind == \.assistant \? part \?\? line\.text : line\.text \}/, 'Tether: a long press on a topic card uses its topic (review 7)');
   for (const use of ['string = [shown, line.output]', 'ShareLink(item: shown)', 'onQuote(shown)', 'SelectableText(text: shown)']) assert.ok(ui.includes(use), `Tether menu: ${use}`);
@@ -475,4 +481,17 @@ assert.match(src, /loadOlder: \(\) => chatTextOf\(ctx\.locale, 'chat\.loadOlder'
 assert.match(src, /const FEATURES = \[[^\]]*'assistantReplyCards'/, 'its own switch'); assert.match(src, /const SHOT_OF = \{[^}]*assistantReplyCards: 'assistantReplyCards'/, 'its screenshot');
 assert.match(src, /assistant: \[[^\]]*'assistantReplyCards'\]/, 'in the Assistant category'); assert.ok(!/const OFF_BY_DEFAULT = \[[^\]]*'assistantReplyCards'/.test(src), 'on by default');
 assert.equal(REPLY_SHOWN_KEY, 'dsh-composer-plus.assistant-chat-shown');
+// One table for the read marks and the pages, the Mac and Tether (test/fixtures/reply-read.json; Tether:
+// testReplyReadMatchesTheMac). Tether's port reads the same cases; this side checks that the table is the Mac's rule.
+{
+  const table = JSON.parse(read('test/fixtures/reply-read.json'));
+  for (const c of table.read) assert.deepEqual(markReplies(c.mark, c.ids, c.cards), c.want, `read table: ${c.name}`);
+  for (const c of table.unread) assert.equal(replyUnread(c.mark ?? undefined, c.card), c.want, `unread table: ${c.name}`);
+  for (const c of table.pages) {
+    const p = replyPage(c.seqs.map((seq) => ({ seq })), c.floor, (x) => c.unread.includes(x.seq));
+    assert.deepEqual({ ...(Number.isFinite(p.cut) ? { cut: p.cut } : {}), shown: p.shown.length, held: p.held, older: p.older, next: p.next, more: p.more }, c.want, `page table: ${c.name}`);
+  }
+  assert.ok(table.read.length >= 6 && table.unread.length >= 6 && table.pages.length >= 8, 'the table covers topics, floors, caps and held cards');
+}
+
 console.log('reply-cards: ok');

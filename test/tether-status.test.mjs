@@ -43,7 +43,7 @@ assert.match(ui, /private var damon: Bool \{ c\.current != nil && c\.current == 
 const conv = ui.slice(ui.indexOf('struct ConversationView: View'), ui.indexOf('struct ApproveButtons: View'));
 assert.doesNotMatch(conv, /CardDeck\(/, 'no card deck on the chat screen');
 assert.doesNotMatch(conv, /damonChat/, 'the Damon chat keeps the Approve button under the reply');
-assert.match(conv, /default: lineRow\(row, findIndex, hits\.count, approval: approval\)/, 'every chat passes the approval to its rows');
+assert.match(conv, /default: lineRow\(row, findIndex, hits\.count, approval: approval(?:, read: read)?\)/, 'every chat passes the approval to its rows');
 assert.match(conv, /if damon, c\.plus\.contains\("assistant-todos"\) \{ Button \{ showStatus = true \} label: \{ Label\(String\(localized: "status\.title"/, 'the Status sheet: Damon chat title menu');
 assert.match(conv, /\.sheet\(isPresented: \$showStatus\) \{ if let id = c\.current \{ StatusSheet\(sessionId: id\) \} \}/);
 
