@@ -785,6 +785,9 @@ struct ConversationView: View {
                 let mark = damon ? c.current.flatMap { c.replyMarks[$0] } : nil
                 let page = damon && finding == nil ? replyPage(cards, floor: replyFloor, unread: { replyUnread(mark, $0) }) : nil
                 let rows = page.map { rowsFrom(all, cut: $0.cut) } ?? all
+                // Load earlier counts from the oldest card that shows: a finished turn keeps its rows together, so the
+                // rows can start below the page's cut (`rowsFrom`).
+                let more = page.map { p in firstCardSeq(rows).map { replyPage(cards, floor: $0) } ?? p }
                 let unread = cards.filter { replyUnread(mark, $0) }
                 let read = CardRead(mark: mark, newest: unread.last?.id, cards: cards)
                 let hits = finding.map { findRows(rows, query: $0) } ?? []
@@ -800,9 +803,9 @@ struct ConversationView: View {
                 ScrollView {
                     // Pinned section headers: an open step group (StepsView) keeps its header at the top of the screen.
                     LazyVStack(alignment: .leading, spacing: 14, pinnedViews: .sectionHeaders) {
-                        if c.hasOlder || page?.older == true {
+                        if c.hasOlder || more?.older == true {
                             Button {
-                                if let page { loadEarlierCards(page, proxy) } else {
+                                if let more { loadEarlierCards(more, proxy) } else {
                                     loadingOlder = true
                                     c.run(waits: false) { defer { loadingOlder = false }; try await c.loadOlder() }
                                 }

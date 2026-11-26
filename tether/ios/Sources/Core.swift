@@ -1199,6 +1199,8 @@ final class ReplyCardCache {
 /// Load earlier: the rows from the first card at or after seq `cut`, with the rows just before it (its question and
 /// steps, back to the previous card). A finished turn keeps its rows together from its summary row: an opened turn
 /// (Assistant messages only off) shows its earlier texts as cards too, and its summary row must stay to fold it again.
+/// So the rows can start below `cut` (also for a running turn without a question: from the turn before it); Load
+/// earlier counts from the first card that shows (`firstCardSeq`).
 func rowsFrom(_ rows: [ChatRow], cut: Int) -> [ChatRow] {
     let card = { (r: ChatRow) -> Line? in if case .line(let l) = r, isCardLine(l), l.seq != nil { return l }; return nil }
     guard var at = rows.firstIndex(where: { card($0).map { $0.seq! >= cut } ?? false }) else { return rows }
@@ -1207,6 +1209,8 @@ func rowsFrom(_ rows: [ChatRow], cut: Int) -> [ChatRow] {
     while at > 0, card(rows[at - 1]) == nil { at -= 1 }
     return Array(rows[at...])
 }
+/// The seq of the oldest card in `rows` (rows are in time order).
+func firstCardSeq(_ rows: [ChatRow]) -> Int? { rows.lazy.compactMap { if case .line(let l) = $0, isCardLine(l) { l.seq } else { nil } }.first }
 
 /// Copy session link: dsh's session URI. Pasted into another chat, dsh attaches that chat as read-only context.
 func sessionLink(_ id: String) -> String {

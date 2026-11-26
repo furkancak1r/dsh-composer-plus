@@ -1908,6 +1908,16 @@ final class AgentboxIdeasTests: XCTestCase {
                  Line(kind: .assistant, text: "r1", seq: 7), Line(kind: .turn, text: "", seq: 8)]
         XCTAssertEqual(rowsFrom(chatRows(t, open: [t[7].id], running: false), cut: 7).first?.id, t[3].id, "opened: from the question")
         XCTAssertEqual(rowsFrom(chatRows(t, open: [], running: false), cut: 7).map(\.id), [t[3].id, t[7].id, t[6].id], "folded: question, summary, answer")
+        // Review 5: an opened turn with 12 texts shows them all from its summary row, so Load earlier counts from the
+        // oldest card that shows (UI.swift `more`): nothing more to load in this turn, then the turn before it.
+        let old = [Line(kind: .user, text: "q0", seq: 1), Line(kind: .assistant, text: "a0", seq: 2), Line(kind: .turn, text: "", seq: 3)]
+        let long = old + [Line(kind: .user, text: "q", seq: 10)] + (11...22).map { Line(kind: .assistant, text: "c\($0)", seq: $0) } + [Line(kind: .turn, text: "", seq: 23)]
+        let all = chatRows(long, open: [long.last!.id], running: false), cards = replyCards(all)
+        let page = replyPage(cards), shown = rowsFrom(all, cut: page.cut)
+        XCTAssertEqual([page.cut, firstCardSeq(shown)], [15, 11], "the page starts at the turn's first text")
+        let more = replyPage(cards, floor: firstCardSeq(shown))
+        XCTAssertEqual([more.older, more.next == 2], [true, true], "the next tap brings the turn before it")
+        XCTAssertEqual(rowsFrom(all, cut: more.next!).first?.id, old[0].id)
     }
 
     /// Options only as buttons: the answer keeps its heading and loses the numbered list; a card's options leave its body.
