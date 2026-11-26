@@ -73,8 +73,12 @@ Not in scope: live copy, release, npm publish, DSH restart, iPhone install.
     passed. So on main it is green in the full suite; on this branch it was red twice in the full suite (not verified
     whether the cause is this branch or the simulator: not run again on the branch in this chat).
   - origin/main is still f86a0a4c (in the branch): no merge needed.
-  - Open: review-guard loop on `git diff origin/main...HEAD` (separate subagent; > 100 lines: repeat until clean), fix,
-    tests, merge into main, push. No live copy, no release, no DSH restart.
+  - iOS full suite on the branch at 9ed818cd: 124 tests, 0 failures (testPutShowsNewText passed this run).
+  - Review loop (separate subagents, whole `git diff origin/main...HEAD`): review 2 at 9ed818cd P1 0, P2 0, P3 2, P4 4
+    -> 57cd2dec; review 3 at 57cd2dec P3 1, P4 2 -> 25b16649; review 4 at 25b16649 P3 0, P4 3 -> fixed in the next
+    commit (llms replyOrder words, this checkpoint, the Approve error line only on the part with the button, red check).
+  - Next: review 5 on the final diff; when clean: merge into main (--no-ff), npm test on main, push. No live copy, no
+    release, no DSH restart.
 - 2026-11-26 10:45 (about 170 tool calls: handover). Committed: review round 1 (P1 0, P2 0, P3 2, P4 6) fixes:
   the Settings image assets/features/assistantReplyCards.webp again (SHOT=1, only this file changed), a browser step for
   the scroll follow (a growing card at the bottom stays at the bottom; after a scroll up it does not jump), the limit

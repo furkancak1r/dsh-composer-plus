@@ -228,6 +228,9 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   const btns = (card) => find(ReplyCard({ card, sessionId: 's', offerNow, choiceNow, picks, t, lang: 'tr' }), (n) => n.t === 'button').map((b) => b.p.className + (b.p['data-composer-plus-approve'] ?? ''));
   assert.deepEqual(btns(cards[1]), [], 'the first topic: no buttons');
   assert.deepEqual(btns(cards[2]), ['cp-rc-btnreply', 'cp-rc-opt', 'cp-rc-opt'], 'the last topic: Onayla and the options');
+  const failed = { ...offerNow, state: { busy: false, error: 'boom' } };
+  const alerts = (card) => find(ReplyCard({ card, sessionId: 's', offerNow: failed, picks, t, lang: 'tr' }), (n) => n.p?.role === 'alert').length;
+  assert.deepEqual([alerts(cards[1]), alerts(cards[2])], [0, 1], 'a failed send: the error only on the part with the button (review 4)');
   const one = replyCardsOf(chatOf([step(1, 0, 30, [txt('**Tek.** Metin.\n\n```\n---\n```')]), tail(1, 30)]));
   assert.deepEqual(one.map((c) => c.key), ['30:0'], '--- in a code block: one card');
   // One read mark per topic (Furkan, 2026-11-26: "ayrı konuları ayrı yazsan da hepsine tek okundu geliyor ama farklı

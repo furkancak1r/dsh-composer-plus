@@ -4586,7 +4586,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
             option === undefined ? null : React.createElement('button', { type: 'button', className: 'cp-rc-btn', 'data-primary': '', 'data-composer-plus-approve': 'reply', disabled: approve.state.busy,
               'aria-label': `${t('approve.button')}: ${option.label}`, title: option.text, onClick: () => { read(); picks.pick(sessionId, approve.offer, option.n); } }, t('approve.button')));
         }),
-        approve?.state.error == null ? null : React.createElement('p', { className: 'cp-rc-err', role: 'alert' }, t('approve.failed', { error: approve.state.error })),
+        approve?.state.error == null || parts.approvals.length === 0 ? null : React.createElement('p', { className: 'cp-rc-err', role: 'alert' }, t('approve.failed', { error: approve.state.error })), // on the part with the button
         parts.options.length === 0 ? null : choice === undefined
           ? React.createElement('ol', { className: 'cp-rc-opts' }, parts.options.map((o) => React.createElement('li', { key: o.n }, `${o.n}. ${o.label}`)))
           : React.createElement('ul', { className: 'cp-rc-opts' }, choice.offer.options.map((o) => React.createElement('li', { key: o.n },
