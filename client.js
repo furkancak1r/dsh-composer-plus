@@ -4414,7 +4414,13 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
      * that an open dialog (`open`) shows or that the peek opened for is seen, so a closed dialog opens again only for a
      * newer decision. `empty(sessionId)`: the message box is empty. Draws nothing. */
     const decideSeen = new Map(); // chat id → the decision ids seen on this page (kept while the panel draws again)
-    const decideKept = new Map(); // chat id → the panel's Kararlar state (kept while the panel draws again or is away)
+    /** The panel's Kararlar state per chat ({ answered, drafts, later, error }), kept for the page: a panel that draws
+     * again or mounts again reads it, and a send that ends after its panel went away (another chat on screen) still
+     * reaches the panel that shows now (reviews 2 and 3). `decideOf` gives one stable object per state (a React store). */
+    const decideKept = new Map(); const decideSubs = new Set();
+    const decideOf = (id) => { let st = decideKept.get(id); if (st === undefined) { st = { answered: new Map(), drafts: new Map(), later: [], error: null }; decideKept.set(id, st); } return st; };
+    const decideSubscribe = (fn) => { decideSubs.add(fn); return () => { decideSubs.delete(fn); }; };
+    const setDecideOf = (id, f) => { const next = typeof f === 'function' ? f(decideOf(id)) : f; decideKept.set(id, next); for (const fn of [...decideSubs]) fn(); };
     function DecidePeek({ sessionId, ids, open, host, asked, empty, onPeek }) {
       const lastInput = React.useRef(0);
       const latest = React.useRef(); latest.current = { host, asked, empty, onPeek }; // the poll reads the newest
@@ -4912,10 +4918,10 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       // each card (`drafts`), both kept per chat for the page (a panel that draws again shows no answered note and loses
       // no text), the Sonra order and the reason of a send that failed (also after the dialog closed). `decideOpen` (the
       // dialog is open) is above, before the effect that reads it.
-      // The newest state is the per-chat copy, written at once (not in a React updater): a send that ends after the panel
-      // unmounted (another chat on screen) still puts its card, its text and the reason back (review 2).
-      const [decide, setDecideState] = React.useState(() => decideKept.get(sessionId) ?? { answered: new Map(), drafts: new Map(), later: [], error: null });
-      const setDecide = (f) => { const now = decideKept.get(sessionId) ?? decide; const next = typeof f === 'function' ? f(now) : f; decideKept.set(sessionId, next); setDecideState(next); };
+      // The per-chat store (decideOf): a send that ends after this panel went away still puts its card, its text and the
+      // reason back, in the panel that shows then.
+      const decide = React.useSyncExternalStore(decideSubscribe, () => decideOf(sessionId));
+      const setDecide = (f) => setDecideOf(sessionId, f);
       const shownAt = React.useRef({ key: null, at: 0 }); // the active item and when it became active (the key guard)
       const choiceNow = React.useSyncExternalStore(offers.subscribe, () => offers.choiceOf?.(sessionId));
       const kids = typeof useSessions === 'function' ? useSessions((list) => childIdsOf(list, sessionId).join(' ')) : '';
