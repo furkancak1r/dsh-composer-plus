@@ -3222,8 +3222,9 @@ function installResume(ctx, home) {
  * turn) or runs gets nothing. Subagents cannot get a message from the Host: the "failed" notice to their parent gets one
  * line that names the outage. On by default (the owner's choice, 2026-11-11), the switch in `outage-resume.json`.
  * AIProxy's 429, 500 and 503 `upstream_rejected` and 504 `upstream_timeout` (the provider refused the request or did not
- * answer in time; AIProxy runs, so no health check) wait OUTAGE.retry ms, then the chat gets the same message once, in the same hourly limit. dsh starts the next queued message
- * only after a turn that did not fail, so this message also lets the queued messages of the chat run (2026-11-13). */
+ * answer in time; AIProxy runs, so no health check) wait OUTAGE.retry ms, then the chat gets the same message once, in
+ * the same hourly limit. dsh starts the next queued message only after a turn that did not fail, so this message also
+ * lets the queued messages of the chat run (2026-11-13). */
 export const OUTAGE_PATH = '/api/composer-plus.outage-resume';
 // retry: 3 min. AIProxy cools a refused account 60 s (a longer Retry-After wins); the refusals of 2026-11-13 came in
 // bursts of 1-2 min. Two tries per hour (perHour) cover about 6 min of refusals, then the chat stays stopped.
@@ -3247,8 +3248,8 @@ export const OUTAGE_NOTES = {
 };
 export const outageNote = (lang) => [String(lang ?? ''), String(lang ?? '').split('-')[0]].map((id) => (Object.hasOwn(OUTAGE_NOTES, id) ? OUTAGE_NOTES[id] : undefined)).find(Boolean) ?? OUTAGE_NOTES.en;
 /** 'cancelled' (AIProxy's 499 request_cancelled), 'connection' (the transport's "Connection error."), 'rejected' (AIProxy's
- * 429, 500 or 503 upstream_rejected, or 504 upstream_timeout) or undefined for every other turn end: a user stop (`aborted`), a denied approval, any
- * other error. */
+ * 429, 500 or 503 upstream_rejected, or 504 upstream_timeout) or undefined for every other turn end: a user stop
+ * (`aborted`), a denied approval, any other error. */
 export function outageError(reason) {
   if (reason?.kind !== 'error') return undefined;
   const message = String(reason.error?.message ?? '');
@@ -3277,8 +3278,8 @@ export function outageWatch({ health, resume, log = () => {}, now = Date.now, ti
   const sent = new Map(); // chat id → times of its automatic messages in the last hour
   const recent = (id) => (sent.get(id) ?? []).filter((at) => now() - at < timing.hour);
   const leave = (ids, why) => { for (const id of ids) try { left(id, why); } catch (error) { log(`outage left ${id}: ${error?.message ?? error}`); } };
-  // 429/500/503 upstream_rejected and 504 upstream_timeout: chat id → the token of its newest refusal. A newer failure of the chat replaces or removes
-  // the token, so the older timer does nothing.
+  // 429/500/503 upstream_rejected and 504 upstream_timeout: chat id → the token of its newest refusal. A newer failure
+  // of the chat replaces or removes the token, so the older timer does nothing.
   const waiting = new Map();
   const timers = new Set(); // the pending tries (for settled())
   /** One automatic message, in the hourly limit (outages and refusals together): resume's answer or 'limit'. A chat that
@@ -3329,7 +3330,8 @@ export function outageWatch({ health, resume, log = () => {}, now = Date.now, ti
       if (closed) return;
       // The newest failure of a chat wins: a refusal takes it out of the outage, an outage out of the wait.
       if (kind === 'rejected') {
-        // 429/500/503 upstream_rejected and 504 upstream_timeout: AIProxy runs, so no health check: one try timing.retry ms after the newest refusal.
+        // 429/500/503 upstream_rejected and 504 upstream_timeout: AIProxy runs, so no health check: one try timing.retry
+        // ms after the newest refusal.
         current?.chats.delete(id);
         const token = { seq }; waiting.set(id, token);
         const timer = sleep(timing.retry).then(async () => {

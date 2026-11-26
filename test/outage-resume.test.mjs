@@ -74,7 +74,7 @@ for (const [id, text] of Object.entries(OUTAGE_NOTES)) assert.ok(text.length > 2
 
 // --- outageWatch with a fake clock ---
 const T = { ...OUTAGE, window: 60, poll: 1, settle: 10, giveUp: 1000, hour: 3600, retry: 100 };
-assert.ok(OUTAGE.retry >= 120000 && OUTAGE.retry <= 300000, 'the wait after a 429/503 is 2 to 5 minutes');
+assert.ok(OUTAGE.retry >= 120000 && OUTAGE.retry <= 300000, 'the wait after a 429/500/503/504 is 2 to 5 minutes');
 function rig({ healthy = () => true, resume, timing = T } = {}) {
   let clock = 0; const checks = []; const resumed = []; const left = [];
   const w = outageWatch({ now: () => clock, timing, sleep: async (ms) => { clock += ms; await null; },
@@ -149,7 +149,8 @@ function rig({ healthy = () => true, resume, timing = T } = {}) {
   assert.deepEqual(r.left, [['moved', 'moved'], ['boom', 'failed']], 'each chat that is not continued is left, with why');
 }
 {
-  // 429/503 upstream_rejected: AIProxy runs, the provider refused the request. No health check: one try after `retry`.
+  // 429/500/503 upstream_rejected or 504 upstream_timeout: AIProxy runs, the provider refused the request or timed out.
+  // No health check: one try after `retry`.
   const r = rig();
   r.w.fail('a', 5, 'rejected'); r.w.fail('b', 7, 'rejected');
   await r.w.settled();
@@ -336,17 +337,19 @@ try {
   assert.deepEqual(prompts, [], 'moved on, running or archived: no message');
   b.status = 'idle'; archived.length = 0;
 
-  // The provider refused the request (429 or 503 upstream_rejected) while AIProxy runs: no health check (it would say
-  // no here), each chat gets one message after the fixed wait, so dsh starts its queued messages too. A chat that you
-  // stopped gets nothing.
+  // The provider refused the request (429/500/503 upstream_rejected or 504 upstream_timeout) while AIProxy runs: no
+  // health check (it would say no here), each chat gets one message after the fixed wait, so dsh starts its queued
+  // messages too. A chat that you stopped gets nothing.
   clock += T.hour; downUntil = Infinity;
-  const h1 = chat('h1'); const h2 = chat('h2'); const h3 = chat('h3'); const t0 = clock;
+  const h1 = chat('h1'); const h2 = chat('h2'); const h3 = chat('h3'); const h4 = chat('h4'); const h5 = chat('h5'); const t0 = clock;
   end(h1, { kind: 'error', error: { message: C429, code: 'RATE_LIMIT' } });
   end(h2, { kind: 'error', error: { message: C503, code: 'SERVER' } });
   end(h3, { kind: 'aborted', reason: { kind: 'user' } });
+  end(h4, { kind: 'error', error: { message: C500, code: 'SERVER' } });
+  end(h5, { kind: 'error', error: { message: C504, code: 'SERVER' } });
   assert.deepEqual(prompts, [], 'nothing at once');
   await handle.watch.settled();
-  assert.deepEqual(prompts.map((p) => [p.sessionId, p.mode, p.content[0].text]), [['h1', 'queue', OUTAGE_NOTES.tr], ['h2', 'queue', OUTAGE_NOTES.tr]],
+  assert.deepEqual(prompts.map((p) => [p.sessionId, p.mode, p.content[0].text]), [['h1', 'queue', OUTAGE_NOTES.tr], ['h2', 'queue', OUTAGE_NOTES.tr], ['h4', 'queue', OUTAGE_NOTES.tr], ['h5', 'queue', OUTAGE_NOTES.tr]],
     'each refused chat gets one message; the chat that you stopped gets none');
   assert.ok(clock - t0 >= T.retry, 'after the wait');
   assert.equal(handle.takes(h1.session, { kind: 'error', error: { message: C429 } }), true, 'the Assistant keeps such a task until the try');
@@ -355,6 +358,9 @@ try {
   end(chat('child3', { sub: true }), { kind: 'error', error: { message: C429, code: 'RATE_LIMIT' } });
   const notice3 = { ...notice, source: { ...notice.source, senderSessionId: 'child3' } };
   assert.equal((await preStep({}, async () => ({ kind: 'enter', messages: [notice3] }))).messages[0], notice3, 'a refused subagent: no outage line');
+  end(chat('child4', { sub: true }), { kind: 'error', error: { message: C504, code: 'SERVER' } });
+  const notice4 = { ...notice, source: { ...notice.source, senderSessionId: 'child4' } };
+  assert.equal((await preStep({}, async () => ({ kind: 'enter', messages: [notice4] }))).messages[0], notice4, 'a subagent with a 504: no outage line');
   prompts.length = 0; downUntil = -1;
 
   // Switched off: nothing continues, and no outage line.
