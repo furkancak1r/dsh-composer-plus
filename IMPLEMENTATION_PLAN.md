@@ -82,8 +82,13 @@ Not in scope: live copy, release, npm publish, DSH restart, iPhone install.
     -> fixed in the next commit.
   - 2026-11-26 14:1x: Furkan's approval (relayed): "Composer Plus okundu" branch: when the review is clean, merge into
     main and push; the live copy needs a separate approval.
-  - Next: review 7 on the final diff; when clean: merge into main (--no-ff), npm test on main, push. No live copy, no
+  - Reviews 7 and 8: P1 0, P2 0, P3 0; their P4 findings are fixed. From here, each round's counts and fixes are in its
+    commit message (`git log origin/main..HEAD`), not in this file.
+  - Next: the first review round with no finding -> merge into main (--no-ff), npm test on main, push. No live copy, no
     release, no DSH restart.
+  - Last passing (21c0f643): `npm test` exit 0; iOS suite 124 tests, 0 failures; browser-reply-order and
+    browser-status-canvas PASS on 0.2.2-rc.5, 0.2.0-rc.2, 0.2.1-rc.2 at 9950851c (client.js, index.js and the browser
+    tests did not change after it).
 - 2026-11-26 10:45 (about 170 tool calls: handover). Committed: review round 1 (P1 0, P2 0, P3 2, P4 6) fixes:
   the Settings image assets/features/assistantReplyCards.webp again (SHOT=1, only this file changed), a browser step for
   the scroll follow (a growing card at the bottom stays at the bottom; after a scroll up it does not jump), the limit
