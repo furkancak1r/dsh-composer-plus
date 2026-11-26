@@ -475,6 +475,20 @@ const groupBtn = (tr, g) => find(tr, (n) => n.t === 'button' && n.p['data-group'
   dialogOf(tr).p.setDecide((d) => ({ ...d, answered: new Map([...d.answered, ['66666666', Date.now()]]) })); tr = panel();
   assert.equal(text(find(decideBtn(tr), (n) => n.p?.['data-decide-count'] !== undefined)[0]), '1', 'an answered decision leaves the badge at once');
   assert.ok(panelProps.store.of('s-assistant').items.some((i) => i.id === '66666666'), 'the client removes nothing');
+  // Furkan, 2026-11-26 (an answered card came back after 60 s): the answered id and the typed text of a card stay while
+  // the item is on the list, also an hour later and in a new panel (the panel draws again, its state starts new).
+  dialogOf(tr).p.setDecide((d) => ({ ...d, drafts: new Map([['77777777', 'yarın 05:00']]) })); tr = panel();
+  const realNow = Date.now; Date.now = () => realNow() + 3600000;
+  rt.clear(); tr = panel(); b = decideBtn(tr); runEffects(rt.effects());
+  assert.equal(text(find(b, (n) => n.p?.['data-decide-count'] !== undefined)[0]), '1', 'a new panel an hour later: the answered decision is still out');
+  b.p.onClick(); tr = panel();
+  assert.ok(dialogOf(tr).p.decide.answered.has('66666666'), 'the answered id is kept for the chat');
+  assert.equal(dialogOf(tr).p.decide.drafts.get('77777777'), 'yarın 05:00', 'and the typed text of a card');
+  Date.now = realNow;
+  // Damon removed the answered item: its id leaves `answered` (and a text of a removed item leaves `drafts`).
+  items = items.filter((i) => i.id !== '66666666'); await panelProps.store.load('s-assistant'); tr = panel(); runEffects(rt.effects()); tr = panel();
+  assert.equal(dialogOf(tr).p.decide.answered.has('66666666'), false, 'the id goes when the item left the list');
+  assert.equal(dialogOf(tr).p.decide.drafts.get('77777777'), 'yarın 05:00', 'a text of an item still on the list stays');
   // Sil in the dialog: the panel's remove (one POST, action remove), as the old × of a note did.
   const r0 = posts.length;
   assert.equal(await dialogOf(tr).p.remove('77777777'), true);

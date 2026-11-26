@@ -520,7 +520,7 @@ window.__ModuleLoader__.load({
         const frame = requestAnimationFrame(() => {
           const active = document.activeElement;
           if (active !== null && active !== document.body) return;
-          if (document.querySelector('[aria-modal="true"], dialog[open]') !== null) return;
+          if (document.querySelector('[aria-modal="true"], dialog[open]:not([data-peek])') !== null) return;
           focusComposer();
         });
         return () => { cancelAnimationFrame(frame); };
@@ -4187,9 +4187,10 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const [skipped, setSkipped] = React.useState(() => new Set()); // Atla: in this opening only
       const [noteSkips, setNoteSkips] = React.useState(() => new Set());
       const [done, setDone] = React.useState(() => new Set()); // decisions answered or removed in this opening (the progress)
-      // The "Başka bir cevap" text of each card (id → text): a text goes only with the card that it was typed on (Furkan,
+      // The "Başka bir cevap" text of each card (`decide.drafts`, id → text; the panel keeps it, so a closed dialog and a
+      // send that fails after the close lose no text): a text goes only with the card that it was typed on (Furkan,
       // 2026-11-26: a text typed for one decision went with another decision that came in front of it).
-      const [drafts, setDrafts] = React.useState(() => new Map());
+      const drafts = decide.drafts;
       // The card on screen stays there by its id (a decision that comes in front of it does not take its place while you
       // type); when it leaves, the card at its place comes. ‹ › set it.
       const pinned = React.useRef(null); const place = React.useRef(0);
@@ -4227,7 +4228,8 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         };
       }, []);
       // The peek opens with the `open` attribute: no backdrop, the page stays usable, and no focus move (show() and
-      // showModal() run the dialog focusing steps). A click on the Kararlar button makes it modal.
+      // showModal() run the dialog focusing steps). A click on the Kararlar button makes it modal. The checks for a modal
+      // of the other features (Find in chat, KeepFocus, keys 1–9, Esc of the canvas) skip it (`dialog[open]:not([data-peek])`).
       React.useLayoutEffect(() => {
         const d = ref.current;
         if (d == null) return;
@@ -4267,7 +4269,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const mark = (id, on) => setDone((d) => { const next = new Set(d); if (on) next.add(id); else next.delete(id); return next; });
       const setError = (error) => setDecide((d) => ({ ...d, error }));
       const setAnswered = (id, on) => setDecide((d) => { const answered = new Map(d.answered); if (on) answered.set(id, Date.now()); else answered.delete(id); return { ...d, answered }; });
-      const setDraft = (id, text) => setDrafts((m) => { const next = new Map(m); if (text === '') next.delete(id); else next.set(id, text); return next; });
+      const setDraft = (id, text) => setDecide((d) => { const next = new Map(d.drafts); if (text === '') next.delete(id); else next.set(id, text); return { ...d, drafts: next }; });
       /** One answer: the card leaves the queue at once, the message goes on Onayla's path; a failed send brings it back
        * (with its typed text) and keeps the reason in the panel's state (the panel shows it when the dialog is closed).
        * Quick answers wait in order (`chain`): each send starts after the one before, also after a send of Onayla or an
@@ -4413,7 +4415,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
      * that an open dialog (`open`) shows or that the peek opened for is seen, so a closed dialog opens again only for a
      * newer decision. `empty(sessionId)`: the message box is empty. Draws nothing. */
     const decideSeen = new Map(); // chat id → the decision ids seen on this page (kept while the panel draws again)
-    const decideAnswered = new Map(); // chat id → the panel's `answered` (kept while the panel draws again)
+    const decideKept = new Map(); // chat id → the panel's `answered` and `drafts` (kept while the panel draws again)
     function DecidePeek({ sessionId, ids, open, host, asked, empty, onPeek }) {
       const lastInput = React.useRef(0);
       const latest = React.useRef(); latest.current = { host, asked, empty, onPeek }; // the poll reads the newest
@@ -4763,7 +4765,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
      * Projects, Refresh, fold), the summary card, the Onay card (both stay in place while the cards scroll), then Sorun,
      * Senden, Sürüyor, Bugün bitti and your notes. `offers`: the chat's approval sentences (createCardOffers); `picks`:
      * Option picks' store, so Onayla sends on the same path and guard as the button under a reply. */
-    function StatusPanel({ sessionId, host, store, useSessions, useSessionStatus, openSession, locale, t, composer, composerEmpty, notify, offers, picks, replies, replyFlag, chatShown, failure }) {
+    function StatusPanel({ sessionId, host, store, useSessions, useSessionStatus, openSession, locale, t, composer, composerEmpty, focusInput, notify, offers, picks, replies, replyFlag, chatShown, failure }) {
       const state = React.useSyncExternalStore(store.subscribe, () => store.of(sessionId));
       const offerNow = React.useSyncExternalStore(offers.subscribe, () => offers.of(sessionId));
       const name = ASSISTANT_NAME;
@@ -4810,7 +4812,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         if (!canvas || typeof doc?.addEventListener !== 'function') return undefined;
         const onKey = (ev) => {
           if (ev.key !== 'Escape' || ev.defaultPrevented || ev.isComposing || ev.metaKey || ev.ctrlKey || ev.altKey || ev.shiftKey) return;
-          if (doc.querySelector?.('[role="menu"], [aria-modal="true"], dialog[open]')) return;
+          if (doc.querySelector?.('[role="menu"], [aria-modal="true"], dialog[open]:not([data-peek])')) return;
           const f = doc.activeElement;
           if (f != null && f !== doc.body && host.contains?.(f) !== true) return;
           ev.preventDefault(); escRef.current();
@@ -4845,11 +4847,12 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const [qi, setQi] = React.useState(0);
       const [later, setLater] = React.useState([]);
       const [menuKey, setMenuKey] = React.useState(null); // the card whose "…" menu is open
-      // Kararlar: the notes that you answered or removed (id → when: hidden until Damon removes them; kept per chat for the
-      // page, so a panel that draws again does not show them again), the Sonra order and the reason of a send that failed
-      // (also after the dialog closed). `decideOpen` (the dialog is open) is above, before the effect that reads it.
-      const [decide, setDecideState] = React.useState(() => ({ answered: new Map(decideAnswered.get(sessionId) ?? []), later: [], error: null }));
-      const setDecide = (f) => setDecideState((d) => { const next = typeof f === 'function' ? f(d) : f; decideAnswered.set(sessionId, next.answered); return next; });
+      // Kararlar: the notes that you answered or removed (id → when: hidden until Damon removes them) and the typed text of
+      // each card (`drafts`), both kept per chat for the page (a panel that draws again shows no answered note and loses
+      // no text), the Sonra order and the reason of a send that failed (also after the dialog closed). `decideOpen` (the
+      // dialog is open) is above, before the effect that reads it.
+      const [decide, setDecideState] = React.useState(() => ({ answered: new Map(), drafts: new Map(), ...decideKept.get(sessionId), later: [], error: null }));
+      const setDecide = (f) => setDecideState((d) => { const next = typeof f === 'function' ? f(d) : f; decideKept.set(sessionId, { answered: next.answered, drafts: next.drafts }); return next; });
       const shownAt = React.useRef({ key: null, at: 0 }); // the active item and when it became active (the key guard)
       const choiceNow = React.useSyncExternalStore(offers.subscribe, () => offers.choiceOf?.(sessionId));
       const kids = typeof useSessions === 'function' ? useSessions((list) => childIdsOf(list, sessionId).join(' ')) : '';
@@ -4869,13 +4872,13 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       // Wait times, Overdue and the end of the day change while nothing runs: the stack draws again once a minute (no read).
       const [, tick] = React.useState(0);
       React.useEffect(() => { const timer = setInterval(() => tick((n) => n + 1), 60000); return () => clearInterval(timer); }, []);
-      // Kararlar: an answered or removed note that left the list (Damon removed it) leaves `answered` too.
+      // Kararlar: a note that left the list (Damon removed it) leaves `answered` and `drafts` too.
       const noteIds = state.items === null ? null : state.items.map((i) => i.id).join(' ');
       React.useEffect(() => {
-        if (noteIds === null || decide.answered.size === 0) return;
-        const ids = new Set(noteIds.split(' '));
-        if ([...decide.answered.keys()].some((id) => !ids.has(id))) setDecide((d) => ({ ...d, answered: new Map([...d.answered].filter(([id]) => ids.has(id))) }));
-      }, [noteIds, decide.answered]);
+        if (noteIds === null) return;
+        const ids = new Set(noteIds.split(' ')); const keep = (m) => new Map([...m].filter(([id]) => ids.has(id)));
+        if ([...decide.answered.keys(), ...decide.drafts.keys()].some((id) => !ids.has(id))) setDecide((d) => ({ ...d, answered: keep(d.answered), drafts: keep(d.drafts) }));
+      }, [noteIds, decide.answered, decide.drafts]);
       // The stack holds the chat's Approve button only while it shows (before its first read, the reply keeps it).
       const drawn = !(state.items === null && state.error === null);
       React.useLayoutEffect(() => (drawn ? offers.stack(sessionId) : undefined), [sessionId, drawn]);
@@ -5107,7 +5110,16 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       // The focus goes back to the button; when the button is gone (nothing waits), to the panel's title.
       // On the canvas the title is the canvas itself (homeId). dsh's question closed the canvas while the dialog was open:
       // the focus goes into that question (the effect of focusSeat), not to the button.
-      const closeDecide = () => { const was = decideOpen; setDecideOpen(false); if (focusSeat.current || was === 'peek') return; setTimeout(() => { const doc = globalThis.document; (doc?.getElementById?.(`${headId}-decide`) ?? doc?.getElementById?.(homeId))?.focus?.(); }, 0); };
+      // A peek that you did not go into leaves the focus where it is (the message box); from inside it, the focus goes to
+      // the message box (review 1: it fell to the page).
+      const closeDecide = () => {
+        const was = decideOpen; const doc = globalThis.document;
+        const inside = doc?.activeElement?.closest?.(`dialog[${DECIDE_ATTR}]`) != null;
+        setDecideOpen(false);
+        if (focusSeat.current) return;
+        if (was === 'peek') { if (inside) setTimeout(() => focusInput?.(sessionId), 0); return; }
+        setTimeout(() => { (doc?.getElementById?.(`${headId}-decide`) ?? doc?.getElementById?.(homeId))?.focus?.(); }, 0);
+      };
       const notes = React.createElement('section', { key: 'notes', 'data-group': 'notes' },
         decideOpen || decide.error == null ? null : React.createElement('p', { className: 'cp-td-err', role: 'alert', 'data-decide-error': '' }, decide.error),
         dq.decisions.length + dq.notes.length === 0 ? React.createElement('p', { className: 'cp-td-empty', 'data-decide-none': '' }, t('decide.none'))
@@ -7570,7 +7582,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const field = active != null && (active.isContentEditable === true || active.matches?.('textarea, input:not([type]), input[type="text"], input[type="search"]') === true);
       if (field && String(active.value ?? active.textContent ?? '').trim() !== '') return true;
       if (window.getSelection?.()?.isCollapsed === false) return true;
-      return document.querySelector('[aria-modal="true"], dialog[open], [role="menu"]') !== null;
+      return document.querySelector('[aria-modal="true"], dialog[open]:not([data-peek]), [role="menu"]') !== null;
     }
     /** The chats that wait for you, next first: orange dot (a question, an approval or a plan review that you can answer)
      * before green dot (`completionUnread`); in each group, the one that waits longest first (a tie keeps dsh's order).
@@ -8883,7 +8895,7 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
       const onKey = (event) => {
         if (!/^[1-9]$/.test(event.key) || event.repeat || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || event.isComposing || event.keyCode === 229 || event.defaultPrevented) return;
         if (typeof event.target?.closest === 'function' && event.target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])') !== null) return;
-        if (doc.querySelector('[aria-modal="true"], dialog[open], [role="menu"]') !== null) return;
+        if (doc.querySelector('[aria-modal="true"], dialog[open]:not([data-peek]), [role="menu"]') !== null) return;
         const sections = [...doc.querySelectorAll('[data-question-key] > section')];
         const section = sections.find((s) => s.contains(doc.activeElement)) ?? (sections.length === 1 ? sections[0] : undefined);
         const since = section === undefined ? undefined : seen.get(viewOf(section));
@@ -9269,7 +9281,7 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
       React.useEffect(() => {
         const onKey = (event) => {
           if (event.isComposing || event.keyCode === 229 || !isFindKey(event, mac)) return;
-          if (document.querySelector('[data-chat-flow]') === null || document.querySelector('[aria-modal="true"], dialog[open]') !== null) return;
+          if (document.querySelector('[data-chat-flow]') === null || document.querySelector('[aria-modal="true"], dialog[open]:not([data-peek])') !== null) return;
           event.preventDefault(); event.stopPropagation();
           if (!open) back.current = document.activeElement;
           setOpen(true);
@@ -16477,7 +16489,8 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
           id: 'assistant-status',
           locale: LOCALE_NS,
           inject: () => ({ seats: statusSeats, store: todos, locale: () => ctx.locale?.getSnapshot?.().active,
-            composer: (id, text) => draftTodo(inputOf(id), text), composerEmpty: (id) => { const d = inputOf(id)?.snapshot; return d?.phase === 'plain' && d.draft === '' && d.attachmentIds?.length === 0; }, notify: notifyIn, offers: cardOffers, picks: optionPicks, replies: replyData, replyFlag, chatShown: chatShownFlag, failure: failureText,
+            composer: (id, text) => draftTodo(inputOf(id), text), composerEmpty: (id) => { const d = inputOf(id)?.snapshot; return d?.phase === 'plain' && d.draft === '' && d.attachmentIds?.length === 0; },
+            focusInput: (id) => { try { inputOf(id)?.focus?.(); } catch { /* best-effort */ } }, notify: notifyIn, offers: cardOffers, picks: optionPicks, replies: replyData, replyFlag, chatShown: chatShownFlag, failure: failureText,
             openSession: (id) => { try { ctx.get('uiWorkspace')?.openSession(id); } catch { /* the chat is in the sidebar */ } } }),
         }, StatusPanels)), () => todos.stop(), () => canvasOpen.clear()]);
         const toggles = createToggles({ mobileConnect: mobile, remoteComputers: computersSwitch, resumeAfterRestart: resume, outageResume: outageSwitch, stopSendFirst: sendFirst, projectMemory: memory, memoryHistory: memoryHistorySwitch, memoryPerChat: memoryChatSwitch, contentSearch, turnRollback: rollbackSwitch, nextPrediction: prediction, typingCompletion: completion, sessionBranch: branchSwitch, defaultWorkspace: defaultWs, goalCheck: goalSwitch, worktreeChats: worktreeSwitch, branchTree,

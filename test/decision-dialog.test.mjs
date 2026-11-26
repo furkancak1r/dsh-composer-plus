@@ -81,7 +81,7 @@ const notes = [
   { id: 'd3', text: 'Karar ver: hangi sunucu?', owner: 'user', created: NOW - 600000, options: ['Canlı sunucuya deploy', 'Test sunucusu'] },
   { id: 'n2', text: 'Toplantı notlarını oku', owner: 'user', created: NOW - 30000 },
 ];
-let decide = { answered: new Map(), later: [], error: null }; const setDecide = (f) => { decide = typeof f === 'function' ? f(decide) : f; };
+let decide = { answered: new Map(), drafts: new Map(), later: [], error: null }; const setDecide = (f) => { decide = typeof f === 'function' ? f(decide) : f; };
 let closed = 0;
 const focused = []; const listeners = new Map();
 const dialog = { open: false, modal: 0, showModal() { this.open = true; this.modal += 1; }, close() { this.open = false; },
@@ -135,7 +135,7 @@ btn('later').p.onClick(); render(); assert.deepEqual(decide.later, [], 'Sonra 0.
 // Quick clicks (0.5 s apart, while the first send runs): both are sent, in order (the second waits for the first).
 {
   const notes2 = [{ id: 'q1', text: 'Karar ver: Q1', owner: 'user', created: NOW, options: ['A', 'B'] }, { id: 'q2', text: 'Karar ver: Q2', owner: 'user', created: NOW, options: ['C', 'D'] }];
-  const saved = [hooks, decide]; hooks = []; decide = { answered: new Map(), later: [], error: null };
+  const saved = [hooks, decide]; hooks = []; decide = { answered: new Map(), drafts: new Map(), later: [], error: null };
   const draw = () => { hi = 0; pending = []; const tr = DecisionDialog({ sessionId: 's-b', notes: notes2, decide, setDecide, picks, remove, t, lang: 'tr', onClose: () => {} }); tr.p.ref.current = { ...dialog, open: true, addEventListener() {}, removeEventListener() {} }; for (const f of pending) f(); return tr; };
   clock += 1000; let tr = draw(); let hold; gate = new Promise((r) => { hold = r; });
   find(tr, (n) => n.t === 'button' && n.p['data-option'] === '1')[0].p.onClick(); tr = draw(); clock += 500;
@@ -143,7 +143,7 @@ btn('later').p.onClick(); render(); assert.deepEqual(decide.later, [], 'Sonra 0.
   hold(); gate = null; await flush(); await flush();
   assert.deepEqual(sent.slice(-2), [['s-b', 'Karar: Karar ver: Q1 → A'], ['s-b', 'Karar: Karar ver: Q2 → D']], 'both quick clicks, in order');
   // A click while Onayla's send of the chat runs: it waits for it and then goes (no "Gönderilemedi: busy").
-  for (const h of hooks) h?.off?.(); decide = { answered: new Map(), later: [], error: null }; hooks = []; clock += 1000; tr = draw();
+  for (const h of hooks) h?.off?.(); decide = { answered: new Map(), drafts: new Map(), later: [], error: null }; hooks = []; clock += 1000; tr = draw();
   let hold2; gate = new Promise((r) => { hold2 = r; });
   const approved = picks.say('s-b', 'Onaylıyorum: test'); await flush();
   find(tr, (n) => n.t === 'button' && n.p['data-option'] === '2')[0].p.onClick(); await flush();
@@ -223,7 +223,7 @@ assert.equal(current(), undefined, 'an hour later no answered decision is back')
 btn('close').p.onClick(); assert.equal(closed, 1, 'Kapat closes it');
 // A decision card has Sil too; the "Başka bir cevap" text belongs to its card (the next card's field is empty).
 {
-  decide = { answered: new Map(), later: [], error: null }; hooks = []; render(); clock += 900;
+  decide = { answered: new Map(), drafts: new Map(), later: [], error: null }; hooks = []; render(); clock += 900;
   field().p.onChange({ target: { value: 'yarım kalan cevap' } }); render();
   optionBtns()[1].p.onClick(); await flush(); render(); clock += 500;
   assert.equal(current(), 'd2'); assert.equal(field().p.value, '', 'the next card\'s field is empty');
@@ -235,7 +235,7 @@ btn('close').p.onClick(); assert.equal(closed, 1, 'Kapat closes it');
 }
 // A failed send: the card comes back with the reason; nothing is lost.
 {
-  decide = { answered: new Map(), later: [], error: null }; hooks = []; render(); clock += 900;
+  decide = { answered: new Map(), drafts: new Map(), later: [], error: null }; hooks = []; render(); clock += 900;
   failSend = 'the chat is closed';
   optionBtns()[0].p.onClick(); await flush(); render(); failSend = null;
   assert.equal(current(), 'd1', 'the card is back'); assert.equal(decide.answered.has('d1'), false);
@@ -270,7 +270,7 @@ for (const h of hooks) h?.off?.(); assert.equal(dialog.open, false); assert.equa
     { id: 'k2', text: 'Karar ver (Promes): proje araması', owner: 'user', created: NOW, options: ['Tam eşleşme (Önerilen)', 'Kısmi'] },
     { id: 'k3', text: 'Karar ver: kişisel notlar taşınsın mı', owner: 'user', created: NOW, options: ['Taşınsın', 'Kalsın'] },
   ];
-  let st = { answered: new Map(), later: [], error: null }; const setSt = (f) => { st = typeof f === 'function' ? f(st) : f; };
+  let st = { answered: new Map(), drafts: new Map(), later: [], error: null }; const setSt = (f) => { st = typeof f === 'function' ? f(st) : f; };
   const saved = hooks; hooks = []; let tr; const ls = new Map();
   const d2 = { open: false, showModal() { this.open = true; }, close() { this.open = false; }, setAttribute(k) { if (k === 'open') this.open = true; }, contains: () => false,
     matches: () => true, addEventListener: (k, f) => ls.set(k, f), removeEventListener: (k) => ls.delete(k), querySelector: () => ({ focus() {} }) };
@@ -326,13 +326,48 @@ for (const h of hooks) h?.off?.(); assert.equal(dialog.open, false); assert.equa
   // Enter does not send an option that names a live system; a card without a recommended option: Gönder focuses the field.
   for (const h of hooks) h?.off?.();
   list = [{ id: 'l1', text: 'Karar ver: nereye', owner: 'user', created: NOW, options: ['Canlı sunucuya deploy (Önerilen)', 'Test'] }, { id: 'l2', text: 'Karar ver: renk', owner: 'user', created: NOW, options: ['Mavi', 'Yeşil'] }];
-  st = { answered: new Map(), later: [], error: null }; hooks = []; clock += 5000; draw(); clock += 900;
+  st = { answered: new Map(), drafts: new Map(), later: [], error: null }; hooks = []; clock += 5000; draw(); clock += 900;
   const n1 = mine.length; key('Enter'); await flush(); assert.equal(mine.length, n1, 'Enter: no live option'); 
   b('send').p.onClick(); draw(); await flush(); draw(); assert.match(mine.at(-1), /→ Canlı sunucuya deploy$/, 'a click on Gönder sends it');
   let fieldFocus = 0; d2.querySelector = (sel) => (sel === '.cp-dc-other input' ? { focus: () => { fieldFocus += 1; } } : { focus() {} });
   clock += 900; const n2 = mine.length; b('send').p.onClick(); draw(); await flush();
   assert.equal(mine.length, n2, 'no text and no recommended option: nothing sent'); assert.equal(fieldFocus, 1, 'the field gets the focus');
   for (const h of hooks) h?.off?.(); hooks = saved;
+}
+
+// 3b. The peek: opened with the `open` attribute (no showModal: no backdrop, no focus move); Esc closes it from anywhere
+// (a document listener; not while another menu or dialog shows; preventDefault: no half of dsh's Esc Esc stop); a click
+// on the Kararlar button (peek false) makes it modal, with the focus in it.
+{
+  const saved = hooks; hooks = []; const ls = new Map(); const calls = []; let focusQ = 0;
+  const pd = { open: false, attrs: new Set(), showModal() { calls.push('showModal'); this.open = true; this.modal = true; }, close() { calls.push('close'); this.open = false; this.modal = false; },
+    show() { calls.push('show'); this.open = true; }, setAttribute(k) { calls.push(`attr:${k}`); if (k === 'open') this.open = true; }, matches(sel) { return sel === ':modal' ? this.modal === true : false; },
+    contains: () => false, addEventListener: (k, f) => ls.set(k, f), removeEventListener: (k) => ls.delete(k),
+    querySelector: (sel) => (sel === '[data-dc-focus]' ? { focus: () => { focusQ += 1; } } : null) };
+  const realDoc = globalThis.document; const docLs = new Map(); let popups = [];
+  globalThis.document = { activeElement: null, addEventListener: (k, f) => docLs.set(k, f), removeEventListener: (k) => docLs.delete(k), querySelectorAll: () => popups };
+  const realEffect = React.useEffect; const effs = [];
+  React.useEffect = (f, deps) => { const i = hi++; const old = hooks[i]; if (old === undefined || changed(old.deps, deps)) effs.push(() => { old?.off?.(); hooks[i] = { deps, off: f() }; }); };
+  let closedP = 0; let peekOn = true;
+  const list = [{ id: 'p1', text: 'Karar ver: peek', owner: 'user', created: NOW, options: ['A (Önerilen)', 'B'] }];
+  let st = { answered: new Map(), drafts: new Map(), later: [], error: null };
+  const draw = () => { hi = 0; pending = []; effs.length = 0; const tr = DecisionDialog({ sessionId: 's-p', notes: list, decide: st, setDecide: (f) => { st = typeof f === 'function' ? f(st) : f; }, picks, remove, t, lang: 'tr', peek: peekOn, onClose: () => { closedP += 1; } });
+    tr.p.ref.current = pd; for (const f of pending) f(); for (const f of effs.splice(0)) f(); return tr; };
+  let tr = draw();
+  assert.deepEqual(calls, ['attr:open'], 'a peek opens with the open attribute (no show(), no showModal())'); assert.equal(focusQ, 0, 'it takes no focus');
+  assert.equal(tr.p['data-peek'], '', 'marked as a peek (the modal checks of other features skip it)'); assert.equal(tr.p['aria-modal'], 'false');
+  // Esc from the message box closes it; not while another menu shows; not a key that another listener took.
+  const esc = (over = {}) => { const ev = { key: 'Escape', isComposing: false, repeat: false, defaultPrevented: false, prevented: false, preventDefault() { this.prevented = true; }, ...over }; docLs.get('keydown')(ev); return ev; };
+  popups = [{ isConnected: true, checkVisibility: () => true }]; esc(); assert.equal(closedP, 0, 'a menu of the message box takes its Esc first'); popups = [];
+  esc({ defaultPrevented: true }); assert.equal(closedP, 0, 'an Esc that another listener took');
+  const e1 = esc(); assert.equal(closedP, 1, 'Esc closes the peek from anywhere'); assert.equal(e1.prevented, true, 'no half of dsh\'s Esc Esc stop');
+  // The Kararlar button while the peek is open: the same dialog becomes modal and takes the focus.
+  peekOn = false; calls.length = 0; tr = draw();
+  assert.deepEqual(calls, ['close', 'showModal'], 'peek → modal'); assert.equal(pd.modal, true); assert.equal(focusQ, 1, 'the focus goes into it');
+  assert.equal(closedP, 1, 'the switch does not end it (its close event comes while it is open again)');
+  assert.equal(docLs.has('keydown'), false, 'a modal dialog has no document Esc listener (its cancel event)');
+  for (const h of hooks) h?.off?.(); assert.equal(ls.size, 0); assert.equal(docLs.size, 0, 'every listener goes');
+  React.useEffect = realEffect; globalThis.document = realDoc; hooks = saved;
 }
 
 // 4. DecidePeek and canPeek (Furkan, 2026-11-26: "yeni karar istediğinde input alanı boşsa otomatik olarak pop up
