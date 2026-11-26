@@ -4546,6 +4546,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       return parts.length === 0 ? [String(text ?? '')] : parts;
     }
     const plainText = (s) => String(s ?? '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\*\*|__|`/g, '').trim();
+    const hasImage = (s) => String(s).replace(/`+[^`]*`+/g, '').includes('!['); // "![" outside inline code (review 7)
     /** A local image in a reply card, read as dsh's own chat reads it (Furkan, 2026-11-26: "kartlara görüntüler gelmiyor"):
      * the destination, decoded once and without its ?query or #fragment (dsh-client-ui-chat `localPathMediaUrl`), is
      * resolved against the chat's folder when it is relative (ChatView `fileImages`, dsh-util-workspace-path
@@ -4606,7 +4607,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
           while (j < lines.length && /^ {0,3}>/.test(lines[j])) { quote.push(lines[j].replace(/^ {0,3}> ?/, '')); j++; }
           const box = calloutOf(quote.join('\n'));
           // An image in the summary line goes to the section's text (a summary is plain text; review 4 of the card images).
-          if (box?.kind === 'details') details.push(box.title.includes('![') ? { summary: '', body: `${box.title}\n\n${box.rest.trim()}`.trim() } : { summary: plainText(box.title), body: box.rest.trim() });
+          if (box?.kind === 'details') details.push(hasImage(box.title) ? { summary: '', body: `${box.title}\n\n${box.rest.trim()}`.trim() } : { summary: plainText(box.title), body: box.rest.trim() });
           else if (box !== undefined) body.push(`> **${labels[box.kind] ?? box.kind}**`, ...box.rest.split('\n').map((l) => `> ${l}`));
           else body.push(...lines.slice(i, j));
           i = j - 1; continue;
@@ -4615,8 +4616,8 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         // A "Senden:" line with an image stays in the body, so the image shows (the action line is plain text; review 4); it
         // still asks you (`asks`: a card next to a tool call, review 5), is no title, and a title after it stays a title
         // (`youAt`, review 6), as without the image.
-        if (you !== null && forYou === '' && plainText(you[1]) !== '') {
-          asks = true; if (!you[1].includes('![')) forYou = plainText(you[1]); else youAt = body.push(line) - 1;
+        if (you !== null && !asks && plainText(you[1]) !== '') { // only the first Senden line (review 7)
+          asks = true; if (!hasImage(you[1])) forYou = plainText(you[1]); else youAt = body.push(line) - 1;
           continue;
         }
         // A list line is no title ("1. Run the tests." would give "1." and break the list's numbering): it stays in the body.
@@ -4628,7 +4629,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
           // card images); "**Title** ![x](…)" keeps its bold title and the image goes to the body. Only "![" is tested: the first
           // sentence can end inside the alt text ("![Step 1. Login](…)", review 3).
           const pick = heading !== null ? heading[1] : bold !== null ? bold[2] : sentence !== null && sentence[1].length <= 200 ? sentence[1] : line;
-          if (!pick.includes('![')) {
+          if (!hasImage(pick)) {
             if (heading !== null) title = plainText(heading[1]);
             else if (bold !== null) { title = plainText(bold[2]); if (bold[3].trim() !== '') body.push(bold[3]); }
             else if (sentence !== null && sentence[1].length <= 200) { title = plainText(sentence[1]); if (sentence[2] !== '') body.push(sentence[2]); }

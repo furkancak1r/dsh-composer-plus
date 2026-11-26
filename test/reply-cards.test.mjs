@@ -514,6 +514,11 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   const youFirst = replyParts('Senden: bak ![x](</a/b.png>)\n\n**Başlık**\n\nMetin.');
   assert.deepEqual([youFirst.title, youFirst.body], ['Başlık', 'Senden: bak ![x](</a/b.png>)\n\nMetin.'], 'the title after a Senden line with an image');
   assert.equal(replyParts('Senden: bak\n\n**Başlık**\n\nMetin.').title, 'Başlık', 'the same reply without the image');
+  // Review 7: only the first Senden line counts (a second one stays in the body), and "![" in inline code is no image.
+  const twoYou = replyParts('**Rapor hazır.**\n\nSenden: şu ekrana bak ![a](</a/a.png>)\nSenden: sonra raporu onayla.');
+  assert.deepEqual([twoYou.forYou, twoYou.body], ['', 'Senden: şu ekrana bak ![a](</a/a.png>)\nSenden: sonra raporu onayla.'], 'a second Senden line is no action line');
+  assert.equal(replyParts('**Kartlarda `![alt](<yol>)` görüntüleri görünüyor.** Test geçti.').title, 'Kartlarda !alt görüntüleri görünüyor.', '"![" in inline code keeps the title');
+  assert.equal(replyParts('**Başlık**\n\nSenden: `![alt](<yol>)` biçimiyle yaz.').forYou, '!alt biçimiyle yaz.', '"![" in inline code keeps the action line');
   assert.deepEqual(replyParts('**Başlık**\n\n> [!DETAILS] ![x](</a/b.png>)\n> gövde').details, [{ summary: '', body: '![x](</a/b.png>)\n\ngövde' }], 'an image in a DETAILS summary goes to its text');
   const l1 = mdLabelsOf((k) => `tr:${k}`); const l2 = mdLabelsOf((k) => `de:${k}`);
   assert.ok(l1 !== l2 && l2.code.copyLabel === 'de:board.copy' && l2.footnotes === 'de:board.footnotes', 'a new language: a new labels object with its texts');

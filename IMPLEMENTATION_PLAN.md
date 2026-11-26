@@ -4983,3 +4983,9 @@ review. Not in scope: live copy (after Furkan's "tamam" on the screenshots), rel
   origin/main's replyParts in node: "Senden: bak\n\n**Başlık**" -> "Başlık", "**Senden:** bak\n\nMetin." -> "Metin.").
   Unit case red on 96789752. P4 the replyParts doc comment names `asks`. tether/FEATURES.md row: one clause.
   Open: review round 7 (separate subagent) until clean; then (c) update from origin/main and tests, (d) merge and push.
+- 2026-11-27 00:4x: review-guard round 7 (review-guard-r7, origin/main...11320071): P1 0, P2 0, P3 1, P4 1 (it also
+  fuzzed 200,000 replies without "![" against origin/main: 0 differences). Fixed in the next commit: P3 after a first
+  Senden line with an image, a second Senden line became the action line (guard `!asks` instead of `forYou === ''`);
+  P4 "![" inside inline code counted as an image (`hasImage` drops code spans first, in the title, Senden and DETAILS
+  checks). Unit cases red on 11320071. The Tether order is in this chat's task text ("Do not touch the Tether app").
+  Open: review round 8 (separate subagent) until clean; then (c) update from origin/main and tests, (d) merge and push.
