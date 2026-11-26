@@ -240,7 +240,7 @@ await check('item 5: a guess word in an answer', async () => {
   assert.deepEqual(notesOf(await step('damon')), [], 'inside a fenced code block');
   say('damon', '~~~\ntahminen 3\n~~~\nSonuç: sanırım 4.');
   assert.match(notesOf(await step('damon'))[0] ?? '', /"sanırım"/, 'only the text outside the fence');
-  say('damon', 'Furkan "muhtemelen yarın" dedi; “galiba bitti” yazdı; \'tahminen 45\' ve ‘sanırım tamam’ da var.');
+  say('damon', 'Furkan "muhtemelen yarın" dedi; “galiba bitti” yazdı; \'tahminen 45\' ve ‘sanırım tamam’ da var; Furkan \'saat 12\'de galiba gelirim\' dedi.');
   assert.deepEqual(notesOf(await step('damon')), [], 'inside quotes');
   say('damon', 'Furkan "yarın" dedi, ben galiba yanıldım.');
   assert.match(notesOf(await step('damon'))[0] ?? '', /"galiba"/, 'outside the quotes, after one');
@@ -281,9 +281,31 @@ await check('item 5: a guess word in an answer', async () => {
   for (const n of [3990, 3995, 3996, 4000, 4010]) assert.deepEqual(host.guessWords(`${'x'.repeat(n)} bir olasılık var.`).words, ['bir olasılık'], `a long line (${n}): bir olasılık`);
   // Final review (P3): in a callout box, a fenced code block and a nested quote are not Damon's own text.
   for (const text of ['> [!DETAILS] Log\n> ```\n> muhtemelen bu bir log satırı\n> ```\nBitti.', '> [!DETAILS] Mail\n> > Furkan Bey, muhtemelen yarın gelirim.\nBitti.',
-    '> [!NOTE] Kod\n> ```text\n> galiba\nHâlâ kodun içi (açık çit satır sonuna kadar).']) assert.deepEqual(host.guessWords(text).words, [], `not Damon's guess: ${JSON.stringify(text)}`);
+    '> [!NOTE] Kod\n> ```text\n> galiba\n> ```açık değil']) assert.deepEqual(host.guessWords(text).words, [], `not Damon's guess: ${JSON.stringify(text)}`);
   assert.deepEqual(host.guessWords('> [!DETAILS] Log\n> ```\n> x\n> ```\n> Sonuç: galiba doğru.').words, ['galiba'], 'the callout text after its code block counts');
   assert.deepEqual(host.guessWords('> [!DETAILS] Mail\n> > alıntı muhtemelen\n> Not: sanırım.').words, ['sanırım'], 'the callout text after a nested quote counts');
+  // Final review round 2 (P2): a long line of `](` without a closing `)` stays linear (it took 16-51 s on 300k characters).
+  for (const big of [`${']('.repeat(150000)} galiba`, `${'](a '.repeat(75000)} galiba`]) {
+    const t = performance.now(); assert.deepEqual(host.guessWords(big).words, ['galiba']);
+    assert.ok(performance.now() - t < 300, `300k characters of ]( are fast (${Math.round(performance.now() - t)} ms)`);
+  }
+  assert.deepEqual(host.guessWords('Bak [x](https://a.b/c_(d)) ve galiba.').words, ['galiba'], 'a link target with one pair of parentheses is cut whole');
+  assert.deepEqual(host.guessWords('Bak [x](https://a.b/muhtemelen_(d)) tamam.').words, [], 'the word inside such a target');
+  // Final review round 2 (P2): a callout box of 150k lines does not overflow the stack.
+  { const t = performance.now(); const r = host.guessWords(`> [!DETAILS] Log\n${'> a\n'.repeat(150000)}> Sonuç: galiba`);
+    assert.deepEqual(r.words, ['galiba'], 'a callout of 150k lines'); assert.ok(performance.now() - t < 1500, `a callout of 150k lines is fast (${Math.round(performance.now() - t)} ms)`); }
+  // Final review round 2 (P3): an apostrophe after a digit is inside a quote ('saat 12'de …'); a name's apostrophe still is not a quote.
+  assert.deepEqual(host.guessWords("Furkan 'saat 12'de galiba gelirim' dedi.").words, [], 'an apostrophe after a digit');
+  assert.deepEqual(host.guessWords("Bey'e söyledim, muhtemelen gelir; Ali'nin notu.").words, ['muhtemelen'], "a name's apostrophe is not a quote");
+  { const big = (" '1'a".repeat(780) + ' galiba\n').repeat(77); const t = performance.now(); assert.deepEqual(host.guessWords(big).words, ['galiba']);
+    assert.ok(performance.now() - t < 120, `300k characters of '1'a runs are fast (${Math.round(performance.now() - t)} ms)`); }
+  // Final review round 2 (P4): an indented callout line, and a marker line that follows a plain quote line.
+  for (const text of ['> [!DETAILS] Log\n>   ```\n>   muhtemelen log satırı\n>   ```\nBitti.', '> [!DETAILS] Log\n  > ```\n  > muhtemelen log satırı\n  > ```\nBitti.',
+    'Alıntı:\n> düz satır\n> [!NOTE]\n> muhtemelen bu', '> alıntı\n> [!DETAILS] Not\n> galiba']) assert.deepEqual(host.guessWords(text).words, [], `not Damon's guess: ${JSON.stringify(text)}`);
+  assert.deepEqual(host.guessWords('Önce\n\n> [!NOTE]\n> galiba doğru').words, ['galiba'], 'a callout after a blank line counts');
+  assert.deepEqual(host.guessWords('> [!NOTE]\n> a\n> [!TIP]\n> muhtemelen').words, ['muhtemelen'], 'a second marker inside the box is body text');
+  // Final review round 2 (P4): the callout ends the open fence; the line after it counts.
+  assert.deepEqual(host.guessWords('> [!NOTE] Kod\n> ```text\n> galiba\nSonuç: sanırım doğru.').words, ['sanırım'], 'the line after the callout counts, its open fence does not');
   // The limit of ponytail: the ASCII spelling is not a word of the list.
   assert.deepEqual(host.guessWords('Sanirim, buyuk olasilikla ve galibA yok.').words, ['galiba'], 'only the Turkish spelling');
   assert.deepEqual(host.guessWords('Sanirim, buyuk olasilikla.').words, [], 'the ASCII spelling is not found');
