@@ -17,16 +17,44 @@ Scope: Tether only (and shared tables, docs). No phone install, no signing, no l
    (tether/FEATURES.md rows) -> unchanged.
 
 ## Checks
-- `npm test` (exit 0 at 759df990).
-- iOS: `cd tether/ios && xcodebuild -project DSHMobile.xcodeproj -scheme DSHMobile -destination 'platform=iOS Simulator,id=A5766181-4A27-457E-81C2-DFDE4A0F018F' -derivedDataPath ../build/DerivedData test CODE_SIGNING_ALLOWED=NO` (127 tests, 0 failures at 759df990).
+- `npm test` (exit 0 at 759df990 and b0109d88).
+- iOS: `cd tether/ios && xcodebuild -project DSHMobile.xcodeproj -scheme DSHMobile -destination 'platform=iOS Simulator,id=A5766181-4A27-457E-81C2-DFDE4A0F018F' -derivedDataPath ../build/DerivedData test CODE_SIGNING_ALLOWED=NO` (127 tests at 759df990; 128 tests, 0 failures at b0109d88).
 - Build: `cd tether && xcodebuild -project ios/DSHMobile.xcodeproj -scheme DSHMobile -configuration Debug -destination 'platform=iOS Simulator,id=A5766181-4A27-457E-81C2-DFDE4A0F018F' -derivedDataPath build/DerivedData build CODE_SIGNING_ALLOWED=NO` (BUILD SUCCEEDED).
 - Screenshots: boot the simulator first (`xcrun simctl boot A5766181-…`), then `TEST_RUNNER_SHOT_DIR=<dir> TEST_RUNNER_SHOT_NAME=<f> TEST_RUNNER_SHOT_STATE=read|pages xcodebuild … test-without-building -only-testing:DSHMobileTests/AgentboxIdeasTests/testDamonChatScreen`.
   Out: /Users/furkancakir/Damon/Belgeler/Composer Plus/tether-esitleme-20261126/ (tether-damon-read.png, tether-damon-pages.png).
 
 ## Last checkpoint
-- 2026-11-26 20:3x: implementation committed 759df990. Review round 1 (review-guard-1) running.
-- Open: review loop until no P1/P2 (diff > 100 lines: full loop), update from origin/main (add Tether parts of new Damon
-  features), tests again, merge --no-ff into main, push. No sign, no install, no live copy, no release.
+- 2026-11-26 21:3x (about 165 tool calls: handover to a new chat). HEAD b0109d88 + this plan commit.
+  - Review 1 (759df990): P1 0, P2 2, P3 4, P4 5 -> all fixed in b0109d88 (replyRead in perMacKeys, first row found again
+    by seq after a dsh page, jump floor only below the cut, find shows all loaded rows, ReplyCardCache, VoiceOver Mark as
+    read, constant padding, testReplyMarksPerMac, regex `read: read`, notes).
+  - Review 2 (b0109d88): P1 0, P2 0, P3 2, P4 3 -> NOT fixed yet (open step 1).
+  - Last passing (b0109d88): `npm test` exit 0; iOS full suite 128 tests, 0 failures (2 skipped); simulator build
+    BUILD SUCCEEDED. origin/main still e1343314 at 21:0x.
+  - Screenshots (keep all, never delete under Belgeler): /Users/furkancakir/Damon/Belgeler/Composer Plus/tether-esitleme-20261126/
+    tether-damon-read.png, tether-damon-pages.png (759df990), tether-damon-read-b0109d88.png, tether-damon-pages-b0109d88.png.
+  - Markdown images in Tether: stopped (security decision for Furkan: the gateway has no route to Mac files; dsh
+    `/api/file` is not in RPC/PLUS). The Mac part is branch fix/reply-card-markdown-images (eaf047fa), not in main yet; its
+    tether/FEATURES.md gap row will conflict with this branch's FEATURES.md edits at the merge: keep both texts.
+- Open steps, in order:
+  1. Fix review 2:
+     - P3 tether/ios/Sources/UI.swift ~868: `.onChange(of: page?.held == true ? page?.cut : nil)` needs `initial: true`
+       (an unread card below the base on the first draw must hold the cut). Add a source-contract check in
+       test/reply-cards.test.mjs.
+     - P3 README.md ~325 and the 12 translated READMEs (limits paragraph, hand-written): "Tether shows each reply …
+       without the read marks and without **Show the chat**" is now false. Write: without **Show the chat**; Tether keeps
+       its own read marks per Mac (not shared with the browser's). Check test/readme.test.mjs and readme-labels after.
+     - P4 UI.swift ~975-987: add the "Mark as read" accessibilityAction only on a New card; one helper for the two card
+       kinds (tap + action).
+     - P4 UI.swift ~1056 (jump): replace the 100 ms sleep with a scroll in DispatchQueue.main.async after setting
+       replyFloor.
+  2. `npm test`; iOS suite (Checks above); simulator build.
+  3. Review round 3 in a separate subagent on `git diff origin/main...HEAD`. The user's rule: fix every finding and run
+     review-guard again; merge only after a round with no finding.
+  4. `git fetch`; if origin/main moved, merge it; if a new Damon feature came (for example fix/reply-card-markdown-images),
+     add its Tether part or its gap row in tether/FEATURES.md; tests again.
+  5. In the main worktree: `git merge --no-ff feat/sync-tether-damon-features`, `npm test`, `git push origin main`.
+     No signing, no iPhone install, no live copy, no release, no DSH restart.
 
 # Damon reply cards: time order, text cursor, chat toggle icon, Tether cards (branch fix/chat-card-order-tether, 2026-11-26)
 
