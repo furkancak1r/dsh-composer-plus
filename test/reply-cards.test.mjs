@@ -500,6 +500,11 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   }
   const boldFirst = replyParts('**Başlık** ![x](</a/b.png>)\n\nMetin.');
   assert.deepEqual([boldFirst.title, boldFirst.body], ['Başlık', '![x](</a/b.png>)\n\nMetin.'], 'a bold title keeps its title; the image goes to the body');
+  // Review 4: an image on the "Senden:" line or in a [!DETAILS] summary is not lost in plain text.
+  const youImg = replyParts('**Başlık**\n\nSenden: şu ekrana bak ![Ekran](</a/b.png>)\n\nMetin.');
+  assert.deepEqual([youImg.forYou, youImg.body], ['', 'Senden: şu ekrana bak ![Ekran](</a/b.png>)\n\nMetin.'], 'a Senden line with an image stays in the body');
+  assert.equal(replyParts('**Başlık**\n\nSenden: rapora bak.').forYou, 'rapora bak.', 'a Senden line without an image is still the action line');
+  assert.deepEqual(replyParts('**Başlık**\n\n> [!DETAILS] ![x](</a/b.png>)\n> gövde').details, [{ summary: '', body: '![x](</a/b.png>)\n\ngövde' }], 'an image in a DETAILS summary goes to its text');
   const l1 = mdLabelsOf((k) => `tr:${k}`); const l2 = mdLabelsOf((k) => `de:${k}`);
   assert.ok(l1 !== l2 && l2.code.copyLabel === 'de:board.copy' && l2.footnotes === 'de:board.footnotes', 'a new language: a new labels object with its texts');
   assert.equal(mdLabelsOf((k) => k), mdLabelsOf((k) => k), 'one labels object per language (MarkdownText memoizes by it)');

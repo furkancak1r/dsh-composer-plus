@@ -4605,13 +4605,15 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
           let j = i; const quote = [];
           while (j < lines.length && /^ {0,3}>/.test(lines[j])) { quote.push(lines[j].replace(/^ {0,3}> ?/, '')); j++; }
           const box = calloutOf(quote.join('\n'));
-          if (box?.kind === 'details') details.push({ summary: plainText(box.title), body: box.rest.trim() });
+          // An image in the summary line goes to the section's text (a summary is plain text; review 4 of the card images).
+          if (box?.kind === 'details') details.push(box.title.includes('![') ? { summary: '', body: `${box.title}\n\n${box.rest.trim()}`.trim() } : { summary: plainText(box.title), body: box.rest.trim() });
           else if (box !== undefined) body.push(`> **${labels[box.kind] ?? box.kind}**`, ...box.rest.split('\n').map((l) => `> ${l}`));
           else body.push(...lines.slice(i, j));
           i = j - 1; continue;
         }
         const you = code ? null : /^\s*(?:[-*+]\s+)?(?:\*\*|__)?(?:senden|for you)(?:\*\*|__)?\s*:\s*(?:\*\*|__)?\s*(.*?)\s*$/iu.exec(line);
-        if (you !== null && forYou === '' && plainText(you[1]) !== '') { forYou = plainText(you[1]); continue; }
+        // A "Senden:" line with an image stays in the body, so the image shows (the action line is plain text; review 4).
+        if (you !== null && forYou === '' && plainText(you[1]) !== '' && !you[1].includes('![')) { forYou = plainText(you[1]); continue; }
         // A list line is no title ("1. Run the tests." would give "1." and break the list's numbering): it stays in the body.
         if (title === '' && !code && line.trim() !== '' && body.every((l) => l.trim() === '') && !/^\s*(?:[-*+]|\d{1,9}[.)])\s/.test(line)) {
           const heading = /^#{1,6}\s+(.+?)\s*#*\s*$/.exec(line);

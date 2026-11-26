@@ -4948,7 +4948,7 @@ review. Not in scope: live copy (after Furkan's "tamam" on the screenshots), rel
   the review-2 fixes); browser-reply-pages and browser-status-canvas PASS x3 at eaf047fa (review-2 fixes touch only the
   title rule and the labels object). Bins: ~/Documents/testdeepseekharness/work/dsh-0.2.0-rc.2|dsh-0.2.1-rc.2/node_modules/@deepseek-ai/dsh/lib/bin.js,
   ~/ai-maintenance/dsh-composer-plus/dsh/0.2.2-rc.5/node_modules/@deepseek-ai/dsh/lib/bin.js.
-- (Done in the next chat, see the 2026-11-26 21:5x entry below.) Open steps were: (a) the README limits sentence in 13 READMEs (item 3 above); (b) review-guard round 3 in a separate subagent
+- ((a) and (b) done in the next chat, see the entries below; (c) and (d) open.) Open steps: (a) the README limits sentence in 13 READMEs (item 3 above); (b) review-guard round 3 in a separate subagent
   on origin/main...HEAD (the diff is > 100 lines and > 3 files: repeat until a round has no P1/P2; fix every finding and
   run review-guard again before the merge); (c) git fetch, merge origin/main, npm test, browser tests; (d) merge into main
   --no-ff, npm test on main, push main. No live copy (Furkan must say "tamam" to the screenshots first), no release,
@@ -4963,3 +4963,10 @@ review. Not in scope: live copy (after Furkan's "tamam" on the screenshots), rel
     (close zoom, the file route answers 3 s late): red without the listener (island bottom 1237 > hub top 763), green with it.
   - P4 README sentence: scoped to an image from a file path (an http(s) image loads in DSH before pathImages), 13 languages.
   - P4 this checkpoint.
+  - Last passing (13dd627d): `npm test` exit 0; browser-reply-images, -pages, -order, status-canvas PASS on 0.2.0-rc.2,
+    0.2.1-rc.2, 0.2.2-rc.5.
+- 2026-11-26 22:5x: review-guard round 4 (review-guard-r4, origin/main...13dd627d): P1 0, P2 0, P3 1, P4 1. Fixed in the
+  next commit: P3 an image on a "Senden:" line (and in a [!DETAILS] summary) was lost in the plain action line (summary);
+  now that line stays in the body (the summary's image goes to the section's text); unit cases red on 13dd627d;
+  tether/FEATURES.md gap row names it (Tether keeps the old rule, no shared-table case). P4 this checkpoint.
+  Open: review round 5 (separate subagent) until clean; then (c) and (d).
