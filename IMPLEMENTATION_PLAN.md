@@ -1,3 +1,33 @@
+# Tether = Composer Plus Damon parity (branch feat/sync-tether-damon-features, 2026-11-26)
+
+Source: Furkan, 2026-11-26: "tether da güncel tut her zaman yarın yükleriz güncelini telefonuma". Base: main e1343314.
+Scope: Tether only (and shared tables, docs). No phone install, no signing, no live copy, no release.
+
+## Differences found (Composer Plus Damon chat vs Tether, verified in code)
+1. Read marks (New, N unread, Mark all as read, one per topic card): Mac yes (client.js createReplyRead), Tether no -> ported.
+2. Load earlier for cards (replyPage, 8 per page, unread held, focus after last keyboard click): Mac yes, Tether no -> ported
+   (no 40 cap on the phone; after loaded history -> Client.loadOlder).
+3. Card order newest at the bottom: already in Tether (b3d67832).
+4. Option list hidden while option buttons show (Mac optionPicks 2026-11-23) and plain list on an older card: Tether no ->
+   ported (dropOptionList, ReplyHead.options).
+5. liveApproval "canlı değil" rule: Tether old rule -> ported; case added to test/fixtures/status-queue.json.
+6. Markdown images in reply cards: Mac only on branch fix/reply-card-markdown-images (not in main at 18:xx). Tether needs a
+   gateway route to read Mac files (dsh /api/file is not in RPC/PLUS): security decision for Furkan -> stopped, reported.
+7. Kararlar dialog, canvas, Show the chat toggle, memory import card: phone does not have them by earlier decisions
+   (tether/FEATURES.md rows) -> unchanged.
+
+## Checks
+- `npm test` (exit 0 at 759df990).
+- iOS: `cd tether/ios && xcodebuild -project DSHMobile.xcodeproj -scheme DSHMobile -destination 'platform=iOS Simulator,id=A5766181-4A27-457E-81C2-DFDE4A0F018F' -derivedDataPath ../build/DerivedData test CODE_SIGNING_ALLOWED=NO` (127 tests, 0 failures at 759df990).
+- Build: `cd tether && xcodebuild -project ios/DSHMobile.xcodeproj -scheme DSHMobile -configuration Debug -destination 'platform=iOS Simulator,id=A5766181-4A27-457E-81C2-DFDE4A0F018F' -derivedDataPath build/DerivedData build CODE_SIGNING_ALLOWED=NO` (BUILD SUCCEEDED).
+- Screenshots: boot the simulator first (`xcrun simctl boot A5766181-…`), then `TEST_RUNNER_SHOT_DIR=<dir> TEST_RUNNER_SHOT_NAME=<f> TEST_RUNNER_SHOT_STATE=read|pages xcodebuild … test-without-building -only-testing:DSHMobileTests/AgentboxIdeasTests/testDamonChatScreen`.
+  Out: /Users/furkancakir/Damon/Belgeler/Composer Plus/tether-esitleme-20261126/ (tether-damon-read.png, tether-damon-pages.png).
+
+## Last checkpoint
+- 2026-11-26 20:3x: implementation committed 759df990. Review round 1 (review-guard-1) running.
+- Open: review loop until no P1/P2 (diff > 100 lines: full loop), update from origin/main (add Tether parts of new Damon
+  features), tests again, merge --no-ff into main, push. No sign, no install, no live copy, no release.
+
 # Damon reply cards: time order, text cursor, chat toggle icon, Tether cards (branch fix/chat-card-order-tether, 2026-11-26)
 
 Source: Furkan in the Assistant chat, 2026-11-26 (relayed by Damon): "yeni gelen kart en altta gözüksün", "yeni kart
