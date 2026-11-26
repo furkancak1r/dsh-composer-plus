@@ -519,6 +519,10 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   assert.deepEqual([twoYou.forYou, twoYou.body], ['', 'Senden: şu ekrana bak ![a](</a/a.png>)\nSenden: sonra raporu onayla.'], 'a second Senden line is no action line');
   assert.equal(replyParts('**Kartlarda `![alt](<yol>)` görüntüleri görünüyor.** Test geçti.').title, 'Kartlarda !alt görüntüleri görünüyor.', '"![" in inline code keeps the title');
   assert.equal(replyParts('**Başlık**\n\nSenden: `![alt](<yol>)` biçimiyle yaz.').forYou, '!alt biçimiyle yaz.', '"![" in inline code keeps the action line');
+  // Review 8: a code span between "!" and "[" makes no "![" (origin/main's title); backtick runs pair by length.
+  assert.equal(replyParts('Bitti!`npm test`[log](u)').title, 'Bitti!npm testlog', 'no "![" in the text: the title as before');
+  assert.equal(replyParts('Bak `` ![a](</p.png>) `y` tamam').title, '', 'a real image between unequal backtick runs: no title');
+  assert.equal(replyParts('``a ` ![x](y)`` tamam').title, 'a  !x tamam', 'one code span with "![" inside: the title stays');
   assert.deepEqual(replyParts('**Başlık**\n\n> [!DETAILS] ![x](</a/b.png>)\n> gövde').details, [{ summary: '', body: '![x](</a/b.png>)\n\ngövde' }], 'an image in a DETAILS summary goes to its text');
   const l1 = mdLabelsOf((k) => `tr:${k}`); const l2 = mdLabelsOf((k) => `de:${k}`);
   assert.ok(l1 !== l2 && l2.code.copyLabel === 'de:board.copy' && l2.footnotes === 'de:board.footnotes', 'a new language: a new labels object with its texts');

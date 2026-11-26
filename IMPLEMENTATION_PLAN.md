@@ -4989,3 +4989,9 @@ review. Not in scope: live copy (after Furkan's "tamam" on the screenshots), rel
   P4 "![" inside inline code counted as an image (`hasImage` drops code spans first, in the title, Senden and DETAILS
   checks). Unit cases red on 11320071. The Tether order is in this chat's task text ("Do not touch the Tether app").
   Open: review round 8 (separate subagent) until clean; then (c) update from origin/main and tests, (d) merge and push.
+- 2026-11-27 01:3x: review-guard round 8 (review-guard-r8, origin/main...4910c350): P1 0, P2 0, P3 1, P4 1, both in
+  `hasImage`. Fixed in the next commit: a code span between "!" and "[" read as "![" (a reply without "![" lost its
+  title; the reviewer's fuzz: 145 differences in 195,905 replies), and backtick runs of different lengths were paired.
+  Now a code span is a same-length backtick run pair (CommonMark) and becomes a space. The reviewer checked this regex in
+  memory: 0 differences on the 195,905 replies. Unit cases red on 4910c350.
+  Open: review round 9 (separate subagent) until clean; then (c) update from origin/main and tests, (d) merge and push.

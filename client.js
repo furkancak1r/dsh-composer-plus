@@ -4546,7 +4546,9 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       return parts.length === 0 ? [String(text ?? '')] : parts;
     }
     const plainText = (s) => String(s ?? '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\*\*|__|`/g, '').trim();
-    const hasImage = (s) => String(s).replace(/`+[^`]*`+/g, '').includes('!['); // "![" outside inline code (review 7)
+    // "![" outside inline code (review 7): a code span opens and closes with backtick runs of the same length (CommonMark),
+    // and it becomes a space, so "!`x`[" is no "![" (review 8).
+    const hasImage = (s) => String(s).replace(/(?<!`)(`+)(?!`).*?(?<!`)\1(?!`)/g, ' ').includes('![');
     /** A local image in a reply card, read as dsh's own chat reads it (Furkan, 2026-11-26: "kartlara görüntüler gelmiyor"):
      * the destination, decoded once and without its ?query or #fragment (dsh-client-ui-chat `localPathMediaUrl`), is
      * resolved against the chat's folder when it is relative (ChatView `fileImages`, dsh-util-workspace-path
