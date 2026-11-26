@@ -4898,3 +4898,28 @@ Source: Furkan in the Assistant chat, 2026-11-26 (relayed by Damon): "kararlara 
 - Merges of origin/main into the branch: e63d69f4 (b3d67832) and 94d9d3bc (2308766c). Conflicts only in generated files (rebuilt), tether/FEATURES.md (each side's row kept) and this plan.
 - Last passing (on 94d9d3bc): `npm test` exit 0; `PLAYWRIGHT=<Mergen playwright> node test/browser-card-stack.mjs <0.2.2-rc.5> <0.2.0-rc.2> <0.2.1-rc.2>` PASS ×3; `git diff --check` clean.
 - Next: merge --no-ff into main, push (Furkan's approval 2026-11-26). No live copy, no release.
+
+# Images in Damon reply cards (branch fix/reply-card-markdown-images, 2026-11-26)
+
+Source: Furkan, 2026-11-26: "kartlara görüntüler gelmiyor düzelt" (the 17:56 Damon reply showed only the italic alt texts
+"İlk görünüm" and "Bir tıklamadan sonra"). Base: origin/main e1343314. Standing approval: merge into main after a clean
+review. Not in scope: live copy (after Furkan's "tamam" on the screenshots), release, Tether app (gap row only).
+- Root cause (verified): client.js ReplyCard `md` gave dsh's MarkdownText no `pathImages` (and the card is outside dsh's
+  ChatView, so no `fileImages` provider). dsh's image renderer (dsh-web-frontend bundle: `aK`/`XW`) then loads only
+  http(s) URLs and shows the alt text (`imageAlt`, italic) for a local path. dsh's own chat passes
+  `pathImages = { resolve: localPathMediaUrl(document.baseURI, value) }` (dsh-client-ui-chat AssistantMarkdown.tsx:66-68)
+  and ChatView `fileImages.resolve = fileMediaUrl(document.baseURI, resolveWorkspacePath(cwd, path))` (ChatView.tsx:102-110);
+  `fileMediaUrl` = `api/file?path=` (dsh-util-workspace-path index.ts:120-124); the route is dsh's authenticated
+  GET/HEAD /api/file (dsh-api-session-controller media-references.ts:73-84). Same in 0.2.0-rc.2 and 0.2.1-rc.2 (bundles).
+- Fix: client.js `replyImageUrl` + `pathImagesOf(cwd)` (one object per folder); ReplyCard passes `pathImages` to
+  MarkdownText; ReplyFeed and StatusPanel (canvas) give the card the chat's folder (`useSessions`). Only png, jpg, jpeg,
+  webp, gif; other files and failed loads keep the alt text. No new route, no wider access: the same dsh route as dsh's chat.
+- Tests: test/reply-cards.test.mjs (absolute path with spaces, relative path, .pdf/.svg/key file/no folder/control
+  char/broken escape -> no image, Desktop base); test/browser-reply-images.mjs (new; naturalWidth > 0 via /api/file).
+- Screenshots: /Users/furkancakir/Damon/Belgeler/Composer Plus/kart-resim-20261126/ kart-resim-once.png,
+  kart-resim-kenar-once.png (main e1343314), kart-resim-sonra.png, kart-resim-kenar-sonra.png (this branch, 0.2.2-rc.5).
+- Last passing: `npm test` exit 0; `TMPDIR=$PWD/build/t PLAYWRIGHT=$HOME/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright
+  node test/browser-reply-images.mjs <bins>` PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5; browser-reply-pages,
+  browser-reply-order, browser-status-canvas PASS on the same three.
+- Open steps: review-guard (separate subagent) on origin/main...HEAD; fix findings; update from origin/main; tests;
+  merge into main --no-ff; push main. No live copy, no release.

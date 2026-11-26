@@ -21,7 +21,7 @@ globalThis.document = { body: { tag: 'body' }, querySelector: () => null, addEve
 const ANCHOR = '/** Feature switches, in Settings order.';
 const src = read('client.js');
 assert.ok(src.includes(ANCHOR));
-eval(src.replace(ANCHOR, `globalThis.__rc = { failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, ReplyFeed, replySections, sideReadId, replyPage, REPLY_PAGE, REPLY_READ_KEY, REPLY_SHOWN_KEY, REPLY_CSS, REPLY_MAX };\n    ${ANCHOR}`));
+eval(src.replace(ANCHOR, `globalThis.__rc = { replyImageUrl, pathImagesOf, failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, ReplyFeed, replySections, sideReadId, replyPage, REPLY_PAGE, REPLY_READ_KEY, REPLY_SHOWN_KEY, REPLY_CSS, REPLY_MAX };\n    ${ANCHOR}`));
 const h = (t, p, ...c) => ({ t, p: p ?? {}, c });
 // A small hook runtime (by call order) for ReplyFeed: state, refs and effects with deps (run after each draw).
 let hooks = []; let hi = 0; let pending = [];
@@ -31,7 +31,7 @@ const React = { createElement: h, Fragment: 'F', useState: (v) => { const i = hi
   useLayoutEffect: (f, deps) => { const i = hi++; const old = hooks[i]; if (old === undefined || changed(old.deps, deps)) pending.push(() => { old?.off?.(); hooks[i] = { deps, off: f() }; }); } };
 React.useEffect = React.useLayoutEffect;
 mod.factory((n) => (n === 'react' ? React : n === 'react-dom' ? { createPortal: (el, host, key) => ({ portal: el, host, key }) } : {}));
-const { failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, ReplyFeed, replySections, sideReadId, replyPage, REPLY_PAGE, REPLY_READ_KEY, REPLY_SHOWN_KEY, REPLY_CSS, REPLY_MAX } = globalThis.__rc;
+const { replyImageUrl, pathImagesOf, failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, ReplyFeed, replySections, sideReadId, replyPage, REPLY_PAGE, REPLY_READ_KEY, REPLY_SHOWN_KEY, REPLY_CSS, REPLY_MAX } = globalThis.__rc;
 const find = (n, pred) => { if (n === null || typeof n !== 'object') return []; if (Array.isArray(n)) return n.flatMap((c) => find(c, pred)); return [...(pred(n) ? [n] : []), ...(n.c ?? []).flat(Infinity).flatMap((c) => find(c, pred))]; };
 const text = (n) => (typeof n === 'string' ? n : Array.isArray(n) ? n.map(text).join('') : n?.c ? text(n.c) : '');
 
@@ -461,6 +461,36 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   // The click stops the follow to the bottom, so the cards that come above do not move the feed (a structure check: the
   // mock runs no ResizeObserver; test/browser-reply-pages.mjs measures it).
   assert.match(src, /follow\.current = false; \/\/ the cards that come above must not move the feed to its bottom\n\s*setFloor\(page\.next\);/, 'structure: Load earlier stops the follow');
+}
+
+// Images in a card (Furkan, 2026-11-26: "kartlara görüntüler gelmiyor düzelt"): dsh's Markdown asks `pathImages` for a
+// local destination; the card answers dsh's own file route (api/file?path=), as dsh's chat view does, for an image file only.
+{
+  const base = 'http://127.0.0.1:52053/';
+  const abs = '/Users/demo/Damon/Belgeler/Composer Plus/guncellemeler/ilk görünüm 3.png'; // spaces, written in angle brackets
+  const url = new URL(replyImageUrl(abs, '/Users/demo/Assistant', base));
+  assert.deepEqual([url.origin + url.pathname, url.searchParams.get('path'), [...url.searchParams.keys()]], ['http://127.0.0.1:52053/api/file', abs, ['path']], 'an absolute path with spaces: dsh\'s file route');
+  assert.equal(new URL(replyImageUrl('/a/b%20c.png?x=1#y', undefined, base)).searchParams.get('path'), '/a/b c.png', 'decoded once, without ?query and #fragment (as dsh)');
+  assert.equal(new URL(replyImageUrl('resim/a.png', '/Users/demo/Assistant/', base)).searchParams.get('path'), '/Users/demo/Assistant/resim/a.png', 'a relative path: in the chat\'s folder');
+  assert.equal(new URL(replyImageUrl('./b.JPG', 'C:\\work\\damon', base)).searchParams.get('path'), 'C:\\work\\damon\\b.JPG', 'a Windows folder keeps its separator');
+  assert.equal(replyImageUrl('/a/b.webp', '/x', 'dsh-app://app/'), 'dsh-app://app/api/file?path=%2Fa%2Fb.webp', 'the Desktop app\'s base');
+  for (const ext of ['png', 'jpg', 'jpeg', 'webp', 'gif']) assert.ok(replyImageUrl(`/a/b.${ext}`, '/x', base), `.${ext} is an image`);
+  for (const [value, cwd, why] of [['/a/rapor.pdf', '/x', 'a .pdf'], ['/Users/demo/.ssh/id_rsa', '/x', 'a key file'], ['/a/notes.md', '/x', 'a .md'], ['/a/x.svg', '/x', 'an .svg'],
+    ['resim/a.png', undefined, 'a relative path without a folder'], ['//server/share/a.png', '/x', 'a // network path'], ['/a/b\nc.png', '/x', 'a control character'], ['/a/%E0%A4.png', '/x', 'a broken escape']]) {
+    assert.equal(replyImageUrl(value, cwd, base), undefined, `no image: ${why}`);
+  }
+  assert.equal(replyImageUrl('/a/b.png', '/x', 'file:///index.html'), undefined, 'no file route on another base');
+  // The card gives dsh's MarkdownText the resolver of its chat's folder (one object per folder: MarkdownText memoizes by it).
+  const own = pathImagesOf('/Users/demo/Assistant');
+  assert.equal(own, pathImagesOf('/Users/demo/Assistant'), 'the same object at the next draw');
+  globalThis.document.baseURI = base;
+  assert.equal(new URL(own.resolve(abs)).searchParams.get('path'), abs, 'the resolver reads the page\'s base');
+  assert.equal(new URL(own.resolve('resim/a.png')).searchParams.get('path'), '/Users/demo/Assistant/resim/a.png', 'and the chat\'s folder');
+  assert.equal(own.resolve('/a/rapor.pdf'), undefined, 'a .pdf stays its alt text');
+  delete globalThis.document.baseURI;
+  assert.match(src, /React\.createElement\(primitives\.MarkdownText, \{ text, pathImages: pathImagesOf\(cwd\), labels:/, 'structure: the card passes the resolver to dsh\'s Markdown');
+  assert.equal(replyParts(`**Resim.** Bak:\n\n![İlk görünüm](<${abs}>)`).body, `Bak:\n\n![İlk görünüm](<${abs}>)`, 'the image line stays in the card body');
+  for (const re of [/ReplyCard, \{ key: card\.key, card, sessionId, cwd,/, /ReplyCard, \{ card: rc, sessionId, cwd,/]) assert.match(src, re, 'structure: the feed and the canvas give the card the chat folder');
 }
 
 // The texts: replies.loadEarlier is our language packs' copy of dsh's chat.loadOlder (the label when dsh has no text).
