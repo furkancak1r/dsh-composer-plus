@@ -4739,7 +4739,7 @@ Objective (Furkan, 2026-11-24): "sürüyor kısmında damonın yapacağı ve akt
   same Damon chat shows the newest `ASSISTANT_TURNS = 8` turns first. The feed showed up to `REPLY_MAX = 40` cards at once.
 - Decision: one page = `ASSISTANT_TURNS` (8) replies (a page of 50 would never page under the 40 cap); the label is dsh's
   own `chat.loadOlder` text at runtime (fallback key `replies.loadEarlier`, the same texts); the look is dsh's `.older` CSS.
-- Invariants: card order (replyOrder) unchanged; read marks unchanged; a new card shows at once; the first card on screen
+- Invariants (replaced after the merge of b3d67832: the feed is in main's time order, not replyOrder): card order unchanged; read marks unchanged; a new card shows at once; the first card on screen
   keeps its place after a load; the 40 cap and its note stay; the canvas island is unchanged (it shows 5 + unread).
 - Allowed paths: client.js, locales/*.json, docs/features.json, README*.md, llms.txt, tether/FEATURES.md,
   scripts/demo-card-stack.mjs (one fake-model answer), test/reply-cards.test.mjs, test/browser-reply-pages.mjs,
@@ -4752,7 +4752,8 @@ Objective (Furkan, 2026-11-24): "sürüyor kısmında damonın yapacağı ve akt
   tether/FEATURES.md gap row (Tether unchanged), demo model "DEMO-REPLY <n>", test/reply-cards.test.mjs (replyPage +
   ReplyFeed with a hook runtime), test/browser-reply-pages.mjs (new; headless, chromiumSandbox).
 - Decision: paging by time (seq), not by place in the unread-first order, so a click never moves or hides a shown card;
-  an old unread card past the first page waits for its page (the unread count and Tümünü okundu say still count it).
+  an old unread card past the first page waits for its page (REPLACED in review 1: replyPage shows every unread card
+  among the newest 40, see the review-1 entry and the unit test "down to the old unread card").
 - Last passing: `npm test` exit 0; `node test/reply-cards.test.mjs` ok; `PLAYWRIGHT=<Mergen playwright 1.58> node
   test/browser-reply-pages.mjs <bin>` PASS on dsh 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5; browser-status-canvas PASS on the
   same three.
@@ -4823,3 +4824,19 @@ Objective (Furkan, 2026-11-24): "sürüyor kısmında damonın yapacağı ve akt
 - Open steps: review round 2 result -> fix every finding -> review again until clean -> merge into main --no-ff,
   npm test on main, push. No live copy, no release, Tether unchanged.
 - Last passing: `npm test` exit 0 (111b9600); `PLAYWRIGHT=$HOME/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-reply-pages.mjs <3 bins>` PASS x3; browser-status-canvas PASS x3 (d1dfdb14).
+- 2026-11-26 16:4x: review-guard round 2 (subagent review-guard-r2, final diff origin/main...111b9600): P1 0, P2 0, P3 1, P4 3.
+  - P3: after the last keyboard click the focus goes to the OLDEST added card, about 1000 px above the view
+    (preventScroll), and the "keyboard" check (`activeElement === currentTarget`) is also true for a mouse click in
+    Chromium. Fix (ready, NOT applied): `focus: ev?.detail === 0`; focus the newest added card
+    (`.filter(el => seq < place.cut).at(-1)`) and `scrollIntoView({ block: 'nearest' })`; unit test `focused` expects
+    the newest added seq (40, not 10); features.json llms text "the first added card" -> "the newest added card", then
+    `npm run build:readme`.
+  - P4 fixed: tether/FEATURES.md "up to the newest 40 replies"; this plan's two old decisions marked as replaced.
+  - P4 NOT applied: README.pt-BR.md "(o dsh 0.2.2 diz “Carregar mais cedo”)" -> "(com o idioma Português do dsh 0.2.2:
+    “Carregar mais cedo”)" (pt-BR is our own language with "Carregar anteriores"; only dsh's `pt` says "mais cedo").
+- DENIED by Auto review (not retried): the client.js focus fix (two edits) and the README.pt-BR.md sentence. Reason: the
+  approval named the browser test rewrite, the screenshots and the merge, not these edits. Approval asked from Furkan.
+- Open steps: (1) approval; (2) apply the P3 fix + unit test + llms text + README.pt-BR.md; (3) npm test, browser-reply-pages
+  and browser-status-canvas on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5; (4) review-guard round 3 (separate subagent) until
+  clean; (5) merge into main --no-ff, npm test on main, push. No live copy, no release, Tether app unchanged.
+- Last passing: `npm test` exit 0 (111b9600); browser-reply-pages PASS x3 (111b9600); browser-status-canvas PASS x3 (d1dfdb14).
