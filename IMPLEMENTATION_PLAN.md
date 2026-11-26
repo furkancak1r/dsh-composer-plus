@@ -4852,3 +4852,8 @@ Objective (Furkan, 2026-11-24): "sürüyor kısmında damonın yapacağı ve akt
   document.activeElement is the newest added card and inside the feed's box. PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5
   (focus on the newest added card, 0 px below the feed's top). Next: review-guard round 4 on the final diff; if clean,
   merge into main --no-ff, npm test on main, push.
+- 2026-11-26 17:5x: review-guard round 4 (review-guard-r4, origin/main...f7b50464): P1 0, P2 0, P3 0, P4 0 (clean).
+  origin/main still b3d67832. Next: merge into main --no-ff, npm test on main, push main. No live copy, no release,
+  Tether app unchanged (row in tether/FEATURES.md).
+- Last passing: `npm test` exit 0 (6af7210d; f7b50464 changes only the browser test and this plan);
+  browser-reply-pages PASS x3 (f7b50464); browser-status-canvas PASS x3 (6af7210d).
