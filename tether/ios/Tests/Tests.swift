@@ -1798,7 +1798,7 @@ final class AgentboxIdeasTests: XCTestCase {
             + turn(20, "Tamam, main'e al.", "**Birleştirme için onayın gerekiyor.** Testler yeşil.\n\n```onay\n\(ask)\n```\n\n---\n\n**Gece yedeği tamam.** Yedek 02:10'da alındı; senden bir şey gerekmiyor.\n"))
         c.optionsFrom = 0
         XCTAssertEqual(c.approvalOffer?.sentences, [ask])
-        // The cards in time order: the oldest at the top, the newest at the bottom (the chat opens at its end).
+        // The transcript order only (the oldest reply first); the screenshot below shows the cards.
         XCTAssertEqual(botLines(c.transcript).filter { $0.kind == .assistant }.compactMap(\.seq), [3, 12, 22])
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
         let w = UIWindow(windowScene: scene)

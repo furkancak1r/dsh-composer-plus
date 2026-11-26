@@ -77,7 +77,12 @@ Not in scope: live copy, release, npm publish, DSH restart, iPhone install.
   - Review loop (separate subagents, whole `git diff origin/main...HEAD`): review 2 at 9ed818cd P1 0, P2 0, P3 2, P4 4
     -> 57cd2dec; review 3 at 57cd2dec P3 1, P4 2 -> 25b16649; review 4 at 25b16649 P3 0, P4 3 -> fixed in the next
     commit (llms replyOrder words, this checkpoint, the Approve error line only on the part with the button, red check).
-  - Next: review 5 on the final diff; when clean: merge into main (--no-ff), npm test on main, push. No live copy, no
+  - Review 5 at 9950851c: P1 0, P2 0, P3 0, P4 1 (docs: Show the chat is an icon) -> dfb443c4. Review 6 at dfb443c4:
+    P1 0, P2 0, P3 0, P4 4 (tether/FEATURES.md row sentence and error-line cards, an iOS test comment, this checkpoint)
+    -> fixed in the next commit.
+  - 2026-11-26 14:1x: Furkan's approval (relayed): "Composer Plus okundu" branch: when the review is clean, merge into
+    main and push; the live copy needs a separate approval.
+  - Next: review 7 on the final diff; when clean: merge into main (--no-ff), npm test on main, push. No live copy, no
     release, no DSH restart.
 - 2026-11-26 10:45 (about 170 tool calls: handover). Committed: review round 1 (P1 0, P2 0, P3 2, P4 6) fixes:
   the Settings image assets/features/assistantReplyCards.webp again (SHOT=1, only this file changed), a browser step for
