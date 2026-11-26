@@ -269,6 +269,21 @@ await check('item 5: a guess word in an answer', async () => {
     assert.ok(performance.now() - t < 120, `300k characters of quote marks and one word are fast (${Math.round(performance.now() - t)} ms)`);
     t = performance.now(); assert.deepEqual(host.guessWords('"galiba" '.repeat(10000)).words, []); // a match inside a quote, 10000 times
     assert.ok(performance.now() - t < 400, `many words inside quotes are fast (${Math.round(performance.now() - t)} ms)`); }
+  // Final review (P2): runs of one opening mark, with one guess word per line, stay linear (a mark that never closes does
+  // not rescan the text behind it). Measured on this Mac: before the fix 265-1465 ms, after 3-9 ms.
+  for (const unit of ['“', '“a', '‘a', " 'a", '"‘a']) {
+    const big = (unit.repeat(Math.floor(3900 / unit.length)) + ' galiba\n').repeat(77); const t = performance.now(); const r = host.guessWords(big);
+    assert.deepEqual(r.words, ['galiba'], `the word is found after a run of ${unit}`);
+    assert.ok(performance.now() - t < 120, `300k characters of ${unit} runs are fast (${Math.round(performance.now() - t)} ms)`);
+  }
+  { const t = performance.now(); host.guessWords(`${'“'.repeat(100000)} galiba`); assert.ok(performance.now() - t < 120, 'one line of 100k “ is fast'); }
+  // Final review (P3): a long line is read whole, so a two-word guess word at any place is found.
+  for (const n of [3990, 3995, 3996, 4000, 4010]) assert.deepEqual(host.guessWords(`${'x'.repeat(n)} bir olasılık var.`).words, ['bir olasılık'], `a long line (${n}): bir olasılık`);
+  // Final review (P3): in a callout box, a fenced code block and a nested quote are not Damon's own text.
+  for (const text of ['> [!DETAILS] Log\n> ```\n> muhtemelen bu bir log satırı\n> ```\nBitti.', '> [!DETAILS] Mail\n> > Furkan Bey, muhtemelen yarın gelirim.\nBitti.',
+    '> [!NOTE] Kod\n> ```text\n> galiba\nHâlâ kodun içi (açık çit satır sonuna kadar).']) assert.deepEqual(host.guessWords(text).words, [], `not Damon's guess: ${JSON.stringify(text)}`);
+  assert.deepEqual(host.guessWords('> [!DETAILS] Log\n> ```\n> x\n> ```\n> Sonuç: galiba doğru.').words, ['galiba'], 'the callout text after its code block counts');
+  assert.deepEqual(host.guessWords('> [!DETAILS] Mail\n> > alıntı muhtemelen\n> Not: sanırım.').words, ['sanırım'], 'the callout text after a nested quote counts');
   // The limit of ponytail: the ASCII spelling is not a word of the list.
   assert.deepEqual(host.guessWords('Sanirim, buyuk olasilikla ve galibA yok.').words, ['galiba'], 'only the Turkish spelling');
   assert.deepEqual(host.guessWords('Sanirim, buyuk olasilikla.').words, [], 'the ASCII spelling is not found');

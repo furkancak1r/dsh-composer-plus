@@ -12208,39 +12208,46 @@ const GUESS_LIST = String.raw`(büyük\s+olasılıkla|büyük\s+ihtimalle|bir\s+
 const GUESS_LOOSE = new RegExp(String.raw`(?<![\p{L}\p{N}])${GUESS_LIST}(?![\p{L}\p{N}])`, 'u'); // the cheap test
 // The same, not joined by . _ / - to another token (a file name, a slug, a path: "muhtemelen.md", "büyük-olasılıkla-x").
 const GUESS_WORDS = new RegExp(String.raw`(?<![\p{L}\p{N}])(?<![\p{L}\p{N}_][._/-])${GUESS_LIST}(?![\p{L}\p{N}])(?![._/-][\p{L}\p{N}_])`, 'gu');
-const QUOTED_ALL = new RegExp(QUOTED, 'gu');
+// The quoted text of guessWords: like QUOTED, but the text cannot hold its own opening mark, so an unclosed mark never
+// rescans the text behind it (a text of 300k opening marks stays linear). QUOTED stays as it is: selfQuotes uses it.
+const GUESS_QUOTED = new RegExp(String.raw`"[^"\n]{1,2000}"|“[^“”\n]{1,2000}”|(?<![\p{L}\p{N}])'(?:[^'\n]|(?<=\p{L})'(?=\p{L})){1,2000}?'(?![\p{L}\p{N}])|‘(?:[^‘’\n]|’(?=\p{L})){1,2000}?’(?![\p{L}\p{N}])`, 'gu');
 const blankOut = (m) => ' '.repeat(m.length);
+/** The text of `raw` that guessWords reads: a plain `>` quote line, a nested `> >` line and a fenced code block (also one
+ * inside a callout box) are spaces, the same length. A callout box (`> [!DETAILS] …` and its `>` lines) is Damon's own
+ * text: its first `>` becomes a space and its body goes through blankFences on its own. */
+const guessText = (raw) => {
+  const lines = blankFences(raw).split('\n'); const out = []; let box = [];
+  const close = () => { if (box.length > 0) out.push(...blankFences(box.join('\n')).split('\n')); box = []; };
+  let callout = false;
+  for (const line of lines) {
+    if (!/^ {0,3}>/.test(line)) { close(); callout = false; out.push(line); continue; }
+    if (/^ {0,3}>\s*\[![A-Za-z]+\]/.test(line)) { close(); callout = true; }
+    const body = line.replace('>', ' ');
+    if (callout && !/^\s*>/.test(body)) box.push(body); else if (callout) box.push(' '.repeat(line.length)); else out.push(' '.repeat(line.length));
+  }
+  close();
+  return out.join('\n');
+};
 /** The guess words of `text` in order of their first place, each once (lower case, one space; at most 4), and the text
  * around the first one: `{words, context}`. These do not count: fenced code blocks, inline `code`, Markdown link targets
- * `](…)`, URLs, words joined to a token by . _ / - (file names, slugs), quoted text ("…", “…”, '…', ‘…’) and plain `>`
- * quote lines (a callout box `> [!DETAILS]` and its `>` lines are Damon's own text and count).
- * A text without a guess word returns at once (one pattern test); only the lines and chunks (4000 characters, cut at a
- * space) that have one are cleaned, so a long text of quote marks stays fast.
- * ponytail: Turkish words with their Turkish letters only ("Sanirim", "Buyuk olasilikla" are not found), and only these
- * words; a guess in another form ("olabilir", "gibi görünüyor") is not found. A quote that crosses a chunk border of a line
- * over 4000 characters is not paired. Upgrade: a model check of the answer. */
+ * `](…)`, URLs, words joined to a token by . _ / - (file names, slugs), quoted text ("…", “…”, '…', ‘…’), plain `>`
+ * quote lines and the nested `> >` lines and code blocks of a callout box. A callout box `> [!DETAILS]` is Damon's own text
+ * and counts. A text without a guess word returns at once (one pattern test); only a line that has one is cleaned.
+ * ponytail: Turkish words with their Turkish letters only ("Sanirim", "Buyuk olasılikla" are not found), and only these
+ * words; a guess in another form ("olabilir", "gibi görünüyor") is not found. Upgrade: a model check of the answer. */
 export function guessWords(text) {
   const raw = String(text ?? '').normalize('NFC');
   if (!GUESS_LOOSE.test(raw.toLocaleLowerCase('tr'))) return { words: [], context: undefined };
-  const words = []; let context; let callout = false;
-  for (const line of blankFences(raw).split('\n')) {
-    if (!/^ {0,3}>/.test(line)) callout = false;
-    else if (/^ {0,3}>\s*\[![A-Za-z]+\]/.test(line)) callout = true;
-    else if (!callout) continue;
+  const words = []; let context;
+  for (const line of guessText(raw).split('\n')) {
     if (!GUESS_LOOSE.test(line.toLocaleLowerCase('tr'))) continue;
-    for (let at = 0; at < line.length;) {
-      let end = Math.min(line.length, at + 4000);
-      if (end < line.length) { const space = line.lastIndexOf(' ', end); if (space > at + 3000) end = space; }
-      const chunk = line.slice(at, end); at = end;
-      if (!GUESS_LOOSE.test(chunk.toLocaleLowerCase('tr'))) continue;
-      const clean = chunk.replace(/`[^`\n]*`/g, blankOut).replace(/\]\([^)\n]*\)/g, blankOut).replace(/https?:\/\/[^\s<>)\]]*/gi, blankOut).replace(QUOTED_ALL, blankOut);
-      // toLocaleLowerCase('tr') keeps the length (İ → i, I → ı), so a place in the lower case text is a place in `clean`.
-      for (const m of clean.toLocaleLowerCase('tr').matchAll(GUESS_WORDS)) {
-        context ??= clean.slice(m.index, m.index + 40).replace(/\s+/g, ' ').trim();
-        const word = m[1].replace(/\s+/g, ' ');
-        if (!words.includes(word)) words.push(word);
-        if (words.length >= 4) return { words, context };
-      }
+    const clean = line.replace(/`[^`\n]*`/g, blankOut).replace(/\]\([^)\n]*\)/g, blankOut).replace(/https?:\/\/[^\s<>)\]]*/gi, blankOut).replace(GUESS_QUOTED, blankOut);
+    // toLocaleLowerCase('tr') keeps the length (İ → i, I → ı), so a place in the lower case text is a place in `clean`.
+    for (const m of clean.toLocaleLowerCase('tr').matchAll(GUESS_WORDS)) {
+      context ??= clean.slice(m.index, m.index + 40).replace(/\s+/g, ' ').trim();
+      const word = m[1].replace(/\s+/g, ' ');
+      if (!words.includes(word)) words.push(word);
+      if (words.length >= 4) return { words, context };
     }
   }
   return { words, context };
