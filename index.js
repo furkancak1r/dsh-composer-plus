@@ -12770,8 +12770,8 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
       if (busy !== undefined) { tasks.unshift({ ...row, started: turnOf(log, row.started), state: busy }); continue; }
       // Issue #5: the bot keeps a task whose turn dsh's quit or an AIProxy outage stopped (and one whose chat is gone), so
       // the chat's next turn end is still news. The chat does not run: failed when its last turn ended with an error (an
-      // AIProxy outage, 429, 500, 503 or 504), else stopped, with the time of its last turn (its live log; else its saved log, read
-      // once until its next turn; else dsh's list time, its last prompt), and gone the next day.
+      // AIProxy outage, 429, 500, 503 or 504), else stopped, with the time of its last turn (its live log; else its saved
+      // log, read once until its next turn; else dsh's list time, its last prompt), and gone the next day.
       const item = listed.find((s) => s?.sessionId === id);
       const timesOf = (events) => ({ last: events.at(-1)?.time, turn: events.findLast((e) => e?.type === 'turn/start')?.time,
         failed: events.findLast((e) => e?.type === 'turn/end')?.data?.reason?.kind === 'error' });
