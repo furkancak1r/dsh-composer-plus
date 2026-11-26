@@ -76,6 +76,12 @@
         "tasks": [{"id": "t1", "title": "Rome flights", "state": "running", "started": 1794992280000}]},
       "sentences": [], "options": ["A", "B", "C"], "later": [],
       "want": [{"kind": "karar", "key": "karar", "live": false}]
+    },
+    {
+      "name": "not live: a text that says 'canlı değil' (also 'canli degil') gets no live label, also when it names a deploy",
+      "now": 1794993000000, "approvals": 1, "data": {},
+      "sentences": ["Onaylıyorum: deploy paketi test dalına alınsın (canli degil)."], "options": ["Test sunucusuna deploy et (canlı değil)", "Şimdi değil"], "later": [],
+      "want": [{"kind": "onay", "key": "onay", "live": false}, {"kind": "karar", "key": "karar", "live": false}]
     }
   ]
 }
