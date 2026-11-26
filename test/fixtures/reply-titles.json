@@ -1,0 +1,119 @@
+{
+  "about": "The title and the For you line of a Damon reply card: client.js replyParts and its Swift port replyTitle (tether/ios/Sources/Core.swift). test/reply-cards.test.mjs and Tether's testReplyTitleMatchesTheMac read this table.",
+  "cases": [
+    {
+      "name": "bold first line",
+      "text": "**Rapor hazır.** Ayrıntılar aşağıda.\n\nTestler geçti.",
+      "title": "Rapor hazır.",
+      "forYou": ""
+    },
+    {
+      "name": "heading",
+      "text": "# Durum\nHer şey yolunda.",
+      "title": "Durum",
+      "forYou": ""
+    },
+    {
+      "name": "first sentence",
+      "text": "Bitti. Rapor gönderildi.",
+      "title": "Bitti.",
+      "forYou": ""
+    },
+    {
+      "name": "a link in the title",
+      "text": "**[Rapor](https://example.com/r) hazır.**",
+      "title": "Rapor hazır.",
+      "forYou": ""
+    },
+    {
+      "name": "long line without a sentence end",
+      "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "title": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa…",
+      "forYou": ""
+    },
+    {
+      "name": "a list is no title",
+      "text": "1. Testleri çalıştır.\n2. Dalı birleştir.",
+      "title": "",
+      "forYou": ""
+    },
+    {
+      "name": "a bullet list is no title",
+      "text": "- Testler geçti.\n- Derleme yeşil.",
+      "title": "",
+      "forYou": ""
+    },
+    {
+      "name": "Senden line",
+      "text": "**Deploy paketi hazır.** Testler geçti.\n\nSenden: test sunucusunda Gerekli Tarih alanını aç.",
+      "title": "Deploy paketi hazır.",
+      "forYou": "test sunucusunda Gerekli Tarih alanını aç."
+    },
+    {
+      "name": "For you in bold",
+      "text": "**For you:** open the port.",
+      "title": "",
+      "forYou": "open the port."
+    },
+    {
+      "name": "Senden as a list item",
+      "text": "Durum iyi.\n- **Senden:** onayla.",
+      "title": "Durum iyi.",
+      "forYou": "onayla."
+    },
+    {
+      "name": "Senden inside code is code",
+      "text": "```\nSenden: kod\n```",
+      "title": "",
+      "forYou": ""
+    },
+    {
+      "name": "an onay block first",
+      "text": "```onay\nOnaylıyorum (canlı değil): dal main'e alınsın.\n```\n\n**Dal hazır.**",
+      "title": "Dal hazır.",
+      "forYou": ""
+    },
+    {
+      "name": "only an option list",
+      "text": "**Seçenekler:**\n1. Hemen\n2. Yarın",
+      "title": "",
+      "forYou": ""
+    },
+    {
+      "name": "options after the title",
+      "text": "**Ne zaman?** Bir seçenek seç.\n\n**Seçenekler:**\n1. Hemen (Önerilen)\n2. Yarın",
+      "title": "Ne zaman?",
+      "forYou": ""
+    },
+    {
+      "name": "a quote first",
+      "text": "> [!PROBLEM]\n> Gece denetimi hata verdi.\n\nSonra bakarım.",
+      "title": "",
+      "forYou": ""
+    },
+    {
+      "name": "blank lines first",
+      "text": "\n\n  Tamam, bitti.",
+      "title": "Tamam, bitti.",
+      "forYou": ""
+    },
+    {
+      "name": "an empty Senden line is no action line",
+      "text": "Senden: \nSenden: portu aç.",
+      "title": "Senden:",
+      "forYou": "portu aç."
+    },
+    {
+      "name": "a closed details section first",
+      "text": "> [!DETAILS] Log\n> 412 test geçti.\n\nBitti. Rapor gönderildi.",
+      "title": "Bitti.",
+      "forYou": ""
+    },
+    {
+      "name": "a code block first",
+      "text": "```sh\nnpm test\n```\nTestler geçti.",
+      "title": "",
+      "forYou": ""
+    }
+  ]
+}

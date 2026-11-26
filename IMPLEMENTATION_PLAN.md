@@ -1,3 +1,41 @@
+# Damon reply cards: time order, text cursor, chat toggle icon, Tether cards (branch fix/chat-card-order-tether, 2026-11-26)
+
+Source: Furkan in the Assistant chat, 2026-11-26 (relayed by Damon): "yeni gelen kart en altta gözüksün", "yeni kart
+yapısına göre tetherı da güncelle", "text alanları tıklanabilir değil şu I ya benzeyen şeyin çıkması lazım", "sohbeti
+göster butonunu da simgeye dönüştür". Base: main f86a0a4c. Standing approval: merge into main after a clean review.
+Not in scope: live copy, release, npm publish, DSH restart, iPhone install.
+
+## Acceptance
+1. Mac feed: cards oldest on top, newest at the bottom; the newest card is in view when the chat opens and when a new
+   card comes. Card design unchanged.
+2. Pointer: text in a card has `cursor: text` and can be selected; the hand only on buttons, links, the details summary;
+   a drag that selects text does not mark the card read.
+3. The "Sohbeti göster" toggle is an icon button (cp-td-btn) in the header icon row, aria-label and title from the
+   language pack, the same click.
+4. Tether: the Damon chat shows each reply and failed turn as a card (time, title, For you line, body, buttons), newest
+   at the bottom; title rule shared with the Mac (test/fixtures/reply-titles.json); text selectable. No toggle on the
+   phone (tether/FEATURES.md).
+5. Tests: test/reply-cards.test.mjs (order, CSS, drag guard, toggle, shared table), test/browser-reply-order.mjs
+   (real dsh, 1440x900), browser-status-canvas.mjs updated; iOS testReplyTitleMatchesTheMac, testDamonChatScreen.
+6. Screenshots before/after: /Users/furkancakir/Damon/Belgeler/Composer Plus/kart-sirasi-20261126/.
+
+## Phases
+1. [done 09:05] Before evidence on f86a0a4c: olcum-once.json, kart-sirasi-once.png, yeni-kart-once.png,
+   panel-basligi-once.png, tether-damon-once.png.
+2. [done 10:00] Mac + Tether code, texts (13 languages), docs (features.json, READMEs, FEATURES.md), unit tests.
+3. [running] npm test, browser tests (0.2.2-rc.5, 0.2.0-rc.2, 0.2.1-rc.2), iOS tests, after screenshots.
+4. Review-guard rounds until no P1/P2 (diff > 100 lines and > 3 files: full loop).
+5. Update from origin/main, tests again, merge into main, push.
+
+## Checks
+- `node test/reply-cards.test.mjs` (and npm test)
+- `TMPDIR=$PWD/build/t PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-reply-order.mjs <bins>`
+- `cd tether/ios && xcodebuild -project DSHMobile.xcodeproj -scheme DSHMobile -destination 'platform=iOS Simulator,id=A5766181-4A27-457E-81C2-DFDE4A0F018F' -derivedDataPath ../../build/DerivedData test CODE_SIGNING_ALLOWED=NO`
+
+## Last checkpoint
+- 2026-11-26 10:00: code done; `node test/reply-cards.test.mjs` ok; browser-reply-order PASS on 0.2.2-rc.5 (before the
+  docs change). Open: full test run, after screenshots, review, merge.
+
 # Damon canvas like the HTML mockup + reply cards (branch feat/canvas-match-html-mockup, 2026-11-25)
 
 Source: Furkan in the Assistant chat, 2026-11-25 (relayed by Damon):

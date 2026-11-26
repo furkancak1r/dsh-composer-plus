@@ -527,6 +527,8 @@ struct Line: Identifiable {
     var tool: String? = nil
     /// The log seq of the event that made this row: a user row's seq is what Roll back sends.
     var seq: Int? = nil
+    /// Assistant rows only: the event's time (the Damon reply card's clock).
+    var time: Date? = nil
 }
 
 // MARK: - Composer Plus features (the dsh-composer-plus plugin on the Mac; see tether/FEATURES.md)
@@ -1029,6 +1031,70 @@ func mdCallouts(_ parts: [MdPart]) -> [MdBlock] {
             out.append(kind == "details" ? .callout(kind: kind, title: rest, lines: []) : .callout(kind: kind, title: "", lines: rest.isEmpty ? [] : [rest]))
         } else { out.append(.part(p)) }
     }
+    return out
+}
+
+/// Damon reply cards (Composer Plus `assistantReplyCards`): the card's title and its "Senden:" / "For you:" line, ported
+/// from client.js `replyParts` (one table for both: test/fixtures/reply-titles.json). The title is the first line before
+/// any other text: a heading, a bold start, else its first sentence (at most 200 characters), else the line (cut at 160);
+/// a list line, a quote, a code block and other text before it give no title. `onay` blocks, the option list at the end
+/// and a `[!DETAILS]` section are not text there (the Mac shows them as buttons and a closed section). `body` is the reply
+/// without the title and the For you line: the chat's Markdown draws it, with its Approve and option buttons.
+struct ReplyHead: Equatable { var title = "", forYou = "", body = "" }
+private let replyHeadingRE = try! NSRegularExpression(pattern: #"^#{1,6}\s+(.+?)\s*#*\s*$"#)
+private let replyBoldRE = try! NSRegularExpression(pattern: #"^\s*(\*\*|__)(.+?)\1\s*(.*)$"#)
+private let replySentenceRE = try! NSRegularExpression(pattern: #"^(.+?[.!?…])(?=\s|$)\s*(.*)$"#)
+private let replyYouRE = try! NSRegularExpression(pattern: #"^\s*(?:[-*+]\s+)?(?:\*\*|__)?(?:senden|for you)(?:\*\*|__)?\s*:\s*(?:\*\*|__)?\s*(.*?)\s*$"#, options: .caseInsensitive)
+private let replyListRE = try! NSRegularExpression(pattern: #"^\s*(?:[-*+]|\d{1,9}[.)])\s"#)
+private let replyQuoteRE = try! NSRegularExpression(pattern: #"^ {0,3}> ?(.*)$"#)
+private let replyLinkRE = try! NSRegularExpression(pattern: #"\[([^\]]*)\]\([^)]*\)"#)
+/// client.js `plainText`: links as their text, no `**`, `__` or backticks.
+func replyPlain(_ s: String) -> String {
+    let ns = s as NSString
+    return replyLinkRE.stringByReplacingMatches(in: s, range: NSRange(location: 0, length: ns.length), withTemplate: "$1")
+        .replacingOccurrences(of: #"\*\*|__|`"#, with: "", options: .regularExpression).trimmingCharacters(in: jsTrim)
+}
+func replyHead(_ text: String) -> ReplyHead {
+    let lines = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n").components(separatedBy: "\n")
+    let blank = { (l: String) in l.trimmingCharacters(in: jsTrim).isEmpty }
+    // The lines that are not text on the Mac's card: the closed `onay` blocks (an unclosed one stays text) and the option list.
+    var skip = Set<Int>(), fence: (mark: String, onay: Bool, from: Int)?
+    for (i, line) in lines.enumerated() {
+        let g = fenceLine(line)
+        if let f = fence {
+            if let g, g.mark.first == f.mark.first, g.mark.count >= f.mark.count, g.info.isEmpty { if f.onay { skip.formUnion(f.from...i) }; fence = nil }
+        } else if let g { fence = (g.mark, !g.indented && g.info.lowercased() == "onay", i) }
+    }
+    if !parseOptions(lines.enumerated().filter { !skip.contains($0.offset) }.map(\.element).joined(separator: "\n")).isEmpty {
+        var at = lines.count - 1
+        while at >= 0, skip.contains(at) || blank(lines[at]) || lines[at].first == " " || lines[at].first == "\t" || groups(optionItemRE, lines[at]) != nil { at -= 1 }
+        if at >= 0 { skip.formUnion(at..<lines.count) }
+    }
+    var out = ReplyHead(), body: [String] = [], text = false, code = false, i = 0
+    while i < lines.count {
+        let line = lines[i]
+        if skip.contains(i) { body.append(line); i += 1; continue }
+        if hits(optionFenceRE, line) { code.toggle() }
+        if !code, groups(replyQuoteRE, line) != nil {
+            // A quote: a [!DETAILS] section is closed on the Mac (no text before the title); another quote is text.
+            var j = i; var quote: [String] = []
+            while j < lines.count, !skip.contains(j), let g = groups(replyQuoteRE, lines[j]) { quote.append(g[1] ?? ""); j += 1 }
+            let first = quote.first ?? "", ns = first as NSString
+            if let m = calloutMark.firstMatch(in: first, range: NSRange(location: 0, length: ns.length)), ns.substring(with: m.range(at: 1)).lowercased() == "details" {} else { text = true }
+            body += lines[i..<j]; i = j; continue
+        }
+        if !code, out.forYou.isEmpty, let g = groups(replyYouRE, line), let you = g[1], !replyPlain(you).isEmpty { out.forYou = replyPlain(you); i += 1; continue }
+        if out.title.isEmpty, !code, !text, !blank(line), !hits(replyListRE, line) {
+            if let g = groups(replyHeadingRE, line), let h = g[1] { out.title = replyPlain(h) }
+            else if let g = groups(replyBoldRE, line), let b = g[2] { out.title = replyPlain(b); if let rest = g[3], !blank(rest) { body.append(rest); text = true } }
+            else if let g = groups(replySentenceRE, line.trimmingCharacters(in: jsTrim)), let first = g[1], first.utf16.count <= 200 { out.title = replyPlain(first); if let rest = g[2], !rest.isEmpty { body.append(rest); text = true } }
+            else { let one = replyPlain(line); out.title = one.utf16.count > 160 ? String(one.prefix(159)) + "…" : one }
+            if !out.title.isEmpty { i += 1; continue }
+        }
+        if !blank(line) { text = true }
+        body.append(line); i += 1
+    }
+    out.body = body.joined(separator: "\n").replacingOccurrences(of: #"\n{3,}"#, with: "\n\n", options: .regularExpression).trimmingCharacters(in: jsTrim)
     return out
 }
 
@@ -3300,7 +3366,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             let r = (content as? [J] ?? []).filter { $0["type"] as? String == "reasoning" }.compactMap { $0["text"] as? String }.joined(separator: "\n")
             if !r.isEmpty { transcript.append(Line(kind: .reasoning, text: r)) }
             let t = contentText(content)
-            if !t.isEmpty { transcript.append(Line(kind: .assistant, text: t, seq: e["seq"] as? Int)) }
+            if !t.isEmpty { transcript.append(Line(kind: .assistant, text: t, seq: e["seq"] as? Int, time: (e["time"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) })) }
             if let u = d["usage"] as? J { usage = u }
         case "command/run": transcript.append(Line(kind: .command, text: "/\(d["name"] as? String ?? "") \(d["args"] as? String ?? "")".trimmingCharacters(in: .whitespaces)))
         case "command/done": if let t = d["text"] as? String, !t.isEmpty { transcript.append(Line(kind: d["kind"] as? String == "error" ? .error : .result, text: t)) }

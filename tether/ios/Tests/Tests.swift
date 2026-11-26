@@ -1793,10 +1793,13 @@ final class AgentboxIdeasTests: XCTestCase {
         c.sessions = [Sess(["sessionId": "damon", "projections": ["values": ["title": "Damon"]]])!]
         c.state = .connected; c.current = "damon"; c.path = ["damon"]
         let ask = "Onaylıyorum: acme-web dalını main'e al ve push et, canlı değil."
-        c.replaySnapshot(turn(1, "acme-web testleri ne durumda?", "acme-web testleri geçti. Dal main'e alınmaya hazır.")
-            + turn(10, "Tamam, main'e al.", "Birleştirme için onayın gerekiyor.\n\n```onay\n\(ask)\n```\n"))
+        c.replaySnapshot(turn(1, "Bugün ne var?", "**Sabah özeti hazır.** İki iş bitti, biri sürüyor.\n\nRapor klasöre kaydedildi.")
+            + turn(10, "acme-web testleri ne durumda?", "**acme-web testleri geçti.** Dal main'e alınmaya hazır.\n\nSenden: test sunucusunda Gerekli Tarih alanını aç.\n\n> [!DETAILS] Test çıktısı\n> 412 test geçti, 0 hata.")
+            + turn(20, "Tamam, main'e al.", "**Birleştirme için onayın gerekiyor.** Testler yeşil.\n\n```onay\n\(ask)\n```\n\nNe zaman alınsın?\n\n**Seçenekler:**\n1. Hemen al (Önerilen)\n2. Yarın sabah al\n"))
         c.optionsFrom = 0
         XCTAssertEqual(c.approvalOffer?.sentences, [ask])
+        // The cards in time order: the oldest at the top, the newest at the bottom (the chat opens at its end).
+        XCTAssertEqual(botLines(c.transcript).filter { $0.kind == .assistant }.compactMap(\.seq), [3, 12, 22])
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
         let w = UIWindow(windowScene: scene)
         defer { w.isHidden = true }
@@ -1809,6 +1812,22 @@ final class AgentboxIdeasTests: XCTestCase {
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         let name = ProcessInfo.processInfo.environment["SHOT_NAME"] ?? "tether-damon.png"
         try XCTUnwrap(img.pngData()).write(to: URL(fileURLWithPath: dir).appendingPathComponent(name))
+    }
+
+    /// Damon reply cards: the title and the For you line as client.js replyParts (test/fixtures/reply-titles.json); the
+    /// card's body keeps the rest (the Approve and option buttons read the whole reply).
+    func testReplyTitleMatchesTheMac() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../test/fixtures/reply-titles.json")
+        let cases = try XCTUnwrap((try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])?["cases"] as? [[String: String]])
+        XCTAssertGreaterThan(cases.count, 15)
+        for c in cases {
+            let h = replyHead(c["text"]!)
+            XCTAssertEqual(h.title, c["title"], c["name"]!); XCTAssertEqual(h.forYou, c["forYou"], c["name"]!)
+        }
+        let h = replyHead("**Hazır.** Testler geçti.\n\nSenden: portu aç.\n\n```onay\nOnaylıyorum: dal main'e alınsın, canlı değil.\n```\n\n**Seçenekler:**\n1. Hemen\n2. Yarın")
+        XCTAssertEqual(h.title, "Hazır."); XCTAssertEqual(h.forYou, "portu aç.")
+        XCTAssertTrue(h.body.hasPrefix("Testler geçti."), h.body); XCTAssertFalse(h.body.contains("Senden"))
+        XCTAssertTrue(h.body.contains("```onay") && h.body.contains("2. Yarın"), "the block and the options stay for the buttons")
     }
 
     /// Assistant callouts: a quote that starts with a marker is one box (its later quote lines too); [!DETAILS] keeps its
@@ -1831,7 +1850,7 @@ final class AgentboxIdeasTests: XCTestCase {
 
     private func turn(_ s: Int, _ user: String, _ answer: String?, end: String? = "completed") -> [J] {
         var e: [J] = [["type": "turn/start", "seq": s, "data": J()], ["type": "user/message", "seq": s + 1, "data": ["content": user, "source": ["kind": "user"]]]]
-        if let answer { e.append(["type": "assistant/message", "seq": s + 2, "data": ["message": ["content": [["type": "reasoning", "text": "## Options\n1. secret"], ["type": "text", "text": answer]]]]]) }
+        if let answer { e.append(["type": "assistant/message", "seq": s + 2, "time": 1_764_140_000_000 + s * 60_000, "data": ["message": ["content": [["type": "reasoning", "text": "## Options\n1. secret"], ["type": "text", "text": answer]]]]]) }
         if let end { e.append(["type": "turn/end", "seq": s + 3, "data": ["reason": ["kind": end]]]) }
         return e
     }

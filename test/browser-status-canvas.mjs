@@ -3,7 +3,7 @@
 // 127.0.0.1, made-up projects and items). Headless, with Chromium's sandbox. Never the user's dsh home.
 // 1. Reply cards: the chat is hidden behind the cards by default (the message box stays where it was, usable); the
 //    newest reply is a card with its title, its Senden line, a closed details section, Onayla and the option buttons; the
-//    card is New until a click; "Sohbeti göster" shows the chat, the choice stays after a reload, "Sohbeti gizle" hides it.
+//    card is New until a click; the chat icon (Sohbeti göster) shows the chat, the choice stays after a reload, Sohbeti gizle hides it.
 // 2. The canvas button opens the canvas: it covers the whole chat body; the chat, the message box and the panel are hidden;
 //    the Damon hub in the middle, the panel's groups as islands around it (no two overlap, none covers the hub), a line to
 //    each island, a moving line for each running task; the same cards as the panel; a minimap.
@@ -87,7 +87,7 @@ try {
       const feed = page.locator('[data-composer-plus-reply-feed]');
       const input = page.locator('[data-composer-input]');
       const scroller = page.locator(`[data-conversation-session="${sessionId}"] [data-conversation-scroll]`);
-      // 1. Reply cards: the seed's answer is older than the first view (read); a new reply comes as a New card on top.
+      // 1. Reply cards: the seed's answer is older than the first view (read); a new reply comes as a New card at the bottom.
       await feed.waitFor({ timeout: 20000 });
       const covered = await page.evaluate((id) => {
         const body = document.querySelector(`[data-conversation-session="${id}"][data-conversation-content]`);
@@ -100,9 +100,9 @@ try {
       assert.deepEqual(covered, { same: true, chatHidden: true, inputShown: true, inputBelow: true, inputHit: true }, 'the cards cover the chat; the message box stays below them, usable');
       assert.equal(await feed.locator('[data-unread]').count(), 0, 'the replies before the first view are read');
       await rpc('session/prompt', { request: { requestId: `card-${Date.now()}`, sessionId, mode: 'queue', content: [{ type: 'text', text: 'DEMO-REPLY-CARD' }] } });
-      const newCard = feed.locator('article.cp-rc').first();
+      const newCard = feed.locator('article.cp-rc').last();
       await until(async () => (await newCard.getAttribute('data-unread')) === '' && (await newCard.locator('[data-composer-plus-approve="reply"]').count()) === 1, 'the new reply card with Onayla', 30000);
-      assert.equal(await newCard.getAttribute('data-first'), '', 'the newest unread card is first');
+      assert.equal(await newCard.getAttribute('data-newest'), '', 'the newest unread card is last (time order)');
       const title = EN ? 'The login-fix branch is ready.' : 'Montaj testi dalı hazır.';
       assert.equal(await newCard.locator('h3').innerText(), title, 'the bold first line is the title');
       assert.match(await newCard.locator('[data-reply-for]').innerText(), EN ? /turn on the due-date field/ : /Gerekli Tarih alanını aç/, 'the Senden line');
@@ -139,7 +139,7 @@ try {
       await newCard.locator('h3').click();
       await until(async () => (await newCard.getAttribute('data-unread')) === null, 'a click marks it read', 5000);
       assert.equal(await feed.locator('[data-reply-unread]').count(), 0, 'no unread');
-      note(`1: the cards cover the chat (message box below); a new reply is a New card on top with Onayla and 2 options; contrast ${JSON.stringify(contrast)}; a click reads it`);
+      note(`1: the cards cover the chat (message box below); a new reply is a New card at the bottom with Onayla and 2 options; contrast ${JSON.stringify(contrast)}; a click reads it`);
       // The toggle: show the chat (remembered after a reload), then hide it again.
       const toggle = stack.locator('[data-composer-plus-chat-toggle]');
       assert.equal(await toggle.getAttribute('data-composer-plus-chat-toggle'), 'show');

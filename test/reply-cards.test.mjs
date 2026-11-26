@@ -21,11 +21,11 @@ globalThis.document = { body: { tag: 'body' }, querySelector: () => null, addEve
 const ANCHOR = '/** Feature switches, in Settings order.';
 const src = read('client.js');
 assert.ok(src.includes(ANCHOR));
-eval(src.replace(ANCHOR, `globalThis.__rc = { failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, REPLY_READ_KEY, REPLY_SHOWN_KEY };\n    ${ANCHOR}`));
+eval(src.replace(ANCHOR, `globalThis.__rc = { failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, ReplyFeed, REPLY_READ_KEY, REPLY_SHOWN_KEY, REPLY_CSS, REPLY_MAX };\n    ${ANCHOR}`));
 const h = (t, p, ...c) => ({ t, p: p ?? {}, c });
 const React = { createElement: h, Fragment: 'F', useState: (v) => [typeof v === 'function' ? v() : v, () => {}], useRef: (v) => ({ current: v }), useEffect() {}, useLayoutEffect() {}, useSyncExternalStore: (_s, get) => get(), useMemo: (f) => f(), useCallback: (f) => f };
 mod.factory((n) => (n === 'react' ? React : n === 'react-dom' ? { createPortal: (el, host, key) => ({ portal: el, host, key }) } : {}));
-const { failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, REPLY_READ_KEY, REPLY_SHOWN_KEY } = globalThis.__rc;
+const { failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, ReplyFeed, REPLY_READ_KEY, REPLY_SHOWN_KEY, REPLY_CSS, REPLY_MAX } = globalThis.__rc;
 const find = (n, pred) => { if (n === null || typeof n !== 'object') return []; if (Array.isArray(n)) return n.flatMap((c) => find(c, pred)); return [...(pred(n) ? [n] : []), ...(n.c ?? []).flat(Infinity).flatMap((c) => find(c, pred))]; };
 const text = (n) => (typeof n === 'string' ? n : Array.isArray(n) ? n.map(text).join('') : n?.c ? text(n.c) : '');
 
@@ -156,9 +156,9 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   const choiceNow = { offer: { seq: 42, latest: 4, options: [{ n: 1, label: 'Hemen al', text: 'Hemen al', recommended: true }, { n: 2, label: 'Yarın al', text: 'Yarın al', recommended: false }] }, state: { busy: false, error: null }, empty: true };
   const picked = []; const picks = { pick: (id, o, n) => { picked.push([id, o.seq, n]); return Promise.resolve(true); } };
   const reads = [];
-  const draw = (props) => ReplyCard({ card, sessionId: 's', unread: true, first: true, offerNow, choiceNow, picks, t, lang: 'tr', onRead: (seq) => reads.push(seq), ...props });
+  const draw = (props) => ReplyCard({ card, sessionId: 's', unread: true, newest: true, offerNow, choiceNow, picks, t, lang: 'tr', onRead: (seq) => reads.push(seq), ...props });
   let tr = draw();
-  assert.equal(tr.t, 'article'); assert.equal(tr.p['data-unread'], ''); assert.equal(tr.p['data-first'], ''); assert.equal(tr.p.tabIndex, 0, 'a card takes the focus');
+  assert.equal(tr.t, 'article'); assert.equal(tr.p['data-unread'], ''); assert.equal(tr.p['data-newest'], ''); assert.equal(tr.p.tabIndex, 0, 'a card takes the focus');
   assert.equal(text(find(tr, (n) => n.p.className === 'cp-rc-new')[0]), 'replies.new', 'the New label');
   assert.equal(text(find(tr, (n) => n.t === 'h3')[0]), 'Hazır.', 'the title');
   const ok = find(tr, (n) => n.t === 'button' && n.p['data-composer-plus-approve'] === 'reply');
@@ -167,8 +167,14 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   const opts = find(tr, (n) => n.t === 'button' && n.p.className === 'cp-rc-opt');
   assert.deepEqual(opts.map((b) => b.p['data-option']), ['1', '2'], 'the option buttons'); assert.equal(opts[0].p['data-recommended'], '', 'the recommended one');
   opts[1].p.onClick(); assert.deepEqual(picked.at(-1), ['s', 42, 2], 'an option goes through picks.pick');
-  tr.p.onClick(); assert.deepEqual(reads.at(-1), 42, 'a click on the card marks it read');
-  tr.p.onKeyDown({ key: 'Enter', target: 'self', currentTarget: 'self' }); assert.equal(reads.length, 4, 'Enter on the card too');
+  const self = { contains: (n) => n === 'in-card' };
+  globalThis.getSelection = () => ({ isCollapsed: false, anchorNode: 'in-card' });
+  const before = reads.length; tr.p.onClick({ currentTarget: self }); assert.equal(reads.length, before, 'a drag that selected text of the card does not read it');
+  globalThis.getSelection = () => ({ isCollapsed: false, anchorNode: 'elsewhere' });
+  tr.p.onClick({ currentTarget: self }); assert.deepEqual(reads.at(-1), 42, 'a selection outside the card: the click reads it');
+  reads.pop(); globalThis.getSelection = () => ({ isCollapsed: true, anchorNode: 'in-card' });
+  tr.p.onClick({ currentTarget: self }); assert.deepEqual(reads.at(-1), 42, 'a click on the card marks it read'); delete globalThis.getSelection;
+  const n = reads.length; tr.p.onKeyDown({ key: 'Enter', target: 'self', currentTarget: 'self' }); assert.equal(reads.length, n + 1, 'Enter on the card too');
   // An older card (another seq), a draft in the composer, a busy send: no buttons, the sentences and options as text.
   for (const props of [{ card: { ...card, seq: 30 } }, { offerNow: { ...offerNow, empty: false }, choiceNow: { ...choiceNow, empty: false } }]) {
     tr = draw(props);
@@ -200,6 +206,64 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   assert.equal(asked.length, 2, 'only the known codes are looked up');
   assert.equal(failureTextOf({ bind: () => { throw Error('boom'); } }, 'AUTH'), '', 'a throwing bind'); assert.equal(failureTextOf(undefined, 'AUTH'), '', 'no locale');
   assert.equal(ReplyCard({ card, sessionId: 's', t, lang: 'tr', picks, focusable: false }).p.tabIndex, undefined, 'on the canvas its frame takes the focus');
+}
+
+// The chat's feed (Furkan, 2026-11-26: "yeni gelen kart en altta gözüksün"): time order, the oldest on top, the newest
+// at the bottom; the newest REPLY_MAX cards; the shadow on the newest unread card. The canvas island keeps replyOrder.
+{
+  const t = (k, v) => (v === undefined ? k : `${k}:${JSON.stringify(v)}`);
+  const store = (v) => ({ subscribe: () => () => {}, getSnapshot: () => v });
+  const many = Array.from({ length: REPLY_MAX + 3 }, (_, i) => step(i + 1, 0, (i + 1) * 10, [txt(`Yanıt ${i + 1}.`)]));
+  const chat = chatOf(many);
+  const replies = { chatOf: () => ({ subscribe: () => () => {}, getSnapshot: () => chat }), rollback: { subscribe: () => () => {}, of: () => undefined },
+    check: { ask() {}, subscribe: () => () => {}, ready: () => true }, read: { subscribe: () => () => {}, of: () => ({ floor: 395, read: [410, 430] }), start() {}, mark() {}, all() {} } };
+  const host = { querySelector: () => null, getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600, bottom: 600 }), setAttribute() {}, removeAttribute() {} };
+  // useReplyCards' chat and ready, then the feed's box (the order of the hook calls).
+  const states = [chat, true, { left: 0, top: 0, width: 800, height: 500 }];
+  const React0 = React.useState; React.useState = (v) => [states.length > 0 ? states.shift() : typeof v === 'function' ? v() : v, () => {}];
+  const tree = ReplyFeed({ sessionId: 's', host, replies, shown: store(false), statusSeats: { subscribe: () => () => {}, getSnapshot: () => new Map() }, offers: { subscribe: () => () => {}, of: () => undefined, choiceOf: () => undefined }, picks: {}, locale: () => 'tr', t });
+  React.useState = React0;
+  const arts = find(tree, (n) => n.t === ReplyCard);
+  const seqs = arts.map((n) => n.p.card.seq);
+  assert.deepEqual(seqs, many.slice(-REPLY_MAX).map((n) => n.data.finalNode.seq), 'the newest REPLY_MAX cards, oldest on top, newest at the bottom');
+  assert.deepEqual(arts.filter((n) => n.p.newest).map((n) => n.p.card.seq), [420], 'the shadow on the newest unread card');
+  assert.deepEqual(arts.filter((n) => n.p.unread).map((n) => n.p.card.seq), [400, 420], 'unread marks stay');
+  const note = find(tree, (n) => n.p?.className === 'cp-rf-note');
+  assert.equal(text(note[0]), `replies.more:${JSON.stringify({ count: 3 })}`, 'the note of the older replies is above the cards');
+  const inner = find(tree, (n) => n.p?.className === 'cp-rf-in')[0];
+  assert.ok(inner.c.flat(Infinity).indexOf(note[0]) < inner.c.flat(Infinity).indexOf(arts[0]), 'the note comes first');
+  assert.match(src, /follow\.current = true; f\.scrollTop = f\.scrollHeight; \}, \[box === null, newestSeq\]\)/, 'the feed goes to the newest card when it opens and when a new card comes');
+}
+
+// The pointer (Furkan, 2026-11-26): text in a card has the text cursor and can be selected; only controls have the hand.
+{
+  assert.match(REPLY_CSS, /\.cp-rc\{[^}]*cursor:default\}/, 'the card frame: the arrow');
+  assert.doesNotMatch(REPLY_CSS.replace(/\.cp-cv-isl \.cp-rc\{cursor:pointer\}/, ''), /\.cp-rc\{[^}]*cursor:pointer/, 'no hand on the whole card (only on a canvas island, where a click opens it)');
+  assert.match(REPLY_CSS, /:is\(\[data-composer-plus-reply-feed\],\.cp-cv-side\) \.cp-rc\{-webkit-user-select:text;user-select:text\}/, 'text can be selected in the feed and the side panel');
+  assert.match(REPLY_CSS, /:is\(\[data-composer-plus-reply-feed\],\.cp-cv-side\) \.cp-rc :is\(h3,\.cp-rc-top,\.cp-rc-for,\.cp-rc-body,\.cp-rc-ok>p,ol\.cp-rc-opts,\.cp-rc-details>div\)\{cursor:text\}/, 'the text cursor over text');
+  assert.match(REPLY_CSS, /\.cp-rc :is\(button,a\[href\],summary\)\{cursor:pointer\}/, 'the hand over buttons, links and the summary');
+}
+
+// The chat toggle in the status panel header (Furkan, 2026-11-26: "sohbeti göster butonunu da simgeye dönüştür"): an icon
+// button of the header row (cp-td-btn), named by aria-label and title in the UI language, the same click.
+{
+  const at = src.indexOf('const chatLabel = '); const code = src.slice(at, src.indexOf('\n', src.indexOf('lineIcon(', at)));
+  assert.match(code, /className: 'cp-td-btn'/, 'the class of the header icons'); assert.match(code, /'aria-label': chatLabel, title: chatLabel/, 'named for hover and screen readers');
+  assert.match(code, /const chatLabel = t\(chatIsShown \? 'replies\.hideChat' : 'replies\.showChat'\)/, 'the language pack label');
+  assert.match(code, /onClick: \(\) => chatShown\.set\(!chatIsShown\)/, 'the same click'); assert.match(code, /lineIcon\(/, 'a line icon (no text)');
+  const row = src.slice(src.indexOf("React.createElement('div', { className: 'cp-st-top' },"), src.indexOf('spokenSpan),', src.indexOf("React.createElement('div', { className: 'cp-st-top' },")));
+  assert.ok(row.indexOf('chatToggle,') > row.indexOf('data-composer-plus-canvas-open') && row.indexOf('chatToggle,') < row.indexOf('data-place-button'), 'in the icon row, between the canvas and the place icons');
+}
+
+// One title rule for the Mac and Tether (test/fixtures/reply-titles.json; Tether: testReplyTitleMatchesTheMac).
+{
+  const { cases } = JSON.parse(read('test/fixtures/reply-titles.json'));
+  for (const c of cases) { const p = replyParts(c.text); assert.deepEqual([p.title, p.forYou], [c.title, c.forYou], c.name); }
+  const core = read('tether/ios/Sources/Core.swift'), ui = read('tether/ios/Sources/UI.swift');
+  assert.match(core, /func replyHead\(_ text: String\) -> ReplyHead/, 'the Swift port');
+  assert.match(ui, /if damon, l\.kind == \.assistant \|\| l\.kind == \.error \{/, 'Tether: the Damon chat draws replies and failed turns as cards');
+  assert.match(ui, /if card \{ cardHead\(title: head\.title, forYou: head\.forYou\) \}/, 'Tether: the card shows the title and the For you line');
+  assert.match(ui, /Text\(verbatim: title\)[^\n]*\.textSelection\(\.enabled\)/, 'Tether: the title can be selected');
 }
 
 // The feature: its switch, Settings screenshot, category, chat toggle key.
