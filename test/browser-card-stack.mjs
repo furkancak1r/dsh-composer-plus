@@ -23,9 +23,12 @@
 // 10. Kararlar (Furkan, 2026-11-24): the notes are one button with the count of decisions (a badge) and of the other
 //    notes. A click opens a modal dialog over the whole page (the top layer, a blurred backdrop, the chat inert): one
 //    decision card with its options; one click sends "Karar: <item> → <option>" once as the user's message and shows the
-//    next card at once; → skips; a decision without options says so; Esc closes the dialog and
-//    the focus goes back to the button. The notes: Yaptım sends "Not tamam: <item>", Sil (keyboard) removes a note on
-//    the Host without a message. DECIDE_SHOTS=<folder> writes the screenshots of the dialog.
+//    next card at once with "✓ Gönderildi"; Gönder is on with the recommended option preselected; ‹ › and ← → move
+//    without an answer; a decision without options says so; Esc closes the dialog and the focus goes back to the button.
+//    The notes: Yaptım sends "Not tamam: <item>", Sil (keyboard) removes a note on the Host without a message.
+//    11. A new decision opens the dialog by itself (Furkan, 2026-11-26) while the Damon chat shows and the message box is
+//    empty: no backdrop, the focus stays in the message box, what you type stays there; Esc closes it and it does not
+//    open again for the same decision. DECIDE_SHOTS=<folder> writes the screenshots of the dialog.
 // PLAYWRIGHT=/path/to/playwright node test/browser-card-stack.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/assistantTodos.webp from its own demo with the English UI and English made-up data.
 import assert from 'node:assert/strict';
@@ -41,6 +44,7 @@ if (!process.env.PLAYWRIGHT || process.argv.length < 3) throw Error('Set PLAYWRI
 const { chromium } = require(process.env.PLAYWRIGHT);
 const repo = fileURLToPath(new URL('..', import.meta.url));
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const DECIDE_PEEK_WAIT = 3200; // client.js DECIDE_PEEK_QUIET_MS (3 s without a key) and a little more
 const until = async (fn, what, ms = 30000) => {
   const end = Date.now() + ms;
   for (;;) { const v = await fn(); if (v) return v; if (Date.now() > end) throw Error(`timed out: ${what}`); await pause(250); }
@@ -288,7 +292,19 @@ try {
       assert.equal((await dlg.locator('[data-dc-progress]').innerText()).trim(), `1 / ${DECISIONS.length}`);
       assert.deepEqual(await dlg.locator('button[data-option]').evaluateAll((els) => els.map((b) => b.innerText.replace(/\s+/g, ' ').trim())), ['1 Kısa şablon Önerilen', '2 Uzun şablon', '3 Bu hafta gönderme']);
       assert.equal(await page.evaluate(() => document.activeElement?.hasAttribute('data-dc-focus')), true, 'the focus is in the dialog (the question)');
-      await pause(400); await decideShot('2-karar-karti');
+      // Gönder is on, the recommended option is preselected (Furkan, 2026-11-26: "gönder pasif olmasın").
+      const sendBtn = dlg.locator('[data-dc="send"]');
+      assert.equal(await sendBtn.isDisabled(), false, 'Gönder is on'); assert.equal(await sendBtn.getAttribute('aria-label'), 'Gönder: Kısa şablon');
+      assert.equal(await dlg.locator('button[data-option="1"][data-selected]').count(), 1, 'the recommended option is preselected');
+      assert.equal((await dlg.locator('.cp-dc-keys').innerText()).trim(), '1–9 seç ve gönder · Enter gönder · ← → önceki/sonraki · Esc kapat');
+      // ‹ › in the header: › and back with ‹ (no answer, no message).
+      const navCalls = calls.length;
+      await dlg.locator('[data-dc-nav="next"]').click();
+      await until(async () => (await card.innerText()).includes(DECISIONS[1][0]), '› shows the next decision');
+      await dlg.locator('[data-dc-nav="prev"]').click();
+      await until(async () => (await card.innerText()).includes(DECISIONS[0][0]), '‹ goes back');
+      await pause(500); assert.equal(calls.slice(navCalls).some((c) => /^Karar:/.test(c.newest)), false, 'moving sends nothing');
+      await page.mouse.move(5, 5); await pause(400); await decideShot('2-karar-karti');
       // One click: the exact message once; the next card at once.
       const before10 = calls.length;
       const first = dlg.locator('button[data-option="1"]');
@@ -300,14 +316,15 @@ try {
       assert.equal(calls.slice(before10).filter((c) => c.newest === want10 && c.step === 0).length, 1, 'one message for one click');
       assert.equal(calls.slice(before10).filter((c) => c.step === 0 && /^Karar:/.test(c.newest)).length, 1, 'the second click on the old card sent nothing');
       assert.equal((await dlg.locator('[data-dc-progress]').innerText()).trim(), `2 / ${DECISIONS.length}`);
+      await until(async () => (await dlg.locator('[data-dc-sent]').innerText()).trim() === '✓ Gönderildi: Kısa şablon', 'the "sent" line');
       await page.mouse.move(5, 5); await pause(400); await decideShot('3-bir-tiklamadan-sonra');
-      // → skips (after the key guard); the decision without options says so.
-      await pause(900); await page.keyboard.press('ArrowRight');
-      await until(async () => (await card.innerText()).includes(DECISIONS[2][0]), '→ skips');
-      await pause(900); await page.keyboard.press('ArrowRight');
+      // → moves (no key guard, no answer); the decision without options says so; Atla skips.
+      await page.keyboard.press('ArrowRight');
+      await until(async () => (await card.innerText()).includes(DECISIONS[2][0]), '→ moves');
+      await page.keyboard.press('ArrowRight');
       await until(async () => (await card.innerText()).includes(DECISIONS[3][0]), 'the decision without options');
       assert.equal(await dlg.locator('button[data-option]').count(), 0); assert.match(await card.innerText(), /Damon seçenek eklemedi/);
-      await pause(900); await page.keyboard.press('ArrowRight');
+      for (let n = 0; n < 3; n++) { await pause(500); await dlg.locator('[data-dc="skip"]').click(); }
       // The notes after the decisions.
       await until(async () => (await dlg.locator('[data-note]').count()) === 2, 'the other notes');
       await pause(300); await decideShot('4-notlar-listesi');
@@ -327,8 +344,9 @@ try {
       await pause(500); await dlg.locator('button[data-option="2"]').click();
       await until(async () => (await card.innerText()).includes(DECISIONS[3][0]), 'next');
       await pause(500);
+      assert.equal(await dlg.locator('[data-dc="send"]').getAttribute('aria-label'), 'Gönder', 'no option and no text: Gönder alone (it focuses the field)');
       await dlg.getByRole('textbox', { name: 'Başka bir cevap' }).fill('Türkçe yazılsın');
-      await dlg.getByRole('button', { name: 'Gönder', exact: true }).click();
+      await dlg.getByRole('button', { name: 'Gönder: Türkçe yazılsın', exact: true }).click();
       await until(async () => (await dlg.locator('[data-note]').count()) === 2, 'the notes');
       const before10b = calls.length;
       await pause(500); await dlg.locator('[data-note]').first().getByRole('button', { name: 'Yaptım: Kırtasiye siparişini ver', exact: true }).click();
@@ -346,7 +364,39 @@ try {
       await page.mouse.move(5, 5); await pause(300); await decideShot('5-hepsi-bitti');
       await dlg.locator('[data-dc="close"]').click();
       await until(async () => (await dlg.count()) === 0, 'Kapat closes it');
-      note('10: Kararlar: the badge counts the decisions; a modal dialog over the page (blurred backdrop); one click sent "Karar: … → …" once and showed the next card; → skips; no options: the note; Esc closes, the focus goes back; Yaptım sent "Not tamam", Sil removed a note on the Host without a message');
+      note('10: Kararlar: a modal dialog over the page (blurred backdrop); Gönder on with the recommended option preselected; ‹ › move without a message; one click sent "Karar: … → …" once, showed the next card and "✓ Gönderildi"; → moves; no options: the note; Esc closes, the focus goes back; Yaptım sent "Not tamam", Sil removed a note on the Host without a message');
+      // 11. A new decision opens the dialog by itself (Furkan, 2026-11-26): the Damon chat shows, the message box is empty.
+      // A rpc prompt (not typed here): no key in the last 3 s. Before the change the dialog stayed closed (DECIDE_SHOTS: 7).
+      const NEW1 = 'Karar ver: yeni rapor bugün mü gitsin?';
+      await input.click(); await pause(DECIDE_PEEK_WAIT);
+      await rpc('session/prompt', { request: { requestId: `decide-new-${Date.now()}`, sessionId, mode: 'queue', content: [{ type: 'text', text: `DEMO-DECISION-NEW ${NEW1}` }] } });
+      const peek = page.locator('dialog[data-composer-plus-decide][open]');
+      const opened = await peek.waitFor({ timeout: 25000 }).then(() => true, () => false);
+      await page.mouse.move(5, 5); await pause(500); await decideShot(opened ? '7-yeni-karar-kendiliginden' : '7-yeni-karar-kapali');
+      assert.equal(opened, true, 'a new decision opens the dialog by itself');
+      assert.match(await peek.locator('[data-decision]').innerText(), /yeni rapor bugün mü gitsin/, 'with the new decision');
+      assert.equal(await peek.evaluate((d) => d.matches(':modal')), false, 'no backdrop: not modal');
+      assert.equal(await page.evaluate(() => document.activeElement?.closest('[data-composer-input]') != null), true, 'the focus stays in the message box');
+      // You type: the text stays in the message box (the dialog takes no key).
+      await page.keyboard.type('merhaba'); await pause(300);
+      assert.match(await input.innerText(), /merhaba/, 'the typed text is in the message box');
+      assert.equal(await peek.count(), 1, 'the dialog stays open');
+      await page.keyboard.press('ControlOrMeta+a'); await page.keyboard.press('Backspace');
+      await page.keyboard.press('Escape');
+      await until(async () => (await peek.count()) === 0, 'Esc closes the peek');
+      // The same decision does not open it again.
+      await pause(DECIDE_PEEK_WAIT + 2500); assert.equal(await peek.count(), 0, 'not again for the same decision');
+      // A draft: a newer decision waits; an empty box opens it.
+      await input.click(); await page.keyboard.type('taslak');
+      const NEW2 = 'Karar ver: toplantı yarın mı olsun?';
+      await rpc('session/prompt', { request: { requestId: `decide-new2-${Date.now()}`, sessionId, mode: 'queue', content: [{ type: 'text', text: `DEMO-DECISION-NEW ${NEW2}` }] } });
+      await until(async () => (await badge.innerText()).trim() === '2', 'the second new decision is on the list', 30000);
+      await pause(DECIDE_PEEK_WAIT + 1500); assert.equal(await peek.count(), 0, 'not with a draft');
+      await page.keyboard.press('ControlOrMeta+a'); await page.keyboard.press('Backspace');
+      await peek.waitFor({ timeout: 15000 });
+      assert.match(await peek.locator('[data-decision]').innerText(), /yeni rapor bugün mü gitsin|toplantı yarın mı olsun/);
+      await page.keyboard.press('Escape'); await until(async () => (await peek.count()) === 0, 'Esc closes it');
+      note('11: a new decision opened the dialog by itself (no backdrop, the focus stayed in the message box, the typed text stayed there); Esc closed it; not again for the same decision; not with a draft, then with an empty box');
       assert.deepEqual(errors, [], 'no page errors');
       passed = true; console.log(`PASS dsh ${version}`);
     } finally {

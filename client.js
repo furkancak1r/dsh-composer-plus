@@ -4291,7 +4291,8 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
           do { await idle(); r = await picks.say(sessionId, message); } while (r.busy === true);
           sending.current.delete(item.id);
           if (r.ok) { setSent({ text: one(text) || one(item.text) }); return; }
-          setAnswered(item.id, false); if (!note) mark(item.id, false); if (typed) setDraft(item.id, text);
+          // The card comes back on screen with its text (nothing is lost).
+          setAnswered(item.id, false); if (!note) { mark(item.id, false); pinned.current = item.id; } if (typed) setDraft(item.id, text);
           setError(t('decide.failed', { error: r.error }));
         });
         return chain.current;
