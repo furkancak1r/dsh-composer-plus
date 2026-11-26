@@ -1197,10 +1197,13 @@ final class ReplyCardCache {
     }
 }
 /// Load earlier: the rows from the first card at or after seq `cut`, with the rows just before it (its question and
-/// steps, back to the previous card).
+/// steps, back to the previous card). A finished turn keeps its rows together from its summary row: an opened turn
+/// (Assistant messages only off) shows its earlier texts as cards too, and its summary row must stay to fold it again.
 func rowsFrom(_ rows: [ChatRow], cut: Int) -> [ChatRow] {
     let card = { (r: ChatRow) -> Line? in if case .line(let l) = r, isCardLine(l), l.seq != nil { return l }; return nil }
     guard var at = rows.firstIndex(where: { card($0).map { $0.seq! >= cut } ?? false }) else { return rows }
+    let edge = rows[..<at].lastIndex { r in if case .turn = r { return true }; if case .line(let l) = r { return l.kind == .user }; return false }
+    if let edge, case .turn = rows[edge] { at = edge }
     while at > 0, card(rows[at - 1]) == nil { at -= 1 }
     return Array(rows[at...])
 }

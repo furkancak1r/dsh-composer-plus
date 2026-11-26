@@ -1902,6 +1902,12 @@ final class AgentboxIdeasTests: XCTestCase {
         let rows = chatRows(l, open: [], running: false)
         XCTAssertEqual(rowsFrom(rows, cut: 6).map(\.id), [l[2].id, l[3].id], "the question before the card stays")
         XCTAssertEqual(rowsFrom(rows, cut: 0).count, 4); XCTAssertEqual(rowsFrom(rows, cut: 99).count, 4, "no card at or after the cut: all rows")
+        // Review 4: an opened turn (Assistant messages only off) keeps its question, summary row and earlier texts.
+        let t = [Line(kind: .user, text: "q0", seq: 1), Line(kind: .assistant, text: "a0", seq: 2), Line(kind: .turn, text: "", seq: 3),
+                 Line(kind: .user, text: "q1", seq: 4), Line(kind: .assistant, text: "i1", seq: 5), Line(kind: .tool, text: "ls", seq: 6),
+                 Line(kind: .assistant, text: "r1", seq: 7), Line(kind: .turn, text: "", seq: 8)]
+        XCTAssertEqual(rowsFrom(chatRows(t, open: [t[7].id], running: false), cut: 7).first?.id, t[3].id, "opened: from the question")
+        XCTAssertEqual(rowsFrom(chatRows(t, open: [], running: false), cut: 7).map(\.id), [t[3].id, t[7].id, t[6].id], "folded: question, summary, answer")
     }
 
     /// Options only as buttons: the answer keeps its heading and loses the numbered list; a card's options leave its body.
