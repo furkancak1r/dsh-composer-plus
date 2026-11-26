@@ -1790,8 +1790,7 @@ struct LiveTail: View {
     let closed: (AnyHashable) -> Void
     var body: some View {
         if !text.reasoning.isEmpty { StepsView(lines: [Line(kind: .reasoning, text: text.reasoning)], live: true, anchor: "live-thinking", closed: closed) }
-        // Assistant messages only: Damon's `[quiet]` (or its start) while it streams shows nothing (quietStart).
-        let streaming = c.assistantMessagesOnly && c.current != nil && c.current == c.botId && quietStart(text.streaming) ? "" : text.streaming
+        let streaming = c.liveReply(text.streaming)
         if !streaming.isEmpty { LineView(line: Line(kind: .assistant, text: streaming), live: true) }
         // upload/send progress first, so a large file never looks like a dead Send button
         if let s = c.sendStatus ?? (c.running && streaming.isEmpty && text.reasoning.isEmpty && c.transcript.last?.kind != .tool ? String(localized: "Working…") : nil) {

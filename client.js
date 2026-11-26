@@ -3006,12 +3006,21 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
     const newsRowKeys = (chat, quiet = quietTurnSet(chat)) => [...(chat?.nodes?.values?.() ?? [])]
       .filter((n) => (n?.kind === 'context' || n?.kind === 'turn-trigger') && n.data?.source?.kind === 'composer-plus-assistant-news'
         && quiet.has(String(n.location?.turn?.turn))).map((n) => n.key);
-    /** Also a text sent with a tool call in a turn that ends with a `[quiet]` reply (quietTurnsOf): that turn shows no other
-     * reply, so such a text (an Auto review denial, a live error) is for you (2026-11-27). */
+    /** The ended turns whose closing answer is only `[quiet]` (2026-11-27): dsh's turn tail (made at `turn/end`, dsh
+     * dsh-client-ui-chat turn-tail.ts `tailData`) names the turn's last step with text as `closing`. Such a turn shows no other
+     * reply, so its other texts (an Auto review denial, a live error) are for you, also next to a tool call. A running turn
+     * is not one: its real answer can still come. */
+    const hushedTurns = (chat) => {
+      const nodes = [...(chat?.nodes?.values?.() ?? [])]; const bySeq = new Map(); const out = new Set();
+      for (const n of nodes) if (n?.kind === 'assistant-step' && Number.isSafeInteger(n.data?.finalNode?.seq)) bySeq.set(n.data.finalNode.seq, n);
+      for (const n of nodes) if (n?.kind === 'turn-tail' && quietStep(bySeq.get(n.data?.closing?.finalNode?.seq))) out.add(n.data.turn);
+      return out;
+    };
+    /** Also a text sent with a tool call in a hushed turn (hushedTurns). */
     const answerRowKeys = (chat) => {
       const steps = [...(chat?.nodes?.values?.() ?? [])].filter((n) => n?.kind === 'assistant-step' && Array.isArray(n.data?.blocks));
       const last = new Map(); for (const n of steps) last.set(n.data.turn, Math.max(last.get(n.data.turn) ?? -Infinity, n.data.step));
-      const hushed = new Set(quietTurnsOf(chat));
+      const hushed = hushedTurns(chat);
       return steps.filter((n) => n.data.step < last.get(n.data.turn) && n.data.blocks.some(replyBlock)
         && (hushed.has(n.data.turn) || !n.data.blocks.some((b) => b?.kind === 'tool-call')) && !quietStep(n)).map((n) => n.key);
     };
@@ -4486,8 +4495,9 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
     }
     const replyMemo = new WeakMap();
     /** The cards of a chat snapshot (dsh's chat nodes): `{ kind: 'reply', seq, turn, time, text }` for each settled reply
-     * that the chat shows (a step with text and no tool call, or its turn's closing answer), not only `[quiet]` and not in a
-     * quiet turn; `{ kind: 'error', seq, turn, time, message }` for each failed turn. In seq order. */
+     * that the chat shows (a step with text and no tool call, its turn's closing answer, or any text in an ended turn whose
+     * closing answer is only `[quiet]`: hushedTurns), not only `[quiet]` and not in a quiet turn; `{ kind: 'error', seq,
+     * turn, time, message }` for each failed turn. In seq order. */
     const NO_SPANS = Object.freeze([]);
     /** The failure codes that dsh's chat shows with its own text (dsh-client-ui-chat MessageItem `failureMessage`, namespace
      * `chat`); the node's message is English or empty for them (review 8). */
@@ -4509,10 +4519,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       if (hit !== undefined && hit.withdrawn === withdrawn && hit.inherited === inherited) return hit.cards;
       const closing = new Map(); const nodes = [...(chat?.nodes?.values?.() ?? [])];
       for (const n of nodes) if (n?.kind === 'turn-tail' && Number.isSafeInteger(n.data?.closing?.finalNode?.seq)) closing.set(n.data.turn, n.data.closing.finalNode.seq);
-      const quiet = quietTurnSet(chat); const cards = [];
-      // A turn that ends with a `[quiet]` reply has no closing card, so each other text in it (an Auto review denial, a live
-      // error) is a card, also next to a tool call: such a turn is not quiet (quietTurnSet) and its text is for you (2026-11-27).
-      const hushed = new Set(quietTurnsOf(chat));
+      const quiet = quietTurnSet(chat); const cards = []; const hushed = hushedTurns(chat);
       const kept = (seq) => seq >= inherited && !inSpans(withdrawn, seq);
       for (const n of nodes) {
         if (n?.kind === 'assistant-step' && n.data?.status === 'settled' && Array.isArray(n.data.blocks)) {

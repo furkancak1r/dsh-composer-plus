@@ -463,7 +463,7 @@ assert.match(section.text({ agent: assistant }), /Each topic is its own subagent
   const line = section.text({ agent: assistant }).split('\n').find((l) => l.startsWith('- Talk like a friend'));
   assert.match(line, /For a small task \(one subagent finishes it, and it needs no step or approval from the user: for example a mail, a copy, research or a check\), reply with only `\[quiet\]` and write no other text in that turn; when the task ends, write its result in its own reply\./);
   assert.match(line, /For other work, say in one line what you started\./);
-  assert.match(line, /When the turn has an Auto review denial, a step that the user must do, or an error or a risk on a live system, write one short line for each \(a denial with its reason\) instead of only `\[quiet\]`\./);
+  assert.match(line, /When the turn has an Auto review denial, a step that the user must do, or an error or a risk on a live system, write one short line for each \(a denial with its reason\) instead of only `\[quiet\]`, in the turn's last reply, not next to a tool call\./);
   assert.doesNotMatch(line, /in the background \(run_in_background true when the tool has it\), say in one line/, 'no started line for every task');
   assert.match(section.text({ agent: assistant }), /Say in one line which chat you started and end your turn\./, 'project work (chat_new) keeps its line');
 }

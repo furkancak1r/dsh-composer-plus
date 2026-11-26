@@ -81,6 +81,10 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
     step(3, 0, 30, [txt('Bakıyorum.'), tool]), step(3, 1, 31, [txt('Bitti.')]), tail(3, 31), // a real closing answer: the looking line stays out
   ]);
   assert.deepEqual(replyCardsOf(hushed).map((c) => c.seq), [10, 31], 'the denial before [quiet] is a card; a quiet turn and a looking line are not');
+  // A running turn (no tail yet) whose newest settled text is [quiet]: its real answer can still come, so no card yet.
+  const running = chatOf([step(1, 0, 10, [txt('Checking.'), tool]), step(1, 1, 11, [txt('[quiet]'), tool])]);
+  assert.deepEqual(replyCardsOf(running).map((c) => c.seq), [], 'a running turn: no card for its looking line');
+  assert.deepEqual(replyCardsOf(chatOf([...running.nodes.values(), tail(1, 11)])).map((c) => c.seq), [10], 'after the turn ends with [quiet]: a card');
 }
 
 // replyParts.

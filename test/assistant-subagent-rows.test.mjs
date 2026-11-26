@@ -153,6 +153,12 @@ assert.ok(css().includes(shown('10:1')), 'a reply that is no longer the turn\'s 
 id = null; out = answersView.render(); assert.equal(css(), '', 'off: nothing');
 answersView.unmount();
 
+// An ended turn: its steps get dsh's finalNode, and its turn tail names the last step with text as `closing`.
+const ended = (turn, ...steps) => {
+  const done = steps.map(([key, n], i) => [key, { ...n, data: { ...n.data, finalNode: { seq: turn * 100 + i } } }]);
+  const closing = done.filter(([, n]) => n.data.blocks.some((b) => b.kind === 'text' && b.text.trim() !== '')).at(-1)?.[1].data.finalNode;
+  return [...done, [`${turn}:tail`, { key: `${turn}:tail`, kind: 'turn-tail', data: { turn, closing: closing === undefined ? null : { finalNode: closing } } }]];
+};
 // A reply that is only `[quiet]` (any case, spaces): the assistant's "nothing to say" for routine news. Its row is hidden
 // like a subagent row (also when it is not the turn's last reply, and also when the step has a tool call); a reply that
 // says more stays.
@@ -169,8 +175,12 @@ stores.set('s-quiet', storeOf([
   // A [quiet] text sent with a tool call: dsh's default (foldedReplies: all) shows it, so it goes too (the Host's
   // quietRun counts it the same way); the turn's later real reply stays.
   step('16:1', 16, 1, '[quiet]', 'tool'), step('16:2', 16, 2, 'Found 2 issues.'),
-  // 2026-11-27: a text with a tool call in a turn that ends with [quiet] (an Auto review denial) is for you: it shows.
-  step('17:1', 17, 1, 'Auto review denied bash.', 'tool'), step('17:2', 17, 2, '\n[quiet] '),
+  // 2026-11-27: a text with a tool call in an ended turn whose closing answer is [quiet] (dsh's turn tail names it) is for
+  // you (an Auto review denial): it shows. A [quiet] text with a tool call in such a turn stays hidden.
+  ...ended(17, step('17:1', 17, 1, 'Auto review denied bash.', 'tool'), step('17:2', 17, 2, '\n[quiet] ')),
+  ...ended(18, step('18:1', 18, 1, '[quiet]', 'tool'), step('18:2', 18, 2, '[quiet]')),
+  // A running turn (no tail yet) whose newest text is [quiet]: its real answer can still come, so its looking line stays hidden.
+  step('19:1', 19, 1, 'Checking.', 'tool'), step('19:2', 19, 2, '[quiet]', 'tool'),
 ]));
 open = 's-quiet'; id = 's-quiet';
 const quietView = mount(() => ({ status, chatOf, t: (k) => k }));
@@ -180,8 +190,9 @@ for (const key of ['11:1', '11:2', '16:1']) assert.ok(css().includes(`${quietRul
 for (const key of ['12:1', '12:2', '16:2']) assert.ok(!css().includes(`${quietRule(key)},`) && !css().includes(`${quietRule(key)} {`), `${key} is not hidden as quiet`);
 assert.ok(!css().includes(`${quietRule('11:1')}:not(`), 'a quiet reply is not shown again as a folded answer');
 assert.ok(css().includes(`${quietRule('13:1')}:not(`), 'the real answer before a quiet last step shows');
-assert.ok(css().includes(`${quietRule('17:1')}:not(`), 'a text with a tool call before a quiet last step shows');
-assert.ok(!css().includes(`${quietRule('16:1')}:not(`), 'a [quiet] text with a tool call is not shown again');
+assert.ok(css().includes(`${quietRule('17:1')}:not(`), 'a text with a tool call before a quiet closing answer shows');
+assert.ok(!css().includes(`${quietRule('18:1')}:not(`), 'a [quiet] text with a tool call in a hushed turn is not shown again');
+assert.ok(!css().includes(`${quietRule('19:1')}:not(`), 'a running turn: its looking line stays hidden until the turn ends');
 assert.ok(css().includes(`${quietRule('13:2')},`) || css().includes(`${quietRule('13:2')} {`), 'the quiet last step is hidden');
 // The tail of a turn that ends quiet: only its Copy/time row goes (the tail keeps the Approve and option buttons).
 const tails = css().split('}').find((b) => b.includes('data-turn-tail')) ?? '';

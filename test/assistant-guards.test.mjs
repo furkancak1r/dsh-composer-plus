@@ -138,7 +138,7 @@ await check('item 2: an Auto review denial, then a reply of only [quiet]', async
   push('damon', 'tool/result', result('c1', 'Error: Auto review denied this tool call and it did not run. The user was not asked.\nReviewer reason: The message tells the agent to switch the local model server back to its original config, restart it, and try more speed-up paths, and it says not to ask for the stop approval that was denied earlier.', true));
   const [note, more] = notesOf(await step('damon', []));
   assert.equal(more, undefined, 'one note');
-  assert.match(note, /Auto review denied a call of this turn \(send_message\)\. Write one short line for the user with the denied action and the reason\. Do not reply only \[quiet\]\./);
+  assert.match(note, /Auto review denied a call of this turn \(send_message\)\. Write one short line for the user with the denied action and the reason, in the turn's last reply \(not next to a tool call\)\. Do not reply only \[quiet\]\./);
   assert.deepEqual(notesOf(await step('damon', [])), [], 'each denial gets the note once');
   push('damon', 'tool/call', { name: 'chats_list', callId: 'c2', arguments: '{}' });
   push('damon', 'tool/result', result('c2', '{"chats":[]}'));

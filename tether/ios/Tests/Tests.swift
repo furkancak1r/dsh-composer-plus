@@ -1815,7 +1815,8 @@ final class AgentboxIdeasTests: XCTestCase {
     }
 
     /// A Damon turn whose every text is `[quiet]` shows nothing (2026-11-27): no card, no tool row, and no live text while
-    /// `[quiet]` streams; a text before `[quiet]` (an Auto review denial with a tool call) stays a card. With SHOT_DIR set
+    /// `[quiet]` streams (liveReply, LiveTail's row); a text before `[quiet]` (an Auto review denial with a tool call) stays a
+    /// card. With SHOT_DIR set
     /// (TEST_RUNNER_SHOT_DIR, TEST_RUNNER_SHOT_NAME), it writes the screen as a PNG.
     @MainActor func testDamonQuietTurnScreen() throws {
         let c = Client(), strings = uiStrings
@@ -1839,6 +1840,10 @@ final class AgentboxIdeasTests: XCTestCase {
         // The live row: `[quiet]` and each start of it show nothing; a real reply (also one that starts with `[`) shows.
         for t in ["[quiet]", " [QUIET]\n", "[qu", "[", "  "] { XCTAssertTrue(quietStart(t), t) }
         for t in ["[quiet]\nThe audit found 2 issues.", "[x]", "Bakıyorum.", "[quiet] ok"] { XCTAssertFalse(quietStart(t), t) }
+        // LiveTail's row (liveReply): empty for `[quiet]` in the Damon chat; a real reply, another chat and the switch off show it.
+        XCTAssertEqual(c.liveReply(" [quiet]"), ""); XCTAssertEqual(c.liveReply("Bakıyorum."), "Bakıyorum.")
+        c.assistantMessagesOnly = false; XCTAssertEqual(c.liveReply("[quiet]"), "[quiet]", "Assistant messages only off"); c.assistantMessagesOnly = true
+        c.current = "other"; XCTAssertEqual(c.liveReply("[quiet]"), "[quiet]", "another chat"); c.current = "damon"
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
         let w = UIWindow(windowScene: scene)
         defer { w.isHidden = true }

@@ -3577,6 +3577,11 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     @Published var assistantApart = UserDefaults.standard.object(forKey: "assistantApart") as? Bool ?? true { didSet { UserDefaults.standard.set(assistantApart, forKey: "assistantApart") } }
     @Published var assistantMessagesOnly = UserDefaults.standard.object(forKey: "assistantMessagesOnly") as? Bool ?? true { didSet { UserDefaults.standard.set(assistantMessagesOnly, forKey: "assistantMessagesOnly") } }
     func setAssistantIdForTest(_ id: String?) { assistantId = id }
+    /// The streaming reply that the chat's live row shows: none while Damon's reply can still become only `[quiet]`
+    /// (quietStart) in the Damon chat with Assistant messages only on, as botLines hides it after.
+    func liveReply(_ streaming: String) -> String {
+        assistantMessagesOnly && current != nil && current == botId && quietStart(streaming) ? "" : streaming
+    }
     /// An older Mac (no `assistant-status`) keeps the id that the Assistant tab set (its welcome screen needs it).
     func loadAssistantStatus() async {
         guard plus.contains("assistant-status") else { return }
