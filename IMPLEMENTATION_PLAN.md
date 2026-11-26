@@ -4977,3 +4977,9 @@ review. Not in scope: live copy (after Furkan's "tamam" on the screenshots), rel
   2f003580). P4 an image in an option item shows as alt text on the option button (shared parseOptions, unchanged):
   named in the limits sentence (docs/features.json llms + build:readme, 13 READMEs).
   Open: review round 6 (separate subagent) until clean; then (c) update from origin/main and tests, (d) merge and push.
+- 2026-11-27 00:0x: review-guard round 6 (review-guard-r6, origin/main...96789752): P1 0, P2 0, P3 1, P4 1. Fixed in the
+  next commit: P3 a "Senden:" line with an image at the top kept the next bold line from being the title (the line was in
+  `body`); now the title check skips that line (`youAt`), so the title is the same as without the image (checked against
+  origin/main's replyParts in node: "Senden: bak\n\n**Başlık**" -> "Başlık", "**Senden:** bak\n\nMetin." -> "Metin.").
+  Unit case red on 96789752. P4 the replyParts doc comment names `asks`. tether/FEATURES.md row: one clause.
+  Open: review round 7 (separate subagent) until clean; then (c) update from origin/main and tests, (d) merge and push.

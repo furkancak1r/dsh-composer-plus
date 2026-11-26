@@ -4571,9 +4571,9 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const [copyLabel, copiedLabel, footnotes] = [t('board.copy'), t('board.copied'), t('board.footnotes')]; const key = `${copyLabel}\0${copiedLabel}\0${footnotes}`;
       let l = replyLabels.get(key); if (l === undefined) { l = { code: { copyLabel, copiedLabel }, footnotes }; replyLabels.set(key, l); } return l;
     };
-    /** A reply as a card: `{ title, forYou, body, details: [{ summary, body }], approvals, options }`. The title is the
+    /** A reply as a card: `{ title, forYou, asks, body, details: [{ summary, body }], approvals, options }`. The title is the
      * first line when it is a heading or starts bold, else its first sentence; a "Senden:" / "For you:" line is the action
-     * line; `onay` blocks are the approval sentences (onayBlocks); the option list at the end (parseOptions) leaves the
+     * line (one with an image stays in the body, so the image shows; `asks` is true for either); `onay` blocks are the approval sentences (onayBlocks); the option list at the end (parseOptions) leaves the
      * body; a `> [!DETAILS] <summary>` quote stays closed; another callout keeps its label (`labels`: kind → label). */
     function replyParts(text, labels = {}) {
       const approvals = onayBlocks(text);
@@ -4597,7 +4597,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         while (at >= 0 && (lines[at].trim() === '' || /^[ \t]/.test(lines[at]) || OPTION_ITEM.test(lines[at]))) at--;
         lines = lines.slice(0, at); // the heading and the list are the option buttons
       }
-      const body = []; const details = []; let forYou = ''; let title = ''; let code = false; let asks = false;
+      const body = []; const details = []; let forYou = ''; let title = ''; let code = false; let asks = false; let youAt = -1;
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         if (/^ {0,3}(```|~~~)/.test(line)) code = !code;
@@ -4613,13 +4613,14 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         }
         const you = code ? null : /^\s*(?:[-*+]\s+)?(?:\*\*|__)?(?:senden|for you)(?:\*\*|__)?\s*:\s*(?:\*\*|__)?\s*(.*?)\s*$/iu.exec(line);
         // A "Senden:" line with an image stays in the body, so the image shows (the action line is plain text; review 4); it
-        // still asks you (`asks`: a card next to a tool call, review 5) and is no title.
+        // still asks you (`asks`: a card next to a tool call, review 5), is no title, and a title after it stays a title
+        // (`youAt`, review 6), as without the image.
         if (you !== null && forYou === '' && plainText(you[1]) !== '') {
-          asks = true; if (!you[1].includes('![')) forYou = plainText(you[1]); else body.push(line);
+          asks = true; if (!you[1].includes('![')) forYou = plainText(you[1]); else youAt = body.push(line) - 1;
           continue;
         }
         // A list line is no title ("1. Run the tests." would give "1." and break the list's numbering): it stays in the body.
-        if (title === '' && !code && line.trim() !== '' && body.every((l) => l.trim() === '') && !/^\s*(?:[-*+]|\d{1,9}[.)])\s/.test(line)) {
+        if (title === '' && !code && line.trim() !== '' && body.every((l, k) => k === youAt || l.trim() === '') && !/^\s*(?:[-*+]|\d{1,9}[.)])\s/.test(line)) {
           const heading = /^#{1,6}\s+(.+?)\s*#*\s*$/.exec(line);
           const bold = /^\s*(\*\*|__)(.+?)\1\s*(.*)$/.exec(line);
           const sentence = /^(.+?[.!?…])(?=\s|$)\s*(.*)$/u.exec(line.trim());
