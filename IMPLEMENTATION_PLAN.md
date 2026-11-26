@@ -4891,3 +4891,10 @@ Source: Furkan in the Assistant chat, 2026-11-26 (relayed by Damon): "kararlara 
   Tether app unchanged (row in tether/FEATURES.md).
 - Last passing: `npm test` exit 0 (6af7210d; f7b50464 changes only the browser test and this plan);
   browser-reply-pages PASS x3 (f7b50464); browser-status-canvas PASS x3 (6af7210d).
+
+### Kararlar: final state before the merge (2026-11-26 18:0x)
+- Review round 3 (review-3 failed with no report; review-3b): P1 0, P2 0, P3 1 (fixed 57c16109: per-chat store decideOf/decideSubscribe/setDecideOf with useSyncExternalStore, so a late failure reaches a remounted panel; test red on the old code).
+- Review round 4: P1 0, P2 0, P3 0, P4 2 (fixed 8d685b2b). Round 5: P4 2 (fixed b58fd19c). Round 6 on 94d9d3bc (after merging origin/main 2308766c): P1 0, P2 0, P3 0, P4 0: clean.
+- Merges of origin/main into the branch: e63d69f4 (b3d67832) and 94d9d3bc (2308766c). Conflicts only in generated files (rebuilt), tether/FEATURES.md (each side's row kept) and this plan.
+- Last passing (on 94d9d3bc): `npm test` exit 0; `PLAYWRIGHT=<Mergen playwright> node test/browser-card-stack.mjs <0.2.2-rc.5> <0.2.0-rc.2> <0.2.1-rc.2>` PASS ×3; `git diff --check` clean.
+- Next: merge --no-ff into main, push (Furkan's approval 2026-11-26). No live copy, no release.
