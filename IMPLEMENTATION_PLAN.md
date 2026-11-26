@@ -17,55 +17,34 @@ Scope: Tether only (and shared tables, docs). No phone install, no signing, no l
    (tether/FEATURES.md rows) -> unchanged.
 
 ## Checks
-- `npm test` (exit 0 at 759df990 and b0109d88).
-- iOS: `cd tether/ios && xcodebuild -project DSHMobile.xcodeproj -scheme DSHMobile -destination 'platform=iOS Simulator,id=A5766181-4A27-457E-81C2-DFDE4A0F018F' -derivedDataPath ../build/DerivedData test CODE_SIGNING_ALLOWED=NO` (127 tests at 759df990; 128 tests, 0 failures at b0109d88).
-- Build: `cd tether && xcodebuild -project ios/DSHMobile.xcodeproj -scheme DSHMobile -configuration Debug -destination 'platform=iOS Simulator,id=A5766181-4A27-457E-81C2-DFDE4A0F018F' -derivedDataPath build/DerivedData build CODE_SIGNING_ALLOWED=NO` (BUILD SUCCEEDED).
+- `npm test` (exit 0 at e07dc223).
+- iOS: `cd tether/ios && xcodebuild -project DSHMobile.xcodeproj -scheme DSHMobile -destination 'platform=iOS Simulator,id=A5766181-4A27-457E-81C2-DFDE4A0F018F' -derivedDataPath ../build/DerivedData test CODE_SIGNING_ALLOWED=NO` (128 tests, 0 failures, 2 skipped at e07dc223).
+- Build: `cd tether && xcodebuild -project ios/DSHMobile.xcodeproj -scheme DSHMobile -configuration Debug -destination 'platform=iOS Simulator,id=A5766181-4A27-457E-81C2-DFDE4A0F018F' -derivedDataPath build/DerivedData build CODE_SIGNING_ALLOWED=NO` (BUILD SUCCEEDED at a1a0769f).
 - Screenshots: boot the simulator first (`xcrun simctl boot A5766181-…`), then `TEST_RUNNER_SHOT_DIR=<dir> TEST_RUNNER_SHOT_NAME=<f> TEST_RUNNER_SHOT_STATE=read|pages xcodebuild … test-without-building -only-testing:DSHMobileTests/AgentboxIdeasTests/testDamonChatScreen`.
-  Out: /Users/furkancakir/Damon/Belgeler/Composer Plus/tether-esitleme-20261126/ (tether-damon-read.png, tether-damon-pages.png).
+  Out: /Users/furkancakir/Damon/Belgeler/Composer Plus/tether-esitleme-20261126/ (new names for each set; keep all).
 
 ## Last checkpoint
-- 2026-11-26 23:1x (second chat). Review 2 fixed in 7847b9d6 (held cut `initial: true`, 13 README limits sentences, one
-  `replyCard` helper with Mark as read only on a New card, jump without the 100 ms sleep, FEATURES.md images gap row).
-  `npm test` exit 0; iOS 128 tests, 0 failures; simulator build BUILD SUCCEEDED (7847b9d6).
-  - Review 3 (7847b9d6, separate subagent review-guard-3): P1 0, P2 0, P3 2, P4 5 -> fixed in the next commit: optionPicks
-    docs (13 `how`, llms, FEATURES row: Tether hides the list too); cards of the shown rows (`cardCache.cards(all)`,
-    `replyCards([ChatRow])`; a `[quiet]` reply has no card id); `replyPage` default `max: .max` (the table test passes
-    `replyMax`); doc comment of `startReplyMarks`; FEATURES first reply is New; `optionListStart` (one end-of-list scan);
-    the scroll after a page change waits for the next body (`scrollAfterPage`, `.onChange(of: scrollAfterPage == nil ?
-    nil : rows.first?.id)`), not a main-queue hop.
-  - Open steps: review round 4 on the final diff (repeat until a round has no finding); `git fetch`, merge origin/main if
-    it moved (keep both sides in tether/FEATURES.md and this plan); npm test, simulator build, iOS tests; screenshots of
-    the merged code with new names; merge into main (--no-ff), push. No signing, iPhone install, live copy or release.
-- 2026-11-26 21:3x (about 165 tool calls: handover to a new chat). HEAD b0109d88 + this plan commit.
-  - Review 1 (759df990): P1 0, P2 2, P3 4, P4 5 -> all fixed in b0109d88 (replyRead in perMacKeys, first row found again
-    by seq after a dsh page, jump floor only below the cut, find shows all loaded rows, ReplyCardCache, VoiceOver Mark as
-    read, constant padding, testReplyMarksPerMac, regex `read: read`, notes).
-  - Review 2 (b0109d88): P1 0, P2 0, P3 2, P4 3 -> NOT fixed yet (open step 1).
-  - Last passing (b0109d88): `npm test` exit 0; iOS full suite 128 tests, 0 failures (2 skipped); simulator build
-    BUILD SUCCEEDED. origin/main still e1343314 at 21:0x.
+- 2026-11-27 02:0x (second chat). HEAD e07dc223 + this plan commit. origin/main still e1343314 (fetched 01:1x).
+  - Review loop (each round a separate review-guard subagent on `git diff origin/main...HEAD`; the counts and fixes are
+    in each commit message): 1 (759df990) P2 2, P3 4, P4 5 -> b0109d88; 2 P3 2, P4 3 -> 7847b9d6; 3 P3 2, P4 5 ->
+    a1a0769f; 4 P3 2, P4 1 -> 6c73c00d; 5 P3 1 -> 91a47a7a; 6 P3 1, P4 1 -> e07dc223; 7 (e07dc223) P4 1 (this stale
+    checkpoint) -> this commit. Next: one more round; merge only after a round with no finding.
+  - Last passing (e07dc223): `npm test` exit 0; iOS 128 tests, 0 failures. Simulator build BUILD SUCCEEDED (a1a0769f;
+    later commits changed only Swift logic and tests, built by the iOS test run).
+  - Note: an `npm test` run at 00:04 failed once in test/assistant-todos-client.test.mjs ("Bugün bitti" count 1, not 2):
+    the test's task end times are `Date.now()` minus minutes, so near midnight one of them falls on the day before. The
+    branch does not change that test or client.js. The same run passed at 00:05.
+  - Markdown images in Tether: not in this branch (a gateway route that reads Mac files is a security decision for
+    Furkan); the gap row is the last row of tether/FEATURES.md. The Mac part is branch fix/reply-card-markdown-images,
+    not in main; its own FEATURES.md row will conflict with this branch at its merge: keep both texts.
   - Screenshots (keep all, never delete under Belgeler): /Users/furkancakir/Damon/Belgeler/Composer Plus/tether-esitleme-20261126/
     tether-damon-read.png, tether-damon-pages.png (759df990), tether-damon-read-b0109d88.png, tether-damon-pages-b0109d88.png.
-  - Markdown images in Tether: stopped (security decision for Furkan: the gateway has no route to Mac files; dsh
-    `/api/file` is not in RPC/PLUS). The Mac part is branch fix/reply-card-markdown-images (eaf047fa), not in main yet; its
-    tether/FEATURES.md gap row will conflict with this branch's FEATURES.md edits at the merge: keep both texts.
 - Open steps, in order:
-  1. Fix review 2:
-     - P3 tether/ios/Sources/UI.swift ~868: `.onChange(of: page?.held == true ? page?.cut : nil)` needs `initial: true`
-       (an unread card below the base on the first draw must hold the cut). Add a source-contract check in
-       test/reply-cards.test.mjs.
-     - P3 README.md ~325 and the 12 translated READMEs (limits paragraph, hand-written): "Tether shows each reply …
-       without the read marks and without **Show the chat**" is now false. Write: without **Show the chat**; Tether keeps
-       its own read marks per Mac (not shared with the browser's). Check test/readme.test.mjs and readme-labels after.
-     - P4 UI.swift ~975-987: add the "Mark as read" accessibilityAction only on a New card; one helper for the two card
-       kinds (tap + action).
-     - P4 UI.swift ~1056 (jump): replace the 100 ms sleep with a scroll in DispatchQueue.main.async after setting
-       replyFloor.
-  2. `npm test`; iOS suite (Checks above); simulator build.
-  3. Review round 3 in a separate subagent on `git diff origin/main...HEAD`. The user's rule: fix every finding and run
-     review-guard again; merge only after a round with no finding.
-  4. `git fetch`; if origin/main moved, merge it; if a new Damon feature came (for example fix/reply-card-markdown-images),
-     add its Tether part or its gap row in tether/FEATURES.md; tests again.
-  5. In the main worktree: `git merge --no-ff feat/sync-tether-damon-features`, `npm test`, `git push origin main`.
+  1. A review round with no finding (separate subagent).
+  2. `git fetch`; if origin/main moved, merge it (keep both sides in tether/FEATURES.md and this plan); if a new Damon
+     feature came, add its Tether part or its gap row; npm test, simulator build, iOS tests again.
+  3. Screenshots of the merged code with new names (read and pages states), into the folder above.
+  4. In the main worktree: `git merge --no-ff feat/sync-tether-damon-features`, `npm test`, `git push origin main`.
      No signing, no iPhone install, no live copy, no release, no DSH restart.
 
 # Damon reply cards: time order, text cursor, chat toggle icon, Tether cards (branch fix/chat-card-order-tether, 2026-11-26)
