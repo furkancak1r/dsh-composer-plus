@@ -1918,6 +1918,14 @@ final class AgentboxIdeasTests: XCTestCase {
         let more = replyPage(cards, floor: firstCardSeq(shown))
         XCTAssertEqual([more.older, more.next == 2], [true, true], "the next tap brings the turn before it")
         XCTAssertEqual(rowsFrom(all, cut: more.next!).first?.id, old[0].id)
+        // Review 6: the opened turn is the oldest one, below 8 newer turns: after one tap it shows whole and nothing older
+        // is left (the button hides, and VoiceOver's last-tap focus counts the same way).
+        var newer: [Line] = []
+        for n in 0..<8 { newer += [Line(kind: .user, text: "q", seq: 30 + n * 3), Line(kind: .assistant, text: "a", seq: 31 + n * 3), Line(kind: .turn, text: "", seq: 32 + n * 3)] }
+        let only = Array(long.dropFirst(3)) + newer, rows2 = chatRows(only, open: [only[13].id], running: false), cards2 = replyCards(rows2)
+        let p2 = replyPage(cards2, floor: firstCardSeq(rowsFrom(rows2, cut: replyPage(cards2).cut)))
+        XCTAssertEqual(p2.older, true, "the first page shows only the 8 newer turns")
+        XCTAssertEqual(replyPage(cards2, floor: firstCardSeq(rowsFrom(rows2, cut: p2.next!))).older, false, "after one tap: the whole turn, nothing older")
     }
 
     /// Options only as buttons: the answer keeps its heading and loses the numbered list; a card's options leave its body.

@@ -951,7 +951,9 @@ struct ConversationView: View {
         let done = { (floor: Int?) in
             // The row that was first on screen, found again by its seq (a dsh page makes every row again, with new ids).
             let rows = chatRows(damonLines, open: openTurns, running: c.running), cards = replyCards(rows)
-            let focus = UIAccessibility.isVoiceOverRunning && !c.hasOlder && !replyPage(cards, floor: floor).older
+            // The last tap: nothing older after the new page, counted from its oldest card that shows (as the button does).
+            let after = floor.flatMap { firstCardSeq(rowsFrom(rows, cut: $0)) } ?? floor
+            let focus = UIAccessibility.isVoiceOverRunning && !c.hasOlder && !replyPage(cards, floor: after).older
                 ? cards.last(where: { $0.seq < page.cut }).flatMap { card in damonLines.last { $0.seq == card.seq && isCardLine($0) }?.id } : nil
             // The row may not be in the list yet (a lower floor adds older rows; a dsh page makes the rows again), so the
             // scroll waits for the next body (`scrollAfterPage`).
