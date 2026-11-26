@@ -38,7 +38,8 @@ Not in scope: live copy, release, npm publish, DSH restart, iPhone install.
    ASSISTANT_SECTION asks for one topic per card.
 
 8. Per-part read state (added 2026-11-26 10:40, "ayrı konuları ayrı yazsan da hepsine tek okundu geliyor ama farklı
-   okundular gelmesi lazım"). OPEN, not started. Findings (verified in code):
+   okundular gelmesi lazım"). DONE 11:10 in 5515c04d (as planned below; id regex /^\d{1,16}:\d{1,6}$/; the canvas side
+   panel reads the card that it opens by its key). Findings (verified in code):
    - The read state lives only in the Mac browser: localStorage `dsh-composer-plus.reply-cards-read` (client.js
      REPLY_READ_KEY ~4304), `{ [chat]: { floor, read: [seq] } }`. readReplyMarks (~4425) keeps only integer seqs;
      markReplies (~4434) moves the floor over seqs; replyUnread(mark, seq) (~4439).
@@ -61,6 +62,19 @@ Not in scope: live copy, release, npm publish, DSH restart, iPhone install.
    before the change) and iki-konu-okundu-sonra.png in the screenshot folder.
 
 ## Last checkpoint
+- 2026-11-26 11:10 (new chat): step 8 done in 5515c04d.
+  - Before evidence: test/browser-reply-order.mjs step 6 on 3301064b's client.js (0.2.2-rc.5) failed with afterClick
+    [false, false] (one click read both topics); screenshot konu-okundu-once.png. After: [false, true], also after a
+    reload, PASS on 0.2.2-rc.5, 0.2.0-rc.2, 0.2.1-rc.2; screenshot konu-okundu-sonra.png. Both in
+    /Users/furkancakir/Damon/Belgeler/Composer Plus/kart-sirasi-20261126/.
+  - Unit: test/reply-cards.test.mjs fails on 3301064b's client.js (line 121, replyUnread with a card) and passes now.
+  - Last passing: `npm test` exit 0; browser-reply-order and browser-status-canvas PASS on the three dsh versions.
+  - iOS on main f86a0a4c (detached worktree build/main-ios, full suite): 122 tests, 0 failures; testPutShowsNewText
+    passed. So on main it is green in the full suite; on this branch it was red twice in the full suite (not verified
+    whether the cause is this branch or the simulator: not run again on the branch in this chat).
+  - origin/main is still f86a0a4c (in the branch): no merge needed.
+  - Open: review-guard loop on `git diff origin/main...HEAD` (separate subagent; > 100 lines: repeat until clean), fix,
+    tests, merge into main, push. No live copy, no release, no DSH restart.
 - 2026-11-26 10:45 (about 170 tool calls: handover). Committed: review round 1 (P1 0, P2 0, P3 2, P4 6) fixes:
   the Settings image assets/features/assistantReplyCards.webp again (SHOT=1, only this file changed), a browser step for
   the scroll follow (a growing card at the bottom stays at the bottom; after a scroll up it does not jump), the limit
