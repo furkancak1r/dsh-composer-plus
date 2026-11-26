@@ -4800,3 +4800,17 @@ Objective (Furkan, 2026-11-24): "sürüyor kısmında damonın yapacağı ve akt
   tests in time order (button above the cards, the newest page at the bottom, `newest` prop, read ids); main's feed test
   sets the floor of the opened feed (every page). Fix found by the rewritten test: an unread card past the 40 cap no
   longer pulls the cut down (replyPage `low`). `npm test` exit 0 after the merge.
+- 2026-11-26 15:4x: merge committed (d1dfdb14). `npm test` exit 0 (on the merge tree). browser-status-canvas PASS on
+  0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5 at d1dfdb14.
+- DENIED by Auto review (not retried): a node script that rewrites test/browser-reply-pages.mjs for the time order.
+  Reason: the approval text does not name this rewrite of the browser test. The old file checks the newest-first order
+  (button below the cards), so it fails on this code. Approval asked from Furkan in the chat.
+- The rewrite (ready, not applied): the button above the cards (`row.nextElementSibling` is a card), the newest 8 oldest
+  first (Güncelleme 13..20), the feed opens at the bottom (scrollTop > 0, the newest card in view), a new reply New at the
+  bottom, the click at the top keeps the first card on screen and the feed does not jump to the bottom, 16 cards with
+  Güncelleme 6..13 above, then all, reload -> 8. Shots: ilk, ilk-ust, sonra, sonra-ust (TAG yeni-3).
+- Open steps: (1) Furkan's approval for the browser test rewrite; (2) rewrite it, run it on 0.2.0-rc.2, 0.2.1-rc.2,
+  0.2.2-rc.5; (3) SHOTS run with TAG=yeni-3 into Damon/Belgeler/Composer Plus/guncellemeler-oncekini-yukle-20261126/;
+  (4) review-guard on the final diff against origin/main (separate subagent, repeat until no P1/P2, fix all findings,
+  run again); (5) merge into main --no-ff, npm test on main, push. No live copy, no release, Tether unchanged.
+- Last passing test command: `npm test` exit 0 at d1dfdb14; `PLAYWRIGHT=$HOME/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-status-canvas.mjs <3 bins>` PASS x3.
