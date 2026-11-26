@@ -124,9 +124,19 @@ try {
       assert.ok(jump.top > 0 && jump.fromEnd > 4, `the cards came above; the feed did not jump to the bottom (${JSON.stringify(jump)})`);
       await shot('sonra'); await top(); await shot('sonra-ust'); // the place of the click, then the added cards
       note(`3: a click shows 8 more above (${after.length} cards); ${moved.length} cards on screen moved at most ${Math.max(...moved)}px; scrollTop ${jump.top}, ${jump.fromEnd}px above the bottom; order and read marks the same`);
-      await older.click(); await pause(400);
-      assert.equal(await cards.count(), total + 1, 'every reply shows');
+      // The last click from the keyboard (Enter: event detail 0): the button goes, the focus goes to the newest added card
+      // (just above the cards that showed), and that card is in view.
+      const oldest = Math.min(...(await cards.evaluateAll((els) => els.map((el) => Number(el.dataset.reply)))));
+      await older.focus(); await page.keyboard.press('Enter');
+      await until(async () => (await cards.count()) === total + 1, 'every reply shows', 5000); await pause(400);
       assert.equal(await older.count(), 0, 'no button when all show');
+      const focus = await feed.evaluate((f, below) => {
+        const a = document.activeElement; const b = f.getBoundingClientRect(); const r = a.getBoundingClientRect();
+        const want = Math.max(...[...f.querySelectorAll('article.cp-rc')].map((el) => Number(el.dataset.reply)).filter((s) => s < below));
+        return { card: a.matches('article.cp-rc'), seq: Number(a.dataset.reply), want, inView: r.top >= b.top - 1 && r.bottom <= b.bottom + 1, top: Math.round(r.top - b.top) };
+      }, oldest);
+      assert.ok(focus.card && focus.seq === focus.want && focus.inView, `the focus on the newest added card, in view: ${JSON.stringify(focus)}`);
+      note(`3: the last click from the keyboard: the focus on the newest added card (seq ${focus.seq}), ${focus.top}px below the feed's top`);
       // 4. Open the chat again (a reload): one page again.
       await page.reload();
       if (!(await feed.waitFor({ timeout: 10000 }).then(() => true, () => false))) { await page.keyboard.press('Escape'); await openDamon(); await feed.waitFor({ timeout: 20000 }); }

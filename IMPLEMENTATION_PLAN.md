@@ -4847,3 +4847,8 @@ Objective (Furkan, 2026-11-24): "sürüyor kısmında damonın yapacağı ve akt
   `npm test` exit 0 (one earlier run stopped in test/complete.test.mjs "unsettled top-level await", exit 13; the test
   passed alone 3 of 3 and the next full run passed). browser-reply-pages and browser-status-canvas PASS on 0.2.0-rc.2,
   0.2.1-rc.2, 0.2.2-rc.5. Next: review-guard round 3.
+- 2026-11-26 17:3x: review-guard round 3 (review-guard-r3, origin/main...6af7210d): P1 0, P2 0, P3 1, P4 0. P3: no browser
+  check of the keyboard focus fix. Fixed: browser-reply-pages makes the last click with Enter and checks that
+  document.activeElement is the newest added card and inside the feed's box. PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5
+  (focus on the newest added card, 0 px below the feed's top). Next: review-guard round 4 on the final diff; if clean,
+  merge into main --no-ff, npm test on main, push.
