@@ -4337,14 +4337,32 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
           // Text next to a tool call (not the turn's closing answer) is mostly a "looking at it" line: a card only when it
           // asks you for something (an approval, options, a "Senden:" line), which dsh 0.2.2 shows in the hidden chat (review 2).
           if (n.data.blocks.some((b) => b?.kind === 'tool-call') && closing.get(n.data.turn) !== seq && !asksYou(text)) continue;
-          cards.push({ kind: 'reply', seq, turn: n.data.turn, time: n.data.finalNode.time ?? n.data.time, text });
+          // One card per topic (Furkan, 2026-11-26): a `---` line splits the reply; `key` names the part, `last` holds the options.
+          const parts = replySections(text);
+          parts.forEach((part, i) => cards.push({ kind: 'reply', key: `${seq}:${i}`, seq, turn: n.data.turn, time: n.data.finalNode.time ?? n.data.time, text: part, last: i === parts.length - 1 }));
         } else if (n?.kind === 'turn-error' && Number.isSafeInteger(n.data?.seq) && kept(n.data.seq)) {
-          cards.push({ kind: 'error', seq: n.data.seq, turn: n.data.turn, time: n.data.time, message: String(n.data.message ?? ''), code: typeof n.data.code === 'string' ? n.data.code : '' });
+          cards.push({ kind: 'error', key: `${n.data.seq}:0`, seq: n.data.seq, turn: n.data.turn, time: n.data.time, message: String(n.data.message ?? ''), code: typeof n.data.code === 'string' ? n.data.code : '' });
         }
       }
-      cards.sort((a, b) => a.seq - b.seq);
+      cards.sort((a, b) => a.seq - b.seq); // stable: the parts of a reply keep their order
       replyMemo.set(chat, { withdrawn, inherited, cards });
       return cards;
+    }
+    /** The topics of a reply (Furkan, 2026-11-26: "birbirinden bağımsız konuları ayrı kartlar olarak göster"): the parts
+     * between `---` lines (a line of 3 or more hyphens alone, outside a code block or an `onay` block), each trimmed;
+     * empty parts are left out. A reply without such a line is one part. Tether's port: `replySections` (one table:
+     * test/fixtures/reply-sections.json). */
+    function replySections(text) {
+      const out = [[]]; let fence = null;
+      for (const line of String(text ?? '').replace(/\r\n?/g, '\n').split('\n')) {
+        const m = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+        if (fence === null && m !== null && !(m[1][0] === '`' && m[2].includes('`'))) fence = m[1];
+        else if (fence !== null && m !== null && m[1][0] === fence[0] && m[1].length >= fence.length && m[2].trim() === '') fence = null;
+        else if (fence === null && /^ {0,3}-{3,}[ \t]*$/.test(line)) { out.push([]); continue; }
+        out.at(-1).push(line);
+      }
+      const parts = out.map((l) => l.join('\n').trim()).filter((p) => p !== '');
+      return parts.length === 0 ? [String(text ?? '')] : parts;
     }
     const plainText = (s) => String(s ?? '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\*\*|__|`/g, '').trim();
     /** A reply as a card: `{ title, forYou, body, details: [{ summary, body }], approvals, options }`. The title is the
@@ -4531,7 +4549,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const parts = card.kind === 'error' ? { title: t('replies.failed'), forYou: '', body: failure?.(card.code) || card.message || card.code || '', details: [], approvals: [], options: [] } : memo.parts;
       const title = parts.title || (parts.approvals.length > 0 ? t('replies.approval') : parts.options.length > 0 ? t('replies.choice') : t('replies.title'));
       const approve = offerNow?.offer?.options?.[0]?.from === card.seq && offerNow.empty === true ? offerNow : undefined;
-      const choice = choiceNow?.offer?.seq === card.seq && choiceNow.empty === true ? choiceNow : undefined;
+      const choice = choiceNow?.offer?.seq === card.seq && card.last !== false && choiceNow.empty === true ? choiceNow : undefined; // the options end the reply
       const md = (text) => (primitives.MarkdownText === undefined ? React.createElement('div', { style: { whiteSpace: 'pre-wrap' } }, text)
         : React.createElement(primitives.MarkdownText, { text, labels: { code: { copyLabel: t('board.copy'), copiedLabel: t('board.copied') }, footnotes: t('board.footnotes') } }));
       const read = () => onRead?.(card.seq);
@@ -4603,16 +4621,19 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       // newest at the bottom; the newest REPLY_MAX cards show.
       const shownCards = cards.slice(-REPLY_MAX);
       const unread = cards.filter((c) => replyUnread(mark, c.seq));
-      const lastUnread = unread.at(-1)?.seq ?? null;
+      const lastUnread = unread.at(-1)?.key ?? null;
       // The newest card is in view when the feed opens and when a new card comes. While you are at the bottom, the feed
       // stays there when a card or the feed changes its height (dsh's Markdown, a closed details section, the window);
       // after you scroll up, only a new card moves it.
-      const newestSeq = cards.at(-1)?.seq ?? null;
+      const newestKey = cards.at(-1)?.key ?? null;
       const follow = React.useRef(true);
-      React.useLayoutEffect(() => { const f = feedRef.current; if (f == null) return; follow.current = true; f.scrollTop = f.scrollHeight; }, [box === null, newestSeq]);
+      React.useLayoutEffect(() => { const f = feedRef.current; if (f == null) return; follow.current = true; f.scrollTop = f.scrollHeight; }, [box === null, newestKey]);
       React.useEffect(() => {
         const f = feedRef.current; if (f == null || typeof ResizeObserver !== 'function') return undefined;
-        const onScroll = () => { follow.current = f.scrollHeight - f.scrollTop - f.clientHeight < 4; };
+        // Only a scroll up stops the follow: the event of our own scroll to the bottom can come after a card grew (one frame
+        // later), when the feed is no longer at its bottom.
+        let last = f.scrollTop;
+        const onScroll = () => { const top = f.scrollTop; if (f.scrollHeight - top - f.clientHeight < 4) follow.current = true; else if (top < last - 1) follow.current = false; last = top; };
         const ro = new ResizeObserver(() => { if (follow.current) f.scrollTop = f.scrollHeight; });
         ro.observe(f); const inner = f.querySelector?.(':scope > .cp-rf-in'); if (inner != null) ro.observe(inner);
         f.addEventListener('scroll', onScroll, { passive: true });
@@ -4630,9 +4651,9 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
             React.createElement('span', { className: 'cp-rf-grow' }),
             unread.length === 0 ? null : React.createElement('button', { type: 'button', className: 'cp-rc-btn', 'data-reply-read-all': '', onClick: readAll }, t('replies.readAll')),
             panel ? null : toggle(true)), // with the status panel, its header has the toggle
-          cards.length > REPLY_MAX ? React.createElement('p', { className: 'cp-rf-note' }, t('replies.more', { count: cards.length - REPLY_MAX })) : null,
+          cards.length > REPLY_MAX ? React.createElement('p', { className: 'cp-rf-note' }, t('replies.more', { count: new Set(cards.slice(0, -REPLY_MAX).map((c) => c.seq)).size })) : null,
           cards.length === 0 ? React.createElement('p', { className: 'cp-rf-note' }, t('replies.none')) : null,
-          shownCards.map((card) => React.createElement(ReplyCard, { key: card.seq, card, sessionId, unread: replyUnread(mark, card.seq), newest: card.seq === lastUnread,
+          shownCards.map((card) => React.createElement(ReplyCard, { key: card.key, card, sessionId, unread: replyUnread(mark, card.seq), newest: card.key === lastUnread,
             offerNow, choiceNow, picks, t, lang, failure, onRead: (seq) => read([seq]) }))));
     }
     /** The card stack in the Damon chat (the Durum panel's data, statusCards' groups): the count bar (Get summary,
@@ -5162,11 +5183,11 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         const unreadReplies = replies.filter((rc) => replyUnread(replyCards.mark, rc.seq));
         const replyEl = (rc) => React.createElement(ReplyCard, { card: rc, sessionId, unread: replyUnread(replyCards.mark, rc.seq), offerNow, choiceNow: choice, picks, t, lang, failure, focusable: false, onRead: (seq) => replyCards.read([seq]) });
         // A reply card opened in the side panel counts as read.
-        const onSelCard = (key) => { setSel(key); if (key?.startsWith('reply|')) replyCards.read([Number(key.slice(6))]); };
+        const onSelCard = (key) => { setSel(key); if (key?.startsWith('reply|')) replyCards.read([Number(key.slice(6).split(':')[0])]); };
         const islands = [
           ...(replyOn ? [{ key: 'updates', title: t('replies.title'), count: unreadReplies.length, tone: 'business', quiet: t('replies.none'),
             // The card in the side panel stays on the island after it is read (it can move below the first five).
-            cards: replies.filter((rc, i) => i < Math.max(5, unreadReplies.length) || sel === `reply|${rc.seq}`).map((rc) => ({ key: `reply|${rc.seq}`, label: `${t('replies.title')} · ${clockText(rc.time, lang)}`, el: replyEl(rc), mine: replyUnread(replyCards.mark, rc.seq) })) }] : []),
+            cards: replies.filter((rc, i) => i < Math.max(5, unreadReplies.length) || sel === `reply|${rc.key}`).map((rc) => ({ key: `reply|${rc.key}`, label: `${t('replies.title')} · ${clockText(rc.time, lang)}`, el: replyEl(rc), mine: replyUnread(replyCards.mark, rc.seq) })) }] : []),
           { key: 'onay', title: t('cards.onay'), count: approval === null ? 0 : 1, tone: 'business',
             cards: approval === null ? [] : [{ key: 'onay', label: `${t('cards.onay')}${qn('onay')}`, el: onayCard, side: () => onayCardOf('-side'), mine: true }] },
           { key: 'senden', title: t('cards.senden'), count: cards.groups.senden.length + (kararCard === null ? 0 : 1), tone: 'warn',

@@ -21,11 +21,11 @@ globalThis.document = { body: { tag: 'body' }, querySelector: () => null, addEve
 const ANCHOR = '/** Feature switches, in Settings order.';
 const src = read('client.js');
 assert.ok(src.includes(ANCHOR));
-eval(src.replace(ANCHOR, `globalThis.__rc = { failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, ReplyFeed, REPLY_READ_KEY, REPLY_SHOWN_KEY, REPLY_CSS, REPLY_MAX };\n    ${ANCHOR}`));
+eval(src.replace(ANCHOR, `globalThis.__rc = { failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, ReplyFeed, replySections, REPLY_READ_KEY, REPLY_SHOWN_KEY, REPLY_CSS, REPLY_MAX };\n    ${ANCHOR}`));
 const h = (t, p, ...c) => ({ t, p: p ?? {}, c });
 const React = { createElement: h, Fragment: 'F', useState: (v) => [typeof v === 'function' ? v() : v, () => {}], useRef: (v) => ({ current: v }), useEffect() {}, useLayoutEffect() {}, useSyncExternalStore: (_s, get) => get(), useMemo: (f) => f(), useCallback: (f) => f };
 mod.factory((n) => (n === 'react' ? React : n === 'react-dom' ? { createPortal: (el, host, key) => ({ portal: el, host, key }) } : {}));
-const { failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, ReplyFeed, REPLY_READ_KEY, REPLY_SHOWN_KEY, REPLY_CSS, REPLY_MAX } = globalThis.__rc;
+const { failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, ReplyFeed, replySections, REPLY_READ_KEY, REPLY_SHOWN_KEY, REPLY_CSS, REPLY_MAX } = globalThis.__rc;
 const find = (n, pred) => { if (n === null || typeof n !== 'object') return []; if (Array.isArray(n)) return n.flatMap((c) => find(c, pred)); return [...(pred(n) ? [n] : []), ...(n.c ?? []).flat(Infinity).flatMap((c) => find(c, pred))]; };
 const text = (n) => (typeof n === 'string' ? n : Array.isArray(n) ? n.map(text).join('') : n?.c ? text(n.c) : '');
 
@@ -208,6 +208,31 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   assert.equal(ReplyCard({ card, sessionId: 's', t, lang: 'tr', picks, focusable: false }).p.tabIndex, undefined, 'on the canvas its frame takes the focus');
 }
 
+// One card per topic (Furkan, 2026-11-26: "birbirinden bağımsız konuları ayrı kartlar olarak göster"): a `---` line splits a
+// reply; not inside a code block or an `onay` block; a reply without one is one card (test/fixtures/reply-sections.json is
+// also Tether's table).
+{
+  for (const c of JSON.parse(read('test/fixtures/reply-sections.json')).cases) assert.deepEqual(replySections(c.text), c.parts, `sections: ${c.name}`);
+  const two = "**Kur kolonu aynı.** Dosyalar hazır.\n\nSenden: 4 raporu güncelle.\n\n---\n\n**Yerel model kapalı kaldı.** Şu an açık.\n\n```onay\nOnaylıyorum (canlı değil): test yeniden başlasın.\n---\n```\n\n**Seçenekler:**\n1. Hemen\n2. Yarın";
+  const cards = replyCardsOf(chatOf([step(1, 0, 10, [txt('Tek konu.')]), tail(1, 10), step(2, 0, 20, [txt(two)]), tail(2, 20)]));
+  assert.deepEqual(cards.map((c) => [c.key, c.seq, c.last]), [['10:0', 10, true], ['20:0', 20, false], ['20:1', 20, true]], 'two topics: two cards of one reply, in order');
+  assert.deepEqual(cards.slice(1).map((c) => [replyParts(c.text).title, replyParts(c.text).forYou]), [['Kur kolonu aynı.', '4 raporu güncelle.'], ['Yerel model kapalı kaldı.', '']], 'each card has its own title and Senden line');
+  assert.equal(cards[1].time, cards[2].time, 'the same time');
+  assert.deepEqual(replyParts(cards[2].text).approvals, ['Onaylıyorum (canlı değil): test yeniden başlasın.\n---'], 'the onay block stays whole in its part');
+  // The option buttons only on the last part; the Approve button on the part that holds the block.
+  const t = (k) => k; const picks = { pick: () => Promise.resolve(true) };
+  const choiceNow = { offer: { seq: 20, latest: 2, options: [{ n: 1, label: 'Hemen', text: 'Hemen', recommended: false }, { n: 2, label: 'Yarın', text: 'Yarın', recommended: false }] }, state: { busy: false, error: null }, empty: true };
+  const sentence = 'Onaylıyorum (canlı değil): test yeniden başlasın.\n---';
+  const offerNow = { offer: { seq: 20, latest: 2, options: [{ n: 1, text: sentence, label: sentence, message: sentence, from: 20 }] }, state: { busy: false, error: null }, empty: true };
+  const btns = (card) => find(ReplyCard({ card, sessionId: 's', offerNow, choiceNow, picks, t, lang: 'tr' }), (n) => n.t === 'button').map((b) => b.p.className + (b.p['data-composer-plus-approve'] ?? ''));
+  assert.deepEqual(btns(cards[1]), [], 'the first topic: no buttons');
+  assert.deepEqual(btns(cards[2]), ['cp-rc-btnreply', 'cp-rc-opt', 'cp-rc-opt'], 'the last topic: Onayla and the options');
+  const one = replyCardsOf(chatOf([step(1, 0, 30, [txt('**Tek.** Metin.\n\n```\n---\n```')]), tail(1, 30)]));
+  assert.deepEqual(one.map((c) => c.key), ['30:0'], '--- in a code block: one card');
+  // The prompt asks for it.
+  assert.match(read('index.js'), /- One reply card holds one topic: each part of a reply between lines of only \\`---\\` shows as its own card\. When a reply must also report an independent topic, put a line \\`---\\` before it and start that part with its own bold line[^\n]*Do not add a side topic that needs nothing from the user\./, 'the reply-form rule in the assistant prompt');
+}
+
 // The chat's feed (Furkan, 2026-11-26: "yeni gelen kart en altta gözüksün"): time order, the oldest on top, the newest
 // at the bottom; the newest REPLY_MAX cards; the shadow on the newest unread card. The canvas island keeps replyOrder.
 {
@@ -232,7 +257,7 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   assert.equal(text(note[0]), `replies.more:${JSON.stringify({ count: 3 })}`, 'the note of the older replies is above the cards');
   const inner = find(tree, (n) => n.p?.className === 'cp-rf-in')[0];
   assert.ok(inner.c.flat(Infinity).indexOf(note[0]) < inner.c.flat(Infinity).indexOf(arts[0]), 'the note comes first');
-  assert.match(src, /follow\.current = true; f\.scrollTop = f\.scrollHeight; \}, \[box === null, newestSeq\]\)/, 'the feed goes to the newest card when it opens and when a new card comes');
+  assert.match(src, /follow\.current = true; f\.scrollTop = f\.scrollHeight; \}, \[box === null, newestKey\]\)/, 'the feed goes to the newest card when it opens and when a new card comes');
 }
 
 // The pointer (Furkan, 2026-11-26): text in a card has the text cursor and can be selected; only controls have the hand.
@@ -261,7 +286,10 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   for (const c of cases) { const p = replyParts(c.text); assert.deepEqual([p.title, p.forYou], [c.title, c.forYou], c.name); }
   const core = read('tether/ios/Sources/Core.swift'), ui = read('tether/ios/Sources/UI.swift');
   assert.match(core, /func replyHead\(_ text: String\) -> ReplyHead/, 'the Swift port');
-  assert.match(ui, /if damon, l\.kind == \.assistant \|\| l\.kind == \.error \{/, 'Tether: the Damon chat draws replies and failed turns as cards');
+  assert.match(ui, /if damon, l\.kind == \.assistant \{\s*let parts = replySections\(l\.text\)/, 'Tether: the Damon chat draws one card per topic of a reply');
+  assert.match(ui, /\} else if damon, l\.kind == \.error \{ replyCard \{/, 'Tether: a failed turn is a card');
+  assert.match(core, /func replySections\(_ text: String\) -> \[String\]/, 'Tether: the split port (testReplySectionsMatchTheMac)');
+  assert.match(ui, /if last, l\.kind == \.assistant, let o = c\.optionOffer/, 'Tether: the options under the last topic');
   assert.match(ui, /if card \{ cardHead\(title: head\.title, forYou: head\.forYou\) \}/, 'Tether: the card shows the title and the For you line');
   assert.match(ui, /Text\(verbatim: title\)[^\n]*\.textSelection\(\.enabled\)/, 'Tether: the title can be selected');
 }

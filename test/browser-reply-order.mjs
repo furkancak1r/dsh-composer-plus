@@ -9,9 +9,10 @@
 // 4. The chat toggle in the panel header is an icon button in the row of the other icons (same size and color), named
 //    "Sohbeti göster" (aria-label and title); a click shows the chat (its label is then "Sohbeti gizle"), a second click
 //    hides it again.
+// 5. A reply with two independent topics (a `---` line between them) shows as two cards, each with its own title.
 // The measurements print first (MEASURE {...}), then the checks run. SHOTS=<folder> [TAG=<text>] writes
 // kart-sirasi-<TAG>.png (after a reload), yeni-kart-<TAG>.png (after a new card) and panel-basligi-<TAG>.png (the
-// panel header).
+// panel header) and iki-konu-<TAG>.png (a reply with two topics).
 // PLAYWRIGHT=/path/to/playwright node test/browser-reply-order.mjs /path/to/dsh/lib/bin.js [...]
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -119,6 +120,12 @@ try {
       await until(async () => (await feed.count()) === 0, 'the toggle shows the chat', 5000);
       m.toggle.afterClick = { label: await toggle.getAttribute('aria-label'), title: await toggle.getAttribute('title'), state: await toggle.getAttribute('data-composer-plus-chat-toggle'), pressed: await toggle.getAttribute('aria-pressed') };
       await toggle.click(); await feed.waitFor({ timeout: 10000 });
+      // 5. A reply with two independent topics split by a `---` line: two cards with their own titles (a `---` in a code
+      // block does not split).
+      await ask('DEMO-TWO-TOPICS'); await pause(500);
+      m.twoTopics = await feed.evaluate((f) => { const all = [...f.querySelectorAll('article.cp-rc')]; const seq = all.at(-1).dataset.reply;
+        return all.filter((el) => el.dataset.reply === seq).map((el) => ({ title: el.querySelector('h3').textContent, forYou: el.querySelector('[data-reply-for]')?.textContent ?? '' })); });
+      await shot('iki-konu');
       console.log(`  MEASURE ${JSON.stringify(m)}`);
       // The checks.
       for (const [k, s] of Object.entries({ afterReplies: m.afterReplies, opened: m.opened, newCard: m.newCard })) {
@@ -138,6 +145,8 @@ try {
       assert.ok(m.toggle.className.split(' ').includes('cp-td-btn') && m.toggle.sameRow, 'in the row of the header icons, with their class');
       assert.deepEqual([m.toggle.size, m.toggle.color], [m.toggle.refSize, m.toggle.refColor], 'the same size and color as the other icons');
       assert.deepEqual(m.toggle.afterClick, { label: 'Sohbeti gizle', title: 'Sohbeti gizle', state: 'hide', pressed: 'true' }, 'a click shows the chat');
+      assert.deepEqual(m.twoTopics.map((c) => c.title), ['Kur kolonu dört firmada aynı raporlarda.', 'Yerel model 11 dakika kapalı kaldı.'], 'two topics: two cards, each with its title');
+      assert.match(m.twoTopics[0].forYou, /4 raporu/, 'the first card keeps its Senden line');
       assert.deepEqual(errors, [], 'no page errors');
       passed = true; console.log(`PASS dsh ${version}`);
     } finally {

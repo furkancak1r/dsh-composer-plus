@@ -1795,7 +1795,7 @@ final class AgentboxIdeasTests: XCTestCase {
         let ask = "Onaylıyorum: acme-web dalını main'e al ve push et, canlı değil."
         c.replaySnapshot(turn(1, "Bugün ne var?", "**Sabah özeti hazır.** İki iş bitti, biri sürüyor.\n\nRapor klasöre kaydedildi.")
             + turn(10, "acme-web testleri ne durumda?", "**acme-web testleri geçti.** Dal main'e alınmaya hazır.\n\nSenden: test sunucusunda Gerekli Tarih alanını aç.\n\n> [!DETAILS] Test çıktısı\n> 412 test geçti, 0 hata.")
-            + turn(20, "Tamam, main'e al.", "**Birleştirme için onayın gerekiyor.** Testler yeşil.\n\n```onay\n\(ask)\n```\n\nNe zaman alınsın?\n\n**Seçenekler:**\n1. Hemen al (Önerilen)\n2. Yarın sabah al\n"))
+            + turn(20, "Tamam, main'e al.", "**Birleştirme için onayın gerekiyor.** Testler yeşil.\n\n```onay\n\(ask)\n```\n\n---\n\n**Gece yedeği tamam.** Yedek 02:10'da alındı; senden bir şey gerekmiyor.\n"))
         c.optionsFrom = 0
         XCTAssertEqual(c.approvalOffer?.sentences, [ask])
         // The cards in time order: the oldest at the top, the newest at the bottom (the chat opens at its end).
@@ -1828,6 +1828,15 @@ final class AgentboxIdeasTests: XCTestCase {
         XCTAssertEqual(h.title, "Hazır."); XCTAssertEqual(h.forYou, "portu aç.")
         XCTAssertTrue(h.body.hasPrefix("Testler geçti."), h.body); XCTAssertFalse(h.body.contains("Senden"))
         XCTAssertTrue(h.body.contains("```onay") && h.body.contains("2. Yarın"), "the block and the options stay for the buttons")
+    }
+
+    /// Damon reply cards: one card per topic, the parts between `---` lines as client.js replySections
+    /// (test/fixtures/reply-sections.json).
+    func testReplySectionsMatchTheMac() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../test/fixtures/reply-sections.json")
+        let cases = try XCTUnwrap((try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])?["cases"] as? [[String: Any]])
+        XCTAssertGreaterThan(cases.count, 10)
+        for c in cases { XCTAssertEqual(replySections(c["text"] as! String), c["parts"] as? [String], c["name"] as! String) }
     }
 
     /// Assistant callouts: a quote that starts with a marker is one box (its later quote lines too); [!DETAILS] keeps its

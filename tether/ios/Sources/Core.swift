@@ -1041,6 +1041,22 @@ func mdCallouts(_ parts: [MdPart]) -> [MdBlock] {
 /// and a `[!DETAILS]` section are not text there (the Mac shows them as buttons and a closed section). `body` is the reply
 /// without the title and the For you line: the chat's Markdown draws it, with its Approve and option buttons.
 struct ReplyHead: Equatable { var title = "", forYou = "", body = "" }
+private let sectionFenceRE = try! NSRegularExpression(pattern: #"^ {0,3}(`{3,}|~{3,})(.*)$"#)
+private let sectionRuleRE = try! NSRegularExpression(pattern: #"^ {0,3}-{3,}[ \t]*$"#)
+/// The topics of a reply, one card each (client.js `replySections`, one table: test/fixtures/reply-sections.json): the
+/// parts between `---` lines outside a code block or an `onay` block, trimmed, without empty parts.
+func replySections(_ text: String) -> [String] {
+    var out: [[String]] = [[]], fence: String?
+    for line in text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n").components(separatedBy: "\n") {
+        let g = wholeMatch(sectionFenceRE, line)
+        if fence == nil, let g, let mark = g[1], !(mark.first == "`" && (g[2] ?? "").contains("`")) { fence = mark }
+        else if let f = fence, let g, let mark = g[1], mark.first == f.first, mark.count >= f.count, (g[2] ?? "").trimmingCharacters(in: jsTrim).isEmpty { fence = nil }
+        else if fence == nil, wholeMatch(sectionRuleRE, line) != nil { out.append([]); continue }
+        out[out.count - 1].append(line)
+    }
+    let parts = out.map { $0.joined(separator: "\n").trimmingCharacters(in: jsTrim) }.filter { !$0.isEmpty }
+    return parts.isEmpty ? [text] : parts
+}
 private let replyHeadingRE = try! NSRegularExpression(pattern: #"^#{1,6}\s+(.+?)\s*#*\s*$"#)
 private let replyBoldRE = try! NSRegularExpression(pattern: #"^\s*(\*\*|__)(.+?)\1\s*(.*)$"#)
 private let replySentenceRE = try! NSRegularExpression(pattern: #"^(.+?[.!?…])(?=\s|$)\s*(.*)$"#)

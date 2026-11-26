@@ -890,14 +890,16 @@ struct ConversationView: View {
         Group {
             switch row {
             case .line(let l):
-                // Damon reply cards (Composer Plus `assistantReplyCards`): in the Damon chat each reply and each failed turn is a
-                // card with its buttons, in time order (the newest at the bottom, where the chat opens and follows).
-                if damon, l.kind == .assistant || l.kind == .error {
-                    VStack(alignment: .leading, spacing: 10) { lineContent(l, approval: approval, card: true) }
-                        .padding(14).frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color(.separator), lineWidth: 0.5))
-                } else { lineContent(l, approval: approval) }
+                // Damon reply cards (Composer Plus `assistantReplyCards`): in the Damon chat each topic of a reply (the parts
+                // between `---` lines, `replySections`) and each failed turn is a card with its buttons, in time order (the
+                // newest at the bottom, where the chat opens and follows).
+                if damon, l.kind == .assistant {
+                    let parts = replySections(l.text)
+                    VStack(alignment: .leading, spacing: 14) {
+                        ForEach(Array(parts.enumerated()), id: \.offset) { i, part in replyCard { lineContent(l, approval: approval, part: part, last: i == parts.count - 1) } }
+                    }
+                } else if damon, l.kind == .error { replyCard { lineContent(l, approval: approval, part: "") } }
+                else { lineContent(l, approval: approval) }
             case .turn(let l, let foldable):
                 TurnRow(line: l, foldable: foldable, open: openTurns.contains(l.id)) {
                     withAnimation(.snappy) { if openTurns.contains(l.id) { openTurns.remove(l.id) } else { openTurns.insert(l.id) } }
@@ -911,14 +913,24 @@ struct ConversationView: View {
                     in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
-    /// A message row with the buttons under it (`card`: inside a Damon reply card).
-    @ViewBuilder private func lineContent(_ l: Line, approval: (offer: ApprovalOffer, at: Int)?, card: Bool = false) -> some View {
+    /// The frame of a Damon reply card.
+    private func replyCard(@ViewBuilder _ content: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 10) { content() }
+            .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color(.separator), lineWidth: 0.5))
+    }
+
+    /// A message row with the buttons under it. `part`: a Damon reply card shows this topic of the reply (`last`: the
+    /// reply's last topic, which holds its option list); the Approve buttons go under the topic with the `onay` block.
+    @ViewBuilder private func lineContent(_ l: Line, approval: (offer: ApprovalOffer, at: Int)?, part: String? = nil, last: Bool = true) -> some View {
+        let onay = approval.flatMap { o in o.offer.from == l.seq && o.at == l.seq ? Set(o.offer.sentences) : nil } ?? []
         LineView(line: l, onEdit: { put($0, focus: true) }, onQuote: { put(quoteDraft(text, $0), focus: true) }, onRollback: canRollBack(l) ? { rollingBack = l } : nil,
-                 onayButtons: approval.flatMap { o in o.offer.from == l.seq && o.at == l.seq ? Set(o.offer.sentences) : nil } ?? [], card: card)
+                 onayButtons: onay, card: part != nil, part: part)
         // Option buttons (Composer Plus): under the answer that ends with an option list.
-        if l.kind == .assistant, let o = c.optionOffer, o.seq == l.seq, text.isEmpty, images.isEmpty, files.isEmpty { OptionButtons(offer: o) }
-        // Approve button (Composer Plus): under the answer with the newest `onay` block.
-        if let o = approval, l.kind == .assistant, l.seq == o.at { ApproveButtons(offer: o.offer) }
+        if last, l.kind == .assistant, let o = c.optionOffer, o.seq == l.seq, text.isEmpty, images.isEmpty, files.isEmpty { OptionButtons(offer: o) }
+        // Approve button (Composer Plus): under the answer with the newest `onay` block (in a split reply, its topic).
+        if let o = approval, l.kind == .assistant, l.seq == o.at, part.map({ p in onay.isEmpty ? last : !onay.isDisjoint(with: onayBlocks(p)) }) ?? true { ApproveButtons(offer: o.offer) }
     }
 
     /// A step group closed while you read: its header stays on screen (the steps under it are gone, so the chat could
@@ -1619,8 +1631,10 @@ struct LineView: View {
     var onRollback: (() -> Void)? = nil
     /// Approve button: the sentences whose button shows now for this answer.
     var onayButtons: Set<String> = []
-    /// Damon reply card: the reply's title, time and For you line above its text (client.js ReplyCard).
+    /// Damon reply card: the reply's title, time and For you line above its text (client.js ReplyCard); `part`: the topic
+    /// of the reply that this card shows (empty for a failed turn).
     var card = false
+    var part: String? = nil
     @State private var open = false
     @State private var copied = false
     @State private var selecting = false
@@ -1671,13 +1685,13 @@ struct LineView: View {
             }.frame(maxWidth: .infinity, alignment: .trailing)
         case .assistant:
             VStack(alignment: .leading, spacing: 6) {
-                let head = card ? replyHead(line.text) : ReplyHead(body: line.text)
+                let head = card ? replyHead(part ?? line.text) : ReplyHead(body: line.text)
                 if card { cardHead(title: head.title, forYou: head.forYou) }
                 // Assistant callouts: only in the assistant chat, as on the Mac.
                 if !head.body.isEmpty { Markdown(text: head.body, callouts: c.current != nil && c.current == c.assistantId, calloutLang: c.macLang, onayButtons: onayButtons).frame(maxWidth: .infinity, alignment: .leading) }
                 if !live {
                     Button {
-                        UIPasteboard.general.string = line.text; UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        UIPasteboard.general.string = part ?? line.text; UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         copied = true
                         Task { try? await Task.sleep(for: .seconds(1.5)); copied = false }
                     } label: {

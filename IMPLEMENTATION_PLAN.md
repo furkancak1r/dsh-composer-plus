@@ -23,7 +23,7 @@ Not in scope: live copy, release, npm publish, DSH restart, iPhone install.
 1. [done 09:05] Before evidence on f86a0a4c: olcum-once.json, kart-sirasi-once.png, yeni-kart-once.png,
    panel-basligi-once.png, tether-damon-once.png.
 2. [done 10:00] Mac + Tether code, texts (13 languages), docs (features.json, READMEs, FEATURES.md), unit tests.
-3. [running] npm test, browser tests (0.2.2-rc.5, 0.2.0-rc.2, 0.2.1-rc.2), iOS tests, after screenshots.
+3. [done 10:10] npm test, browser tests (0.2.2-rc.5, 0.2.0-rc.2, 0.2.1-rc.2), iOS tests, after screenshots.
 4. Review-guard rounds until no P1/P2 (diff > 100 lines and > 3 files: full loop).
 5. Update from origin/main, tests again, merge into main, push.
 
@@ -32,9 +32,15 @@ Not in scope: live copy, release, npm publish, DSH restart, iPhone install.
 - `TMPDIR=$PWD/build/t PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-reply-order.mjs <bins>`
 - `cd tether/ios && xcodebuild -project DSHMobile.xcodeproj -scheme DSHMobile -destination 'platform=iOS Simulator,id=A5766181-4A27-457E-81C2-DFDE4A0F018F' -derivedDataPath ../../build/DerivedData test CODE_SIGNING_ALLOWED=NO`
 
+7. Card split (added 2026-11-26 09:50, "birbirinden bağımsız konuları ayrı kartlar olarak göster"): a `---` line (outside
+   code and `onay` blocks) splits a reply into topic cards (client.js replySections, Tether replySections, one table:
+   test/fixtures/reply-sections.json); the options only on the last part; the Approve buttons on the part with the block;
+   ASSISTANT_SECTION asks for one topic per card.
+
 ## Last checkpoint
-- 2026-11-26 10:00: code done; `node test/reply-cards.test.mjs` ok; browser-reply-order PASS on 0.2.2-rc.5 (before the
-  docs change). Open: full test run, after screenshots, review, merge.
+- 2026-11-26 10:10: phases 1-3 and the card split done (commit after aa1a2de9). Last passing: `npm test` exit 0;
+  browser-reply-order and browser-status-canvas PASS on 0.2.2-rc.5, 0.2.0-rc.2, 0.2.1-rc.2; iOS 124 tests, 0 failures.
+  After shots in the folder. Open: review rounds, update from origin/main, merge, push.
 
 # Damon canvas like the HTML mockup + reply cards (branch feat/canvas-match-html-mockup, 2026-11-25)
 
