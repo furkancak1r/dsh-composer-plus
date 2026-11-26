@@ -4450,7 +4450,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
     }
     /** A card is unread after the floor while neither its reply (an older whole-reply mark reads every part) nor the card is read. */
     const replyUnread = (mark, card) => mark !== undefined && card.seq > mark.floor && !mark.read.includes(card.seq) && !mark.read.includes(card.id);
-    /** The canvas's Updates island: unread first, then the read ones; each part newest first. The chat's feed (ReplyFeed)
+    /** The canvas's Updates island: unread first, then the read ones; each reply newest first, its parts in order. The chat's feed (ReplyFeed)
      * keeps the time order of replyCardsOf instead (Furkan, 2026-11-26: "yeni gelen kart en altta gözüksün"). */
     const replyOrder = (cards, mark) => [...cards].sort((a, b) => Number(replyUnread(mark, b)) - Number(replyUnread(mark, a)) || b.seq - a.seq);
     /** The read id of the reply card that the canvas side panel opens (`reply|<card key>`); undefined for another card. */
