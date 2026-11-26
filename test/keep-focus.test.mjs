@@ -9,7 +9,8 @@ globalThis.requestAnimationFrame = (f) => { frames.set(++frameId, f); return fra
 globalThis.cancelAnimationFrame = (id) => { frames.delete(id); };
 const flush = () => { const due = [...frames.values()]; frames.clear(); for (const f of due) f(); };
 const body = { tag: 'body' }; let dialog = null;
-globalThis.document = { body, activeElement: body, querySelector: (q) => { assert.equal(q, '[aria-modal="true"], dialog[open]'); return dialog; } };
+// A modal only: the Kararlar peek (dialog[open][data-peek], not modal) does not stop it (2026-11-26).
+globalThis.document = { body, activeElement: body, querySelector: (q) => { assert.equal(q, '[aria-modal="true"], dialog[open]:not([data-peek])'); return dialog; } };
 let refs = [], ri = 0, effects = [];
 const React = { useRef: (v) => { const i = ri++; return refs[i] ??= { current: v }; }, useEffect: (f) => { effects.push(f); }, createElement: (t, p) => ({ t, p }) };
 const plugin = mod.factory((n) => (n === 'react' ? React : {}));

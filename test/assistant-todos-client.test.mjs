@@ -87,7 +87,8 @@ const layoutCleanups = [];
 const runtime = () => {
   let hooks = []; let hi = 0; let effects = [];
   const React = { createElement: (t, p, ...c) => ({ t, p: p ?? {}, c }), Fragment: 'F',
-    useState: (v) => { const i = hi++; if (!(i in hooks)) hooks[i] = typeof v === 'function' ? v() : v; return [hooks[i], (x) => { hooks[i] = typeof x === 'function' ? x(hooks[i]) : x; }]; },
+    // A setter belongs to its component instance (as in React): after clear() (an unmount), an old setter changes nothing.
+    useState: (v) => { const i = hi++; const own = hooks; if (!(i in own)) own[i] = typeof v === 'function' ? v() : v; return [own[i], (x) => { own[i] = typeof x === 'function' ? x(own[i]) : x; }]; },
     useRef: (v) => { const i = hi++; return hooks[i] ??= { current: v }; },
     useEffect: (f) => { effects.push(f); }, useLayoutEffect: (f) => { const off = f(); if (typeof off === 'function') layoutCleanups.push(off); }, useSyncExternalStore: (_s, get) => get(), useMemo: (f) => f(), useCallback: (f) => f };
   return { React, reset: () => { hi = 0; effects = []; }, effects: () => effects, clear: () => { hooks = []; } };
@@ -475,6 +476,62 @@ const groupBtn = (tr, g) => find(tr, (n) => n.t === 'button' && n.p['data-group'
   dialogOf(tr).p.setDecide((d) => ({ ...d, answered: new Map([...d.answered, ['66666666', Date.now()]]) })); tr = panel();
   assert.equal(text(find(decideBtn(tr), (n) => n.p?.['data-decide-count'] !== undefined)[0]), '1', 'an answered decision leaves the badge at once');
   assert.ok(panelProps.store.of('s-assistant').items.some((i) => i.id === '66666666'), 'the client removes nothing');
+  // Furkan, 2026-11-26 (an answered card came back after 60 s): the answered id and the typed text of a card stay while
+  // the item is on the list, also an hour later and in a new panel (the panel draws again, its state starts new).
+  dialogOf(tr).p.setDecide((d) => ({ ...d, drafts: new Map([['77777777', 'yarın 05:00']]) })); tr = panel();
+  const realNow = Date.now; Date.now = () => realNow() + 3600000;
+  rt.clear(); tr = panel(); b = decideBtn(tr); runEffects(rt.effects());
+  assert.equal(text(find(b, (n) => n.p?.['data-decide-count'] !== undefined)[0]), '1', 'a new panel an hour later: the answered decision is still out');
+  b.p.onClick(); tr = panel();
+  assert.ok(dialogOf(tr).p.decide.answered.has('66666666'), 'the answered id is kept for the chat');
+  assert.equal(dialogOf(tr).p.decide.drafts.get('77777777'), 'yarın 05:00', 'and the typed text of a card');
+  Date.now = realNow;
+  // Damon removed the answered item: its id leaves `answered` (and a text of a removed item leaves `drafts`).
+  items = items.filter((i) => i.id !== '66666666'); await panelProps.store.load('s-assistant'); tr = panel(); runEffects(rt.effects()); tr = panel();
+  assert.equal(dialogOf(tr).p.decide.answered.has('66666666'), false, 'the id goes when the item left the list');
+  assert.equal(dialogOf(tr).p.decide.drafts.get('77777777'), 'yarın 05:00', 'a text of an item still on the list stays');
+  // Review 2: a send that fails after the panel went away (another chat on screen) still brings back the card, its text
+  // and the reason: the per-chat state is written at once, not in a React updater of the gone panel.
+  {
+    const set = dialogOf(tr).p.setDecide; rt.clear(); // the panel unmounts; its setter stays in the send's closure
+    set((d) => ({ ...d, answered: new Map([...d.answered, ['77777777', Date.now()]]), drafts: new Map() })); // the send started
+    set((d) => { const answered = new Map(d.answered); answered.delete('77777777'); return { ...d, answered, drafts: new Map([['77777777', 'yarın 05:00']]), error: 'decide.failed' }; }); // it failed
+    tr = panel(); b = decideBtn(tr);
+    assert.match(b.p['aria-label'], /"decisions":1/, 'a new panel: the decision is back in the count');
+    assert.equal(text(find(tr, (n) => n.p?.['data-decide-error'] !== undefined)[0]), 'decide.failed', 'with the reason');
+    b.p.onClick(); tr = panel(); assert.equal(dialogOf(tr).p.decide.drafts.get('77777777'), 'yarın 05:00', 'and its text');
+    dialogOf(tr).p.setDecide((d) => ({ ...d, error: null })); dialogOf(tr).p.onClose(); await new Promise((r) => setTimeout(r, 5)); tr = panel();
+    // Review 3: the other order: the panel goes, a new panel shows, and only then the send fails. The new panel gets it.
+    const set2 = (b.p.onClick(), tr = panel(), dialogOf(tr).p.setDecide); dialogOf(tr).p.onClose(); await new Promise((r) => setTimeout(r, 5));
+    set2((d) => ({ ...d, answered: new Map([...d.answered, ['77777777', Date.now()]]), drafts: new Map() })); // the send started
+    rt.clear(); tr = panel(); // the panel went and a new one shows
+    assert.match(decideBtn(tr).p['aria-label'], /"decisions":0/, 'the new panel: the answer is out of the count');
+    set2((d) => { const answered = new Map(d.answered); answered.delete('77777777'); return { ...d, answered, drafts: new Map([['77777777', 'yarın 05:00']]), error: 'decide.failed' }; }); // late failure
+    tr = panel();
+    assert.match(decideBtn(tr).p['aria-label'], /"decisions":1/, 'the late failure reaches the new panel: the decision is back');
+    assert.equal(text(find(tr, (n) => n.p?.['data-decide-error'] !== undefined)[0]), 'decide.failed', 'with the reason');
+    b = decideBtn(tr); b.p.onClick(); tr = panel(); assert.equal(dialogOf(tr).p.decide.drafts.get('77777777'), 'yarın 05:00', 'and its text');
+    dialogOf(tr).p.setDecide((d) => ({ ...d, error: null })); dialogOf(tr).p.onClose(); await new Promise((r) => setTimeout(r, 5)); tr = panel();
+  }
+  // Review 2: the focus after a peek closes: from inside the peek it goes to the message box; when the focus stayed in
+  // the message box, it does not move; a modal dialog gives it back to the Kararlar button.
+  {
+    const peekOn = find(tr, (n) => n.t?.name === 'DecidePeek')[0]; assert.ok(peekOn, 'DecidePeek is drawn with the panel');
+    const doc = globalThis.document; const realActive = doc.activeElement;
+    const inDialog = { closest: (sel) => (sel === 'dialog[data-composer-plus-decide]' ? {} : null) };
+    const f0 = composer.focused; const n0 = focused.length;
+    peekOn.p.onPeek(); tr = panel(); assert.equal(dialogOf(tr).p.peek, true, 'onPeek opens the dialog as a peek');
+    doc.activeElement = inDialog; dialogOf(tr).p.onClose(); await new Promise((r) => setTimeout(r, 5)); tr = panel();
+    assert.equal(composer.focused, f0 + 1, 'closed from inside the peek: the message box gets the focus'); assert.equal(focused.length, n0, 'not the Kararlar button');
+    find(tr, (n) => n.t?.name === 'DecidePeek')[0].p.onPeek(); tr = panel();
+    doc.activeElement = { closest: () => null }; dialogOf(tr).p.onClose(); await new Promise((r) => setTimeout(r, 5)); tr = panel();
+    assert.equal(composer.focused, f0 + 1, 'the focus stayed in the message box: no move'); assert.equal(focused.length, n0);
+    decideBtn(tr).p.onClick(); tr = panel(); assert.equal(dialogOf(tr).p.peek, false, 'the Kararlar button: a modal dialog');
+    doc.activeElement = inDialog; dialogOf(tr).p.onClose(); await new Promise((r) => setTimeout(r, 5)); tr = panel();
+    assert.equal(focused.at(-1), 'cp-td-s-assistant-decide', 'a modal close: the focus goes back to the Kararlar button');
+    doc.activeElement = realActive;
+    decideBtn(tr).p.onClick(); tr = panel(); // open again for the next checks
+  }
   // Sil in the dialog: the panel's remove (one POST, action remove), as the old × of a note did.
   const r0 = posts.length;
   assert.equal(await dialogOf(tr).p.remove('77777777'), true);
@@ -484,9 +541,10 @@ const groupBtn = (tr, g) => find(tr, (n) => n.t === 'button' && n.p['data-group'
   dialogOf(tr).p.setDecide((d) => ({ ...d, error: 'decide.failed' })); dialogOf(tr).p.onClose(); tr = panel();
   assert.equal(text(find(tr, (n) => n.p?.['data-decide-error'] !== undefined)[0]), 'decide.failed', 'the reason shows in the panel');
   rt.clear(); tr = panel();
+  assert.equal(text(find(tr, (n) => n.p?.['data-decide-error'] !== undefined)[0]), 'decide.failed', 'a new panel of the chat still shows it (kept per chat)');
   // Nothing waits: one line says so. The dialog that was open closes: the button is gone, so the focus goes to the
   // panel's title (not to the page).
-  decideBtn(tr).p.onClick(); tr = panel();
+  decideBtn(tr).p.onClick(); tr = panel(); dialogOf(tr).p.setDecide((d) => ({ ...d, error: null })); tr = panel();
   items = items.filter((i) => i.owner !== 'user' || /^(Senden|Sorun):/.test(i.text)); await panelProps.store.load('s-assistant'); tr = panel();
   assert.equal(decideBtn(tr), undefined); assert.equal(text(find(tr, (n) => n.p?.['data-decide-none'] !== undefined)[0]), 'decide.none');
   const byId = globalThis.document.getElementById;

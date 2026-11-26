@@ -209,7 +209,7 @@ const matches = (e, s) => {
   if (s === 'input' || s === 'textarea' || s === 'select') return e.tagName === s.toUpperCase();
   if (s === '[contenteditable]:not([contenteditable="false"])') return e.getAttribute('contenteditable') !== null && e.getAttribute('contenteditable') !== 'false';
   if (s === '[aria-modal="true"]') return e.getAttribute('aria-modal') === 'true';
-  if (s === 'dialog[open]') return e.tagName === 'DIALOG' && e.getAttribute('open') !== null;
+  if (s === 'dialog[open]:not([data-peek])') return e.tagName === 'DIALOG' && e.getAttribute('open') !== null && e.getAttribute('data-peek') === null;
   if (s === '[role="menu"]') return e.getAttribute('role') === 'menu';
   return false;
 };
@@ -237,6 +237,10 @@ doc.activeElement = q.field; press('1', { target: q.field }); assert.equal(q.opt
 const composer = new El('div', { contenteditable: 'true' }); body.append(composer); doc.activeElement = composer; press('1', { target: composer });
 assert.equal(q.opts[0].clicks, 0, 'typing in dsh\'s composer: nothing'); composer.remove(); doc.activeElement = body;
 const dialog = new El('div', { 'aria-modal': 'true' }); body.append(dialog); press('1'); assert.equal(q.opts[0].clicks, 0, 'a dialog is open: nothing'); dialog.remove();
+const modalDialog = new El('dialog', { open: '' }); body.append(modalDialog); press('1'); assert.equal(q.opts[0].clicks, 0, 'an open <dialog>: nothing'); modalDialog.remove();
+// The Kararlar peek (2026-11-26) is not modal: the keys still answer dsh's question.
+const peekDialog = new El('dialog', { open: '', 'data-peek': '' }); body.append(peekDialog); press('1'); assert.equal(q.opts[0].clicks, 1, 'a Kararlar peek does not stop the keys'); peekDialog.remove();
+q.opts[0].clicks = 0;
 q.opts[0].disabled = true; press('1'); assert.equal(q.opts[0].clicks, 0, 'a locked option (dsh sends the answer): nothing'); q.opts[0].disabled = false;
 // The next question of the same card (dsh moves on after a pick): a new 800 ms guard.
 q.section.attrs['aria-labelledby'] = 'question-req-1-1'; onMutation();

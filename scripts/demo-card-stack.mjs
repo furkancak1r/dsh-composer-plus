@@ -119,6 +119,9 @@ export async function fakeModel(calls = [], lang = 'tr') {
       // Kararlar (test/browser-card-stack.mjs step 10, the screenshots): "DEMO-DECISIONS" adds decision notes of the
       // user, three with options and one without. A message that starts with "Karar:" or "Not tamam:" is the dialog's.
       if (damonStep && newest.trim() === 'DEMO-DECISIONS') return step === 0 ? tools(DECISIONS.map(([text, options]) => ['todo_list_add', { text, owner: 'user', ...(options ? { options } : {}) }])) : say('[quiet]');
+      // "DEMO-DECISION-NEW <text>" adds one more decision (the dialog opens by itself for it: browser-card-stack step 11).
+      const fresh = damonStep ? /^DEMO-DECISION-NEW (.+)$/.exec(newest.trim()) : null;
+      if (fresh !== null) return step === 0 ? tools([['todo_list_add', { text: fresh[1], owner: 'user', options: ['Evet (Önerilen)', 'Hayır'] }]]) : say('[quiet]');
       if (/^(Karar|Not tamam|Decision|Note done):/.test(newest.trim())) return say('[quiet]');
       // Damon reply cards (test/browser-status-canvas.mjs): "DEMO-REPLY-CARD" gets one answer with a bold title, a Senden
       // line, a closed details section, an `onay` block and an option list (one card with Onayla and option buttons).

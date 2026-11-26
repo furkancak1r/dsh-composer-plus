@@ -4731,6 +4731,40 @@ Objective (Furkan, 2026-11-24): "sürüyor kısmında damonın yapacağı ve akt
 - Review round 1 (review-guard subagent, main...HEAD): P1 0, P2 0, P3 3, P4 6. Fixed: the count bar counts only what runs, then "sırada N" (P3); an empty chip shows cards.filterEmpty (P3); fr/ja/vi cards.queued no longer read as "waits for you" (P3); functional folds update, one predicate, a brighter cp-cs-run pulse, hi wording, the plan's base (P4). Kept: "· sırada 0" in the group header (the spec example); fr/de chip label = group label (accurate).
 - Last checkpoint: review fixes committed; after them `npm test` exit 0, browser-running-filter PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5; browser-card-stack, browser-assistant-todos, browser-assistant-chat-tasks PASS on 0.2.2-rc.5. Next: merge --no-ff into main and push.
 
+## Kararlar dialog: arrows, send on select, Send always on, auto-open (2026-11-26, feat/decisions-dialog-send-navigation, from main f86a0a4c)
+
+Source: Furkan in the Assistant chat, 2026-11-26 (relayed by Damon): "kararlara ok tuşları koy ileri geri bir de seçince sonraki soruya geçiyor ama göndersin … gönder pasif durumda oluyor pasif olmasın … ux odaklı ilerle"; later "yeni karar istediğinde input alanı boşsa otomatik olarak pop up çıkartabilirsin damonda isem". Bug reports: two decisions came twice in the Damon chat; a custom answer went with an older, already answered decision.
+
+### Verified before the change (main f86a0a4c, client.js)
+- Option click: `answer()` sent at once on Option picks' `say` path (conversation.send = session.prompt(..., 'queue')) and showed the next card. So "send on select" was there; Gönder was `disabled: one(other) === ''` (no text: off), Enter only submitted the form in the field, → skipped a card.
+- Cause of the repeated decisions: `decisionQueue` hid an answered id only for DECIDE_HIDE_MS (60 s). When Damon's turn ran longer than 60 s, the answered card came back; a click on it sent "Karar: …" again.
+- Cause of the wrong item with a custom answer: one shared `other` state for the field. A card that came back (60 s) or a new decision before the card on screen took the place (`decisions.find(...)` = first open), so the text typed for one decision went with another card.
+- Not verified: the exact Damon chat events of 2026-11-26 (session logs are off limits); the claim that the two answers were in one message is consistent with dsh claiming all next-step messages in one batch (dsh-agent-loop inbox.ts `claim`) and Composer Plus Interjection (index.js installAssistantInterject: typed prompts steer into a running Damon turn).
+
+### Done (commits 8138507e, d4a253b2)
+- DecisionDialog: ‹ › header buttons (`data-dc-nav`, aria-disabled at the ends) and ← → (no key guard, no answer); card pinned by id (`pinned`/`place`); per-card drafts (`drafts` Map); `sending` Set (no double send per item); "✓ Gönderildi" role=status line (DECIDE_SENT_MS 4 s); recommended option preselected (`data-selected`); Gönder never disabled (typed text, else preset, else focus the field), Enter the same (namesLive: no key send of a live option); failed send brings the card and its text back.
+- decisionQueue: answered ids stay hidden until the item leaves the list (panel prunes `answered` by state.items ids); `decideAnswered` keeps it per chat while the panel draws again.
+- DecidePeek + canPeek: auto-open for a new decision id (ids of the first good read are seen; ids shown in an open dialog are seen); conditions: document visible, Damon chat body on screen, composer empty (inputOf snapshot: phase plain, draft '', no attachmentIds), no `asked`, no popup on screen, no keydown/input in 3 s; poll 1 s; peek = `open` attribute (no backdrop, no focus move), Esc by a document capture listener with preventDefault (dsh's stop shortcut checks defaultPrevented); click on Kararlar while a peek is open switches it to modal.
+- Texts: decide.prev, decide.next, decide.sent, decide.sendWhat, new decide.keys in en, zh and 11 locales; docs/features.json (13 languages, llms), README/llms regenerated; tether/FEATURES.md row (Tether unchanged).
+- Tests: test/decision-dialog.test.mjs (red on main: DecidePeek missing), test/browser-card-stack.mjs steps 10-11, scripts/demo-card-stack.mjs DEMO-DECISION-NEW.
+
+### Checks (last good)
+- `npm test` exit 0 (after d4a253b2 content).
+- `PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-card-stack.mjs <bin>`: PASS on dsh 0.2.2-rc.5 (~/ai-maintenance/dsh-composer-plus/dsh/0.2.2-rc.5/…/lib/bin.js), 0.2.0-rc.2 and 0.2.1-rc.2 (~/Documents/testdeepseekharness/work/dsh-0.2.x-rc.2/…/lib/bin.js).
+- Screenshots: /Users/furkancakir/Damon/Belgeler/Composer Plus/kararlar-20261126/once/ (main f86a0a4c; 7-yeni-karar-kapali.png: no auto-open) and sonra/ (this branch; 7-yeni-karar-kendiliginden.png).
+
+### Open steps
+1. review-guard round 1 runs (subagent review-1). Diff > 100 lines and > 3 files: repeat rounds until no P1/P2; fix every finding; tests again.
+2. If origin/main moved: rebase, tests again.
+3. Merge --no-ff into main, push. No live copy update (Furkan first sees the screenshots and writes "tamam"). No release.
+
+### Checkpoint 2026-11-26 16:45 (after a provider error at 12:32 and the resume)
+- Review round 1 (review-1b; review-1 failed with no report): P1 0, P2 0, P3 4, P4 1. Fixed in fc1d045e (modal checks skip the peek, focus after a peek close, per-chat drafts, tests, docs wording).
+- Review round 2 (review-2): P1 0, P2 0, P3 1, P4 1. Fixed in 8f053d04 (setDecide writes decideKept at once, error kept; tests for a failure after unmount and the peek-close focus).
+- Review round 3 (review-3) failed with no report; started again.
+- Last passing: `npm test` exit 0; `PLAYWRIGHT=<Mergen playwright> node test/browser-card-stack.mjs <0.2.2-rc.5> <0.2.0-rc.2> <0.2.1-rc.2>` PASS ×3 (at 8f053d04).
+- Open: round 3 clean → rebase on origin/main if it moved, tests, merge --no-ff into main, push. Furkan approved the merge on 2026-11-26 ("Kararlar … review temizse main'e alınıp push edilsin (deploy ve canlı kopya ayrı onayla)"). No live copy, no release.
+
 ## Güncellemeler: Öncekileri yükle (2026-11-26, feat/updates-feed-load-earlier, from main f86a0a4c)
 - Request (Furkan, Damon chat, 2026-11-26): "güncellemelerde de yeni kartlarda yani hepsi birden gözükmesin öncekini yükle
   olayı burada da geçerli olsun performans açısından".
@@ -4857,3 +4891,10 @@ Objective (Furkan, 2026-11-24): "sürüyor kısmında damonın yapacağı ve akt
   Tether app unchanged (row in tether/FEATURES.md).
 - Last passing: `npm test` exit 0 (6af7210d; f7b50464 changes only the browser test and this plan);
   browser-reply-pages PASS x3 (f7b50464); browser-status-canvas PASS x3 (6af7210d).
+
+### Kararlar: final state before the merge (2026-11-26 18:0x)
+- Review round 3 (review-3 failed with no report; review-3b): P1 0, P2 0, P3 1 (fixed 57c16109: per-chat store decideOf/decideSubscribe/setDecideOf with useSyncExternalStore, so a late failure reaches a remounted panel; test red on the old code).
+- Review round 4: P1 0, P2 0, P3 0, P4 2 (fixed 8d685b2b). Round 5: P4 2 (fixed b58fd19c). Round 6 on 94d9d3bc (after merging origin/main 2308766c): P1 0, P2 0, P3 0, P4 0: clean.
+- Merges of origin/main into the branch: e63d69f4 (b3d67832) and 94d9d3bc (2308766c). Conflicts only in generated files (rebuilt), tether/FEATURES.md (each side's row kept) and this plan.
+- Last passing (on 94d9d3bc): `npm test` exit 0; `PLAYWRIGHT=<Mergen playwright> node test/browser-card-stack.mjs <0.2.2-rc.5> <0.2.0-rc.2> <0.2.1-rc.2>` PASS ×3; `git diff --check` clean.
+- Next: merge --no-ff into main, push (Furkan's approval 2026-11-26). No live copy, no release.
