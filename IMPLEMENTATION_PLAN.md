@@ -4923,3 +4923,13 @@ review. Not in scope: live copy (after Furkan's "tamam" on the screenshots), rel
   browser-reply-order, browser-status-canvas PASS on the same three.
 - Open steps: review-guard (separate subagent) on origin/main...HEAD; fix findings; update from origin/main; tests;
   merge into main --no-ff; push main. No live copy, no release.
+- 2026-11-26 19:5x: review-guard round 1 (review-guard-r1, origin/main...2bef2037): P1 0, P2 0, P3 1, P4 3, no security
+  finding. Fixed: P3 a reply or topic that starts with an image kept "!alt" as its title and lost the image (replyParts: a
+  line that starts with `![` is no title; unit test; Tether's replyHead keeps the old rule, gap noted in tether/FEATURES.md,
+  no shared-table case until the port); P4 replyImageUrl with no base returned a throw (now undefined; test); P4 labels
+  object stable per language (mdLabelsOf), so MarkdownText does not parse again at each draw; P4 docs/features.json llms
+  sentence on images + `npm run build:readme`.
+- After the fixes: `npm test` exit 0 (one run with TMPDIR inside the repo failed turn-rollback.test.mjs:232: its "outside a
+  repository" folder was inside this worktree; without that TMPDIR it passes, alone 3/3 and in the full run);
+  browser-reply-images, browser-reply-pages, browser-reply-order, browser-status-canvas PASS on 0.2.0-rc.2, 0.2.1-rc.2,
+  0.2.2-rc.5. Next: review-guard round 2.

@@ -4554,17 +4554,23 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
      * does for an image that does not load. An http(s) image never comes here: dsh's Markdown loads it before. */
     function replyImageUrl(value, cwd, base = globalThis.document?.baseURI) {
       let path; try { path = decodeURIComponent(String(value).split(/[?#]/)[0]); } catch { return undefined; }
-      if (!/\.(?:png|jpe?g|webp|gif)$/i.test(path) || /[\u0000-\u001f\u007f]/.test(path) || !(/^https?:/.test(base ?? '') || base.startsWith('dsh-app://app/'))) return undefined;
+      const at = String(base ?? '');
+      if (!/\.(?:png|jpe?g|webp|gif)$/i.test(path) || /[\u0000-\u001f\u007f]/.test(path) || !(/^https?:/.test(at) || at.startsWith('dsh-app://app/'))) return undefined;
       if (!/^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(path)) {
         if (typeof cwd !== 'string' || cwd === '') return undefined;
         const sep = /^[A-Za-z]:[/\\]/.test(cwd) && cwd.includes('\\') ? '\\' : '/'; // a Windows folder keeps its own separator, as in dsh
         path = `${cwd.replace(/[/\\]+$/, '')}${sep}${path.replace(/^(?:\.?[/\\])+/, '')}`;
       }
-      return /^[/\\]{2}/.test(path) ? undefined : new URL(`api/file?path=${encodeURIComponent(path)}`, base).href;
+      return /^[/\\]{2}/.test(path) ? undefined : new URL(`api/file?path=${encodeURIComponent(path)}`, at).href;
     }
-    // One `pathImages` object per chat folder: dsh's MarkdownText memoizes its parse by the object's identity.
-    const replyImages = new Map();
+    // One `pathImages` object per chat folder and one `labels` object per language: dsh's MarkdownText memoizes its parse
+    // by their identity (as dsh's AssistantMarkdown keeps them stable), so a card is not parsed again at each draw.
+    const replyImages = new Map(); const replyLabels = new Map();
     const pathImagesOf = (cwd) => { let p = replyImages.get(cwd); if (p === undefined) { p = { resolve: (value) => replyImageUrl(value, cwd) }; replyImages.set(cwd, p); } return p; };
+    const mdLabelsOf = (t) => {
+      const [copyLabel, copiedLabel, footnotes] = [t('board.copy'), t('board.copied'), t('board.footnotes')]; const key = `${copyLabel}\0${copiedLabel}\0${footnotes}`;
+      let l = replyLabels.get(key); if (l === undefined) { l = { code: { copyLabel, copiedLabel }, footnotes }; replyLabels.set(key, l); } return l;
+    };
     /** A reply as a card: `{ title, forYou, body, details: [{ summary, body }], approvals, options }`. The title is the
      * first line when it is a heading or starts bold, else its first sentence; a "Senden:" / "For you:" line is the action
      * line; `onay` blocks are the approval sentences (onayBlocks); the option list at the end (parseOptions) leaves the
@@ -4607,7 +4613,8 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         const you = code ? null : /^\s*(?:[-*+]\s+)?(?:\*\*|__)?(?:senden|for you)(?:\*\*|__)?\s*:\s*(?:\*\*|__)?\s*(.*?)\s*$/iu.exec(line);
         if (you !== null && forYou === '' && plainText(you[1]) !== '') { forYou = plainText(you[1]); continue; }
         // A list line is no title ("1. Run the tests." would give "1." and break the list's numbering): it stays in the body.
-        if (title === '' && !code && line.trim() !== '' && body.every((l) => l.trim() === '') && !/^\s*(?:[-*+]|\d{1,9}[.)])\s/.test(line)) {
+        // A line that starts with an image is no title either: the image stays in the body (review 1 of the card images).
+        if (title === '' && !code && line.trim() !== '' && body.every((l) => l.trim() === '') && !/^\s*(?:[-*+]|\d{1,9}[.)])\s/.test(line) && !/^\s*!\[/.test(line)) {
           const heading = /^#{1,6}\s+(.+?)\s*#*\s*$/.exec(line);
           const bold = /^\s*(\*\*|__)(.+?)\1\s*(.*)$/.exec(line);
           const sentence = /^(.+?[.!?…])(?=\s|$)\s*(.*)$/u.exec(line.trim());
@@ -4765,7 +4772,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const approve = offerNow?.offer?.options?.[0]?.from === card.seq && offerNow.empty === true ? offerNow : undefined;
       const choice = choiceNow?.offer?.seq === card.seq && card.last !== false && choiceNow.empty === true ? choiceNow : undefined; // the options end the reply
       const md = (text) => (primitives.MarkdownText === undefined ? React.createElement('div', { style: { whiteSpace: 'pre-wrap' } }, text)
-        : React.createElement(primitives.MarkdownText, { text, pathImages: pathImagesOf(cwd), labels: { code: { copyLabel: t('board.copy'), copiedLabel: t('board.copied') }, footnotes: t('board.footnotes') } }));
+        : React.createElement(primitives.MarkdownText, { text, pathImages: pathImagesOf(cwd), labels: mdLabelsOf(t) }));
       const read = () => onRead?.(card.id ?? card.seq);
       // A mouse drag that selects text of the card is no click on it: the card stays unread.
       const onClick = (ev) => { const s = globalThis.getSelection?.(); if (s != null && !s.isCollapsed && ev?.currentTarget?.contains?.(s.anchorNode)) return; read(); };

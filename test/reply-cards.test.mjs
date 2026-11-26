@@ -21,7 +21,7 @@ globalThis.document = { body: { tag: 'body' }, querySelector: () => null, addEve
 const ANCHOR = '/** Feature switches, in Settings order.';
 const src = read('client.js');
 assert.ok(src.includes(ANCHOR));
-eval(src.replace(ANCHOR, `globalThis.__rc = { replyImageUrl, pathImagesOf, failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, ReplyFeed, replySections, sideReadId, replyPage, REPLY_PAGE, REPLY_READ_KEY, REPLY_SHOWN_KEY, REPLY_CSS, REPLY_MAX };\n    ${ANCHOR}`));
+eval(src.replace(ANCHOR, `globalThis.__rc = { replyImageUrl, pathImagesOf, mdLabelsOf, failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, ReplyFeed, replySections, sideReadId, replyPage, REPLY_PAGE, REPLY_READ_KEY, REPLY_SHOWN_KEY, REPLY_CSS, REPLY_MAX };\n    ${ANCHOR}`));
 const h = (t, p, ...c) => ({ t, p: p ?? {}, c });
 // A small hook runtime (by call order) for ReplyFeed: state, refs and effects with deps (run after each draw).
 let hooks = []; let hi = 0; let pending = [];
@@ -31,7 +31,7 @@ const React = { createElement: h, Fragment: 'F', useState: (v) => { const i = hi
   useLayoutEffect: (f, deps) => { const i = hi++; const old = hooks[i]; if (old === undefined || changed(old.deps, deps)) pending.push(() => { old?.off?.(); hooks[i] = { deps, off: f() }; }); } };
 React.useEffect = React.useLayoutEffect;
 mod.factory((n) => (n === 'react' ? React : n === 'react-dom' ? { createPortal: (el, host, key) => ({ portal: el, host, key }) } : {}));
-const { replyImageUrl, pathImagesOf, failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, ReplyFeed, replySections, sideReadId, replyPage, REPLY_PAGE, REPLY_READ_KEY, REPLY_SHOWN_KEY, REPLY_CSS, REPLY_MAX } = globalThis.__rc;
+const { replyImageUrl, pathImagesOf, mdLabelsOf, failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, ReplyFeed, replySections, sideReadId, replyPage, REPLY_PAGE, REPLY_READ_KEY, REPLY_SHOWN_KEY, REPLY_CSS, REPLY_MAX } = globalThis.__rc;
 const find = (n, pred) => { if (n === null || typeof n !== 'object') return []; if (Array.isArray(n)) return n.flatMap((c) => find(c, pred)); return [...(pred(n) ? [n] : []), ...(n.c ?? []).flat(Infinity).flatMap((c) => find(c, pred))]; };
 const text = (n) => (typeof n === 'string' ? n : Array.isArray(n) ? n.map(text).join('') : n?.c ? text(n.c) : '');
 
@@ -490,6 +490,13 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   delete globalThis.document.baseURI;
   assert.match(src, /React\.createElement\(primitives\.MarkdownText, \{ text, pathImages: pathImagesOf\(cwd\), labels:/, 'structure: the card passes the resolver to dsh\'s Markdown');
   assert.equal(replyParts(`**Resim.** Bak:\n\n![İlk görünüm](<${abs}>)`).body, `Bak:\n\n![İlk görünüm](<${abs}>)`, 'the image line stays in the card body');
+  // Review 1: a reply (or a topic) that starts with an image keeps the image; it is no title ("!İlk görünüm" before).
+  for (const first of [`![İlk görünüm](<${abs}>)`, `![İlk görünüm](<${abs}>) Sonra metin.`]) {
+    const p = replyParts(`${first}\n\nMetin burada.`);
+    assert.deepEqual([p.title, p.body], ['', `${first}\n\nMetin burada.`], `an image first: no title, the image in the body (${first.slice(-12)})`);
+  }
+  assert.equal(mdLabelsOf((k) => k), mdLabelsOf((k) => k), 'one labels object per language (MarkdownText memoizes by it)');
+  assert.equal(replyImageUrl('/a/b.png', '/x', undefined), undefined, 'no base: no image, no throw (review 1)');
   for (const re of [/ReplyCard, \{ key: card\.key, card, sessionId, cwd,/, /ReplyCard, \{ card: rc, sessionId, cwd,/]) assert.match(src, re, 'structure: the feed and the canvas give the card the chat folder');
 }
 
