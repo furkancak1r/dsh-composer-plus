@@ -2855,6 +2855,7 @@
     "replies.choice": "Pilih satu opsi",
     "replies.none": "Belum ada balasan.",
     "replies.more": "{count} balasan lama ada di chat (Tampilkan chat).",
+    "replies.loadEarlier": "Muat yang lebih lama",
     "canvas.onlyMine": "Hanya yang menungguku",
     "canvas.home": "Kembali ke {name}",
     "canvas.hint": "Seret: geser · Roda: zoom · Tombol panah, + dan −",

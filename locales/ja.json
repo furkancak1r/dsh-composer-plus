@@ -2855,6 +2855,7 @@
     "replies.choice": "選択肢を選んでください",
     "replies.none": "まだ返信はありません。",
     "replies.more": "古い返信 {count} 件はチャットにあります（チャットを表示）。",
+    "replies.loadEarlier": "以前の履歴を読み込む",
     "canvas.onlyMine": "自分待ちのみ",
     "canvas.home": "{name} に戻る",
     "canvas.hint": "ドラッグ: 移動 · ホイール: ズーム · 矢印キー、+ と −",

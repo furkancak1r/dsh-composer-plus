@@ -4764,3 +4764,130 @@ Source: Furkan in the Assistant chat, 2026-11-26 (relayed by Damon): "kararlara 
 - Review round 3 (review-3) failed with no report; started again.
 - Last passing: `npm test` exit 0; `PLAYWRIGHT=<Mergen playwright> node test/browser-card-stack.mjs <0.2.2-rc.5> <0.2.0-rc.2> <0.2.1-rc.2>` PASS ×3 (at 8f053d04).
 - Open: round 3 clean → rebase on origin/main if it moved, tests, merge --no-ff into main, push. Furkan approved the merge on 2026-11-26 ("Kararlar … review temizse main'e alınıp push edilsin (deploy ve canlı kopya ayrı onayla)"). No live copy, no release.
+
+## Güncellemeler: Öncekileri yükle (2026-11-26, feat/updates-feed-load-earlier, from main f86a0a4c)
+- Request (Furkan, Damon chat, 2026-11-26): "güncellemelerde de yeni kartlarda yani hepsi birden gözükmesin öncekini yükle
+  olayı burada da geçerli olsun performans açısından".
+- Pattern found (step 1): dsh's chat "Load earlier" button (dsh-client-ui-chat ChatView.tsx `.older` row, label
+  `chat.loadOlder`: tr "Öncekileri yükle"; page = at least 50 messages and 2 turns, `PAGE_MESSAGES`); Composer Plus in the
+  same Damon chat shows the newest `ASSISTANT_TURNS = 8` turns first. The feed showed up to `REPLY_MAX = 40` cards at once.
+- Decision: one page = `ASSISTANT_TURNS` (8) replies (a page of 50 would never page under the 40 cap); the label is dsh's
+  own `chat.loadOlder` text at runtime (fallback key `replies.loadEarlier`, the same texts); the look is dsh's `.older` CSS.
+- Invariants (replaced after the merge of b3d67832: the feed is in main's time order, not replyOrder): card order unchanged; read marks unchanged; a new card shows at once; the first card on screen
+  keeps its place after a load; the 40 cap and its note stay; the canvas island is unchanged (it shows 5 + unread).
+- Allowed paths: client.js, locales/*.json, docs/features.json, README*.md, llms.txt, tether/FEATURES.md,
+  scripts/demo-card-stack.mjs (one fake-model answer), test/reply-cards.test.mjs, test/browser-reply-pages.mjs,
+  package.json (only if a test needs it), IMPLEMENTATION_PLAN.md.
+- Checks: `npm test`; `node test/reply-cards.test.mjs`; `PLAYWRIGHT=<Mergen playwright 1.58> node test/browser-reply-pages.mjs
+  <dsh 0.2.0-rc.2> <0.2.1-rc.2> <0.2.2-rc.5>`; browser-status-canvas on the same three (regression).
+- Screenshots: /Users/furkancakir/Damon/Belgeler/Composer Plus/guncellemeler-oncekini-yukle-20261126/ (new folder).
+- Done (2026-11-26 14:2x): code (client.js replyPage, ReplyFeed floor state, dsh .older look), replies.loadEarlier in en,
+  zh and 11 locales (= dsh's chat.loadOlder of each pack), docs/features.json (13 how + llms), README limits (13),
+  tether/FEATURES.md gap row (Tether unchanged), demo model "DEMO-REPLY <n>", test/reply-cards.test.mjs (replyPage +
+  ReplyFeed with a hook runtime), test/browser-reply-pages.mjs (new; headless, chromiumSandbox).
+- Decision: paging by time (seq), not by place in the unread-first order, so a click never moves or hides a shown card;
+  an old unread card past the first page waits for its page (REPLACED in review 1: replyPage shows every unread card
+  among the newest 40, see the review-1 entry and the unit test "down to the old unread card").
+- Last passing: `npm test` exit 0; `node test/reply-cards.test.mjs` ok; `PLAYWRIGHT=<Mergen playwright 1.58> node
+  test/browser-reply-pages.mjs <bin>` PASS on dsh 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5; browser-status-canvas PASS on the
+  same three.
+- Screenshots (main f86a0a4c = önce, branch = yeni): guncellemeler-ilk-once.png, guncellemeler-ilk--once-2.png,
+  guncellemeler-ilk-alt--once-2.png, guncellemeler-ilk-yeni.png, guncellemeler-sonra-yeni.png,
+  guncellemeler-ilk--yeni-2.png, guncellemeler-ilk-alt--yeni-2.png, guncellemeler-sonra--yeni-2.png.
+- Furkan's approval (2026-11-26): "Öncekini yükle" branch to main and push when the review is clean; live copy separate.
+- Review round 1 (review-guard subagent, origin/main...404d2251): P1 0, P2 1, P3 5, P4 2. Fixed (not committed in a
+  reviewed state yet): P2 the label is dsh's own chat.loadOlder text at run time (chatTextOf through ctx.locale.bind('chat'),
+  e.g. dsh 0.2.2 de "Früher laden"); replies.loadEarlier is only the fallback (README limit sentence in 13 languages).
+  P3 the 40 cap by seq inside replyPage (either order) + 45-reply unit test; P3 every unread card among the newest 40 shows
+  (the floor goes down to it and stays after it is read; docs say so); P3 after the last click from the keyboard the
+  focus goes to the first added card; P3 browser test asserts scrollTop > 0 before the click; unit test checks the
+  scroll keep with a fake feed. P4 a rollback after a click still shows at least one page; plan text aligned.
+  Not fixed (merge checklist for fix/chat-card-order-tether, no defect here): with newest-at-bottom the button and the
+  replies.more note go above the cards, its follow ResizeObserver must stop in loadEarlier, browser-reply-pages and the
+  new unit test need its order.
+- After the fixes: `npm test` exit 0; `node test/reply-cards.test.mjs` ok; `git diff --check` clean.
+- DENIED by Auto review (2026-11-26 ~14:55, not retried): the background run of test/browser-reply-pages.mjs on dsh
+  0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5 after the review fixes. Reason given: the approval in the Assistant chat names the
+  review and the merge, not this test run. The browser test of the fixed code did not run (it passed on 404d2251).
+- Open steps: Furkan's approval of the browser test run (exact command below); then review-guard round 2 in a separate
+  subagent; merge origin/main; tests; merge into main; push main. No live copy, no release.
+  Command: `PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-reply-pages.mjs
+  <dsh-0.2.0-rc.2 bin> <dsh-0.2.1-rc.2 bin> <0.2.2-rc.5 bin>` and the same for test/browser-status-canvas.mjs.
+- Last passing test command: `npm test` (exit 0, after the review fixes).
+- 2026-11-26 15:1x (approval of Furkan: browser tests on three DSH versions, then main + push when the review is clean):
+  origin/main moved to b3d67832 (fix/chat-card-order-tether is in main: newest card at the bottom, a read id per `---`
+  part). `git merge --no-ff --no-commit origin/main` is IN PROGRESS in this worktree (HEAD 04681142, MERGE_HEAD b3d67832).
+  Resolved, not committed: client.js (main's time order and follow + replyPage; the button and the replies.more note at
+  the top, above the cards; loadEarlier stops the follow; packs rebuilt), docs/features.json (main's text + the Load
+  earlier sentences, button "above them"). Open conflicts: test/reply-cards.test.mjs, the 13 README*.md and llms.txt.
+- DENIED by Auto review (not retried): `git show origin/main:<file> > <file>` for README*.md and llms.txt, then
+  `npm run build:readme`. Reason: it rewrites the uncommitted README and llms.txt edits of this branch with main's copy.
+  The branch edits are in commit 04681142 (checked: README.md, README.tr.md and llms.txt have the Load earlier text there).
+  The reviewer asked for an approval sentence that names this action.
+- Open steps: (1) approval for the README/llms.txt step; (2) resolve test/reply-cards.test.mjs for the time order;
+  (3) the README limit sentences again on main's text (13 languages); (4) browser-reply-pages for the time order (newest
+  at the bottom: button above the cards); (5) npm test, browser tests on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5, new
+  screenshots; (6) review-guard round 2; (7) merge into main, push. No live copy, no release, Tether unchanged.
+- Last passing test command: `npm test` exit 0 on 04681142 (before the merge).
+- 2026-11-26 15:3x (approval of Furkan: README and llms.txt from main plus the Load earlier sentences): merge resolved.
+  README*.md and llms.txt: main's copy, then the two limit sentences of 04681142 appended to the limits line (checked:
+  a pure append in all 13 files), `npm run build:readme`. test/reply-cards.test.mjs: main's tests and the Load earlier
+  tests in time order (button above the cards, the newest page at the bottom, `newest` prop, read ids); main's feed test
+  sets the floor of the opened feed (every page). Fix found by the rewritten test: an unread card past the 40 cap no
+  longer pulls the cut down (replyPage `low`). `npm test` exit 0 after the merge.
+- 2026-11-26 15:4x: merge committed (d1dfdb14). `npm test` exit 0 (on the merge tree). browser-status-canvas PASS on
+  0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5 at d1dfdb14.
+- DENIED by Auto review (not retried): a node script that rewrites test/browser-reply-pages.mjs for the time order.
+  Reason: the approval text does not name this rewrite of the browser test. The old file checks the newest-first order
+  (button below the cards), so it fails on this code. Approval asked from Furkan in the chat.
+- The rewrite (ready, not applied): the button above the cards (`row.nextElementSibling` is a card), the newest 8 oldest
+  first (Güncelleme 13..20), the feed opens at the bottom (scrollTop > 0, the newest card in view), a new reply New at the
+  bottom, the click at the top keeps the first card on screen and the feed does not jump to the bottom, 16 cards with
+  Güncelleme 6..13 above, then all, reload -> 8. Shots: ilk, ilk-ust, sonra, sonra-ust (TAG yeni-3).
+- Open steps: (1) Furkan's approval for the browser test rewrite; (2) rewrite it, run it on 0.2.0-rc.2, 0.2.1-rc.2,
+  0.2.2-rc.5; (3) SHOTS run with TAG=yeni-3 into Damon/Belgeler/Composer Plus/guncellemeler-oncekini-yukle-20261126/;
+  (4) review-guard on the final diff against origin/main (separate subagent, repeat until no P1/P2, fix all findings,
+  run again); (5) merge into main --no-ff, npm test on main, push. No live copy, no release, Tether unchanged.
+- Last passing test command: `npm test` exit 0 at d1dfdb14; `PLAYWRIGHT=$HOME/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-status-canvas.mjs <3 bins>` PASS x3.
+- 2026-11-26 15:5x (Furkan's approval of the browser test rewrite): origin/main still b3d67832. test/browser-reply-pages.mjs
+  rewritten for the time order (111b9600). PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5: 8 of 21 replies first, the feed
+  opens at scrollTop 531 with the newest card in view; after one click 16 cards, 4 cards on screen moved 0 px, scrollTop
+  1056 (545 px above the bottom: no jump); reload -> 8. Shots (0.2.2-rc.5, TAG yeni-3): guncellemeler-ilk-yeni-3.png,
+  -ilk-ust-yeni-3.png, -sonra-yeni-3.png, -sonra-ust-yeni-3.png in Damon/Belgeler/Composer Plus/guncellemeler-oncekini-yukle-20261126/.
+  `npm test` exit 0 at 111b9600. Review-guard round 2 started (subagent review-guard-r2).
+- Open steps: review round 2 result -> fix every finding -> review again until clean -> merge into main --no-ff,
+  npm test on main, push. No live copy, no release, Tether unchanged.
+- Last passing: `npm test` exit 0 (111b9600); `PLAYWRIGHT=$HOME/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-reply-pages.mjs <3 bins>` PASS x3; browser-status-canvas PASS x3 (d1dfdb14).
+- 2026-11-26 16:4x: review-guard round 2 (subagent review-guard-r2, final diff origin/main...111b9600): P1 0, P2 0, P3 1, P4 3.
+  - P3: after the last keyboard click the focus goes to the OLDEST added card, about 1000 px above the view
+    (preventScroll), and the "keyboard" check (`activeElement === currentTarget`) is also true for a mouse click in
+    Chromium. Fix (ready, NOT applied): `focus: ev?.detail === 0`; focus the newest added card
+    (`.filter(el => seq < place.cut).at(-1)`) and `scrollIntoView({ block: 'nearest' })`; unit test `focused` expects
+    the newest added seq (40, not 10); features.json llms text "the first added card" -> "the newest added card", then
+    `npm run build:readme`.
+  - P4 fixed: tether/FEATURES.md "up to the newest 40 replies"; this plan's two old decisions marked as replaced.
+  - P4 NOT applied: README.pt-BR.md "(o dsh 0.2.2 diz “Carregar mais cedo”)" -> "(com o idioma Português do dsh 0.2.2:
+    “Carregar mais cedo”)" (pt-BR is our own language with "Carregar anteriores"; only dsh's `pt` says "mais cedo").
+- DENIED by Auto review (not retried): the client.js focus fix (two edits) and the README.pt-BR.md sentence. Reason: the
+  approval named the browser test rewrite, the screenshots and the merge, not these edits. Approval asked from Furkan.
+- Open steps: (1) approval; (2) apply the P3 fix + unit test + llms text + README.pt-BR.md; (3) npm test, browser-reply-pages
+  and browser-status-canvas on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5; (4) review-guard round 3 (separate subagent) until
+  clean; (5) merge into main --no-ff, npm test on main, push. No live copy, no release, Tether app unchanged.
+- Last passing: `npm test` exit 0 (111b9600); browser-reply-pages PASS x3 (111b9600); browser-status-canvas PASS x3 (d1dfdb14).
+- 2026-11-26 16:5x (Furkan's approval of the review-2 fixes): applied. Keyboard click = `ev.detail === 0` (a mouse click
+  does not move the focus); after the last keyboard click the focus goes to the newest added card and
+  `scrollIntoView({ block: 'nearest' })`. Unit test: keyboard click with the button left (no move), last keyboard click
+  (focus 40, in view), last mouse click (no move). features.json llms text + llms.txt; README.pt-BR.md note.
+  `npm test` exit 0 (one earlier run stopped in test/complete.test.mjs "unsettled top-level await", exit 13; the test
+  passed alone 3 of 3 and the next full run passed). browser-reply-pages and browser-status-canvas PASS on 0.2.0-rc.2,
+  0.2.1-rc.2, 0.2.2-rc.5. Next: review-guard round 3.
+- 2026-11-26 17:3x: review-guard round 3 (review-guard-r3, origin/main...6af7210d): P1 0, P2 0, P3 1, P4 0. P3: no browser
+  check of the keyboard focus fix. Fixed: browser-reply-pages makes the last click with Enter and checks that
+  document.activeElement is the newest added card and inside the feed's box. PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5
+  (focus on the newest added card, 0 px below the feed's top). Next: review-guard round 4 on the final diff; if clean,
+  merge into main --no-ff, npm test on main, push.
+- 2026-11-26 17:5x: review-guard round 4 (review-guard-r4, origin/main...f7b50464): P1 0, P2 0, P3 0, P4 0 (clean).
+  origin/main still b3d67832. Next: merge into main --no-ff, npm test on main, push main. No live copy, no release,
+  Tether app unchanged (row in tether/FEATURES.md).
+- Last passing: `npm test` exit 0 (6af7210d; f7b50464 changes only the browser test and this plan);
+  browser-reply-pages PASS x3 (f7b50464); browser-status-canvas PASS x3 (6af7210d).
