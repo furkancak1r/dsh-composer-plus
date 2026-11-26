@@ -347,7 +347,7 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   const core = read('tether/ios/Sources/Core.swift'), ui = read('tether/ios/Sources/UI.swift');
   assert.match(core, /func replyHead\(_ text: String\) -> ReplyHead/, 'the Swift port');
   assert.match(ui, /if damon, l\.kind == \.assistant \{\s*let parts = replySections\(l\.text\)/, 'Tether: the Damon chat draws one card per topic of a reply');
-  assert.match(ui, /\} else if damon, l\.kind == \.error \{\n[^\n]*\n\s*replyCard\(unread: new/, 'Tether: a failed turn is a card');
+  assert.match(ui, /\} else if damon, l\.kind == \.error \{\n\s*replyCard\(/, 'Tether: a failed turn is a card');
   assert.match(core, /func replySections\(_ text: String\) -> \[String\]/, 'Tether: the split port (testReplySectionsMatchTheMac)');
   assert.match(ui, /let options = last && l\.kind == \.assistant && c\.optionOffer/, 'Tether: the options under the last topic');
   assert.match(ui, /if card \{ cardHead\(title: head\.title, forYou: head\.forYou, unread: unread\) \}/, 'Tether: the card shows the title and the For you line');
@@ -356,6 +356,13 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   assert.match(core, /func markReplies\(_ m: ReplyMark/, 'Tether: the read port'); assert.match(core, /func replyPage\(_ cards: \[ReplyCardID\]/, 'Tether: the page port');
   assert.match(ui, /replyPage\(cards, floor: replyFloor, unread: \{ replyUnread\(mark, \$0\) \}, max: \.max\)/, 'Tether: the Damon chat pages its cards');
   assert.match(ui, /\.simultaneousGesture\(TapGesture\(\)\.onEnded \{ readCard\(id, read\) \}\)/, 'Tether: a tap reads the card');
+  // Review 2: an unread card below the first page holds the cut also on the first draw; VoiceOver's Mark as read only on
+  // a New card; Open message scrolls after the page change without a fixed wait.
+  assert.match(ui, /\.onChange\(of: page\?\.held == true \? page\?\.cut : nil, initial: true\)/, 'Tether: the held cut from the first draw');
+  assert.match(ui, /\.accessibilityActions \{ if unread \{ Button\(String\(localized: "replies\.markRead"/, 'Tether: Mark as read only on a New card');
+  assert.equal((ui.match(/"replies\.markRead"/g) || []).length, 1, 'Tether: one Mark as read action for both card kinds');
+  const jump = ui.slice(ui.indexOf('private func jump('), ui.indexOf('func secretBar('));
+  assert.ok(jump.includes('replyFloor = need }') && !/milliseconds\(100\)/.test(jump), 'Tether: no fixed wait after the page change');
   assert.match(core, /forKey: key\("replyRead"\)/, 'Tether: the marks are kept per Mac');
   assert.match(ui, /Text\(verbatim: title\)[^\n]*\.textSelection\(\.enabled\)/, 'Tether: the title can be selected');
   assert.match(ui, /private var shown: String \{ line\.kind == \.assistant \? part \?\? line\.text : line\.text \}/, 'Tether: a long press on a topic card uses its topic (review 7)');

@@ -863,7 +863,7 @@ struct ConversationView: View {
                 // The first view of the Damon chat: its older replies count as read (the Mac's rule).
                 .onChange(of: damon && !c.loadingChat ? c.lastSeq : nil, initial: true) { _, top in if let top, let sid = c.current { c.startReplyMarks(sid, top: top) } }
                 // An unread card holds the page's cut: it stays on screen after you read it.
-                .onChange(of: page?.held == true ? page?.cut : nil) { _, cut in if let cut { replyFloor = cut } }
+                .onChange(of: page?.held == true ? page?.cut : nil, initial: true) { _, cut in if let cut { replyFloor = cut } }
                 // composer pinned via safeAreaInset so keyboard/tab switches never leave it floating mid-screen
                 .safeAreaInset(edge: .bottom, spacing: 0) {
                     VStack(spacing: 0) {
@@ -974,17 +974,11 @@ struct ConversationView: View {
                     let ids = l.seq.map { replyCardIDs(seq: $0, parts: parts.count) }
                     VStack(alignment: .leading, spacing: 14) {
                         ForEach(Array(parts.enumerated()), id: \.offset) { i, part in
-                            let id = ids?[i], new = id.map { replyUnread(read?.mark, $0) } ?? false
-                            replyCard(unread: new, newest: new && id?.id == read?.newest) { lineContent(l, approval: approval, part: part, last: i == parts.count - 1, unread: new) }
-                                .simultaneousGesture(TapGesture().onEnded { readCard(id, read) })
-                                .accessibilityAction(named: Text(String(localized: "replies.markRead", defaultValue: "Mark as read", bundle: uiStrings))) { readCard(id, read) }
+                            replyCard(ids?[i], read) { new in lineContent(l, approval: approval, part: part, last: i == parts.count - 1, unread: new) }
                         }
                     }
                 } else if damon, l.kind == .error {
-                    let id = l.seq.map { ReplyCardID(seq: $0, id: "\($0)") }, new = id.map { replyUnread(read?.mark, $0) } ?? false
-                    replyCard(unread: new, newest: new && id?.id == read?.newest) { lineContent(l, approval: approval, part: "", unread: new) }
-                        .simultaneousGesture(TapGesture().onEnded { readCard(id, read) })
-                        .accessibilityAction(named: Text(String(localized: "replies.markRead", defaultValue: "Mark as read", bundle: uiStrings))) { readCard(id, read) }
+                    replyCard(l.seq.map { ReplyCardID(seq: $0, id: "\($0)") }, read) { new in lineContent(l, approval: approval, part: "", unread: new) }
                 }
                 else { lineContent(l, approval: approval) }
             case .turn(let l, let foldable):
@@ -1001,16 +995,20 @@ struct ConversationView: View {
                     in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
-    /// The frame of a Damon reply card: a New card has the Mac's blue left edge, the newest New card a shadow.
-    private func replyCard(unread: Bool = false, newest: Bool = false, @ViewBuilder _ content: () -> some View) -> some View {
+    /// A Damon reply card (`content` gets whether it is New). A New card has the Mac's blue left edge and VoiceOver's
+    /// Mark as read action; the newest New card has a shadow. A tap on the card or on one of its buttons reads it.
+    private func replyCard(_ id: ReplyCardID?, _ read: CardRead?, @ViewBuilder _ content: (Bool) -> some View) -> some View {
+        let unread = id.map { replyUnread(read?.mark, $0) } ?? false, newest = unread && id?.id == read?.newest
         let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
-        return VStack(alignment: .leading, spacing: 10) { content() }
+        return VStack(alignment: .leading, spacing: 10) { content(unread) }
             .padding(14).padding(.leading, 2).frame(maxWidth: .infinity, alignment: .leading)
             .background(Color(.secondarySystemBackground), in: shape)
             .overlay(alignment: .leading) { if unread { Rectangle().fill(Color.accentColor).frame(width: 4) } }
             .clipShape(shape)
             .overlay(shape.strokeBorder(Color(.separator), lineWidth: 0.5))
             .shadow(color: .black.opacity(newest ? 0.14 : 0), radius: 12, y: 6)
+            .simultaneousGesture(TapGesture().onEnded { readCard(id, read) })
+            .accessibilityActions { if unread { Button(String(localized: "replies.markRead", defaultValue: "Mark as read", bundle: uiStrings)) { readCard(id, read) } } }
     }
 
     /// A message row with the buttons under it. `part`: a Damon reply card shows this topic of the reply (`last`: the
@@ -1049,14 +1047,14 @@ struct ConversationView: View {
         if c.jump == j { c.jump = nil }
         guard let target else { c.error = String(localized: "This message is not in the chat any more."); return }
         // Load earlier: when the target row is above the page, the page starts at the first card at or after it (its rows
-        // go back to the card before), before the scroll.
+        // go back to the card before). The scroll waits for the next main-queue turn, after the new rows are laid out.
         if damon, let s = c.transcript.first(where: { $0.id == target })?.seq {
             let cards = cardCache.cards(damonLines), mark = c.current.flatMap { c.replyMarks[$0] }
             let cut = replyPage(cards, floor: replyFloor, unread: { replyUnread(mark, $0) }, max: .max).cut
-            if let need = cards.first(where: { $0.seq >= s })?.seq, need < cut { replyFloor = need; try? await Task.sleep(for: .milliseconds(100)) }
+            if let need = cards.first(where: { $0.seq >= s })?.seq, need < cut { replyFloor = need }
         }
         follow = false
-        withAnimation { proxy.scrollTo(target, anchor: .center) }
+        DispatchQueue.main.async { withAnimation { proxy.scrollTo(target, anchor: .center) } }
         marked = target
     }
 
