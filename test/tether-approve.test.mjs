@@ -46,7 +46,8 @@ assert.doesNotMatch(buttons, /\.buttonStyle\(\.bordered\)\.tint/, 'not the old p
 assert.match(buttons, /\.strokeBorder\(Color\.accentColor/, 'the Mac\'s accent border');
 assert.match(buttons, /\.confirmationDialog\(Text\(verbatim: w\.confirm\)[\s\S]*c\.approve\(a\.sid, o, a\.sentence\)[\s\S]*message: \{ a in Text\(verbatim: a\.sentence\) \}/, 'one confirmation with the full sentence, then the send');
 assert.match(ui, /let approval = !\(text\.isEmpty && images\.isEmpty && files\.isEmpty\) \? nil : c\.approvalOffer/, 'only with an empty composer');
-assert.match(ui, /if let o = approval, l\.kind == \.assistant, l\.seq == o\.at \{ ApproveButtons\(offer: o\.offer\) \}/, 'under the answer');
+// A Damon reply split into topic cards (replySections): the buttons go under the topic that holds the `onay` block.
+assert.match(ui, /if let o = approval, l\.kind == \.assistant, l\.seq == o\.at, part\.map\(\{ p in onay\.isEmpty \? last : !onay\.isDisjoint\(with: onayBlocks\(p\)\) \}\) \?\? true \{ ApproveButtons\(offer: o\.offer\) \}/, 'under the answer');
 // The words: Turkish when the Mac's Composer Plus language is Turkish, else English; the Mac's own words.
 const tr = JSON.parse(read('locales/tr.json'))['dsh-composer-plus'];
 for (const [key, word] of [['approve.button', 'Onayla'], ['approve.group', 'Bu yanıtın onay cümleleri']]) assert.equal(tr[key], word, `tr ${key}`);

@@ -53,6 +53,7 @@ const same = {
   Approve: 'approve.button', 'Approval sentences of this answer': 'approve.group',
   Result: 'callouts.result', Problem: 'callouts.problem', 'Approval needed': 'callouts.approval', 'Open questions': 'callouts.questions',
   Important: 'callouts.important', 'Still running': 'callouts.running', Details: 'callouts.details',
+  'replies.forYou': 'replies.forYou', 'replies.failed': 'replies.failed',
 };
 const mac = (k) => trMac[k].replace(/\{\w+\}/g, '%@');
 for (const [key, macKey] of Object.entries(same)) assert.equal(value(table.strings[key], 'tr'), mac(macKey), `${key} = the web UI's ${macKey}`);

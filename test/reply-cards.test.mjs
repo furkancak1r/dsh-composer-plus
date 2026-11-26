@@ -6,8 +6,8 @@
 //   rollback's and dsh-rewind-plugin's spans) and not a fork's inherited one (rule 10).
 // - replyParts: the bold first line is the title, "Senden:" the action line, `onay` blocks the approval sentences, the
 //   option list at the end the option buttons, [!DETAILS] stays closed.
-// - Read marks: at the first view every older reply is read; a click or a button marks a card read; the newest unread
-//   card is first; junk in storage reads as empty; another window's marks are merged.
+// - Read marks: at the first view every older reply is read; a click or a button marks a card read (each part of a split
+//   reply on its own); the newest unread card is first; junk in storage reads as empty; another window's marks are merged.
 // - ReplyCard: Onayla only on the card that holds the chat's newest approval offer, option buttons only on the card of
 //   the choice offer, both through Option picks' store (one send per chat); an older card shows them as text.
 // - The feature: its own switch (dock seat + overlay entry, removed when off), the chat toggle in the status panel.
@@ -21,7 +21,7 @@ globalThis.document = { body: { tag: 'body' }, querySelector: () => null, addEve
 const ANCHOR = '/** Feature switches, in Settings order.';
 const src = read('client.js');
 assert.ok(src.includes(ANCHOR));
-eval(src.replace(ANCHOR, `globalThis.__rc = { failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, ReplyFeed, replyPage, REPLY_PAGE, REPLY_MAX, REPLY_READ_KEY, REPLY_SHOWN_KEY };\n    ${ANCHOR}`));
+eval(src.replace(ANCHOR, `globalThis.__rc = { failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, ReplyFeed, replySections, sideReadId, replyPage, REPLY_PAGE, REPLY_READ_KEY, REPLY_SHOWN_KEY, REPLY_CSS, REPLY_MAX };\n    ${ANCHOR}`));
 const h = (t, p, ...c) => ({ t, p: p ?? {}, c });
 // A small hook runtime (by call order) for ReplyFeed: state, refs and effects with deps (run after each draw).
 let hooks = []; let hi = 0; let pending = [];
@@ -31,7 +31,7 @@ const React = { createElement: h, Fragment: 'F', useState: (v) => { const i = hi
   useLayoutEffect: (f, deps) => { const i = hi++; const old = hooks[i]; if (old === undefined || changed(old.deps, deps)) pending.push(() => { old?.off?.(); hooks[i] = { deps, off: f() }; }); } };
 React.useEffect = React.useLayoutEffect;
 mod.factory((n) => (n === 'react' ? React : n === 'react-dom' ? { createPortal: (el, host, key) => ({ portal: el, host, key }) } : {}));
-const { failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, ReplyFeed, replyPage, REPLY_PAGE, REPLY_MAX, REPLY_READ_KEY, REPLY_SHOWN_KEY } = globalThis.__rc;
+const { failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, ReplyFeed, replySections, sideReadId, replyPage, REPLY_PAGE, REPLY_READ_KEY, REPLY_SHOWN_KEY, REPLY_CSS, REPLY_MAX } = globalThis.__rc;
 const find = (n, pred) => { if (n === null || typeof n !== 'object') return []; if (Array.isArray(n)) return n.flatMap((c) => find(c, pred)); return [...(pred(n) ? [n] : []), ...(n.c ?? []).flat(Infinity).flatMap((c) => find(c, pred))]; };
 const text = (n) => (typeof n === 'string' ? n : Array.isArray(n) ? n.map(text).join('') : n?.c ? text(n.c) : '');
 
@@ -122,29 +122,30 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   for (const junk of ['{', '[]', '42', '{"s":{"floor":"1"}}', '{"s":null}']) { mem.set(REPLY_READ_KEY, junk); assert.deepEqual(readReplyMarks(), {}, `junk: ${junk}`); }
   mem.set(REPLY_READ_KEY, '{"s":{"floor":5,"read":[7,"x",9]}}'); assert.deepEqual(readReplyMarks(), { s: { floor: 5, read: [7, 9] } }, 'only numbers');
   mem.delete(REPLY_READ_KEY);
+  const c = (seq) => ({ seq, id: seq }); const cs = (...seqs) => seqs.map(c);
   const m = { floor: 10, read: [] };
-  assert.equal(replyUnread(m, 10), false); assert.equal(replyUnread(m, 12), true); assert.equal(replyUnread(undefined, 12), false, 'before the first view: no card is new');
-  assert.deepEqual(markReplies(m, [14], [12, 14, 16]), { floor: 10, read: [14] }, 'a card in the middle');
-  assert.deepEqual(markReplies({ floor: 10, read: [14] }, [12], [12, 14, 16]), { floor: 14, read: [] }, 'the floor moves over the cards read in a row');
-  const order = replyOrder([{ seq: 8 }, { seq: 12 }, { seq: 14 }, { seq: 16 }], { floor: 10, read: [14] });
-  assert.deepEqual(order.map((c) => c.seq), [16, 12, 14, 8], 'unread first (newest first), then the read ones');
+  assert.equal(replyUnread(m, c(10)), false); assert.equal(replyUnread(m, c(12)), true); assert.equal(replyUnread(undefined, c(12)), false, 'before the first view: no card is new');
+  assert.deepEqual(markReplies(m, [14], cs(12, 14, 16)), { floor: 10, read: [14] }, 'a card in the middle');
+  assert.deepEqual(markReplies({ floor: 10, read: [14] }, [12], cs(12, 14, 16)), { floor: 14, read: [] }, 'the floor moves over the cards read in a row');
+  const order = replyOrder(cs(8, 12, 14, 16), { floor: 10, read: [14] });
+  assert.deepEqual(order.map((x) => x.seq), [16, 12, 14, 8], 'unread first (newest first), then the read ones');
   const store = createReplyRead(); let calls = 0; store.subscribe(() => { calls += 1; });
   store.start('s', 30); assert.deepEqual(store.of('s'), { floor: 30, read: [] }, 'the first view: every older reply is read');
   store.start('s', 99); assert.equal(store.of('s').floor, 30, 'only once');
-  store.mark('s', [40], [40, 50]); assert.deepEqual(store.of('s'), { floor: 40, read: [] });
-  store.mark('s', [40], [40, 50]); assert.equal(calls, 2, 'no write without a change');
+  store.mark('s', [40], cs(40, 50)); assert.deepEqual(store.of('s'), { floor: 40, read: [] });
+  store.mark('s', [40], cs(40, 50)); assert.equal(calls, 2, 'no write without a change');
   // Another window read 50 meanwhile: a write merges it.
   const other = JSON.parse(mem.get(REPLY_READ_KEY)); other.s = { floor: 50, read: [] }; mem.set(REPLY_READ_KEY, JSON.stringify(other));
-  store.mark('s', [60], [40, 50, 60, 70]); assert.deepEqual(JSON.parse(mem.get(REPLY_READ_KEY)).s, { floor: 50, read: [60] }, 'merged with the other window');
+  store.mark('s', [60], cs(40, 50, 60, 70)); assert.deepEqual(JSON.parse(mem.get(REPLY_READ_KEY)).s, { floor: 50, read: [60] }, 'merged with the other window');
   store.all('s', 70); assert.deepEqual(store.of('s'), { floor: 70, read: [] }, 'Tümünü okundu say');
   const blocked = globalThis.localStorage.setItem; globalThis.localStorage.setItem = () => { throw Error('quota'); };
-  store.mark('t', [1], [1]); store.start('u', 5); globalThis.localStorage.setItem = blocked; // no throw
+  store.mark('t', [1], cs(1)); store.start('u', 5); globalThis.localStorage.setItem = blocked; // no throw
   assert.equal(store.of('u').floor, 5, 'storage blocked: this page only');
   // dsh's turn-tail node is the newest node at its turn's end seq + 0.1 (review 1): the floor is a whole seq, so a new
   // reply stays New after a reload (a fraction was dropped at the next load and made every card read).
   const chat = chatOf([step(1, 0, 42, [txt('Eski yanıt.')]), tail(1, 42)]); [...chat.nodes.values()][1].anchorSeq = 43.1;
   store.start('f', Number(chatStateKey(chat).split(':')[1])); assert.deepEqual(store.of('f'), { floor: 43, read: [] }, 'a whole floor');
-  const reloaded = createReplyRead(); assert.equal(replyUnread(reloaded.of('f'), 50), true, 'a newer reply is still New after a reload');
+  const reloaded = createReplyRead(); assert.equal(replyUnread(reloaded.of('f'), c(50)), true, 'a newer reply is still New after a reload');
   store.all('f', 60.1); assert.equal(createReplyRead().of('f').floor, 60, 'Tümünü okundu say: a whole floor too');
   // A streamed chunk is no new state for the cards (no draw at each frame); a settled step is.
   const live = (text, status) => chatOf([step(1, 0, 42, [txt(text)], status)]);
@@ -162,9 +163,9 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   const choiceNow = { offer: { seq: 42, latest: 4, options: [{ n: 1, label: 'Hemen al', text: 'Hemen al', recommended: true }, { n: 2, label: 'Yarın al', text: 'Yarın al', recommended: false }] }, state: { busy: false, error: null }, empty: true };
   const picked = []; const picks = { pick: (id, o, n) => { picked.push([id, o.seq, n]); return Promise.resolve(true); } };
   const reads = [];
-  const draw = (props) => ReplyCard({ card, sessionId: 's', unread: true, first: true, offerNow, choiceNow, picks, t, lang: 'tr', onRead: (seq) => reads.push(seq), ...props });
+  const draw = (props) => ReplyCard({ card, sessionId: 's', unread: true, newest: true, offerNow, choiceNow, picks, t, lang: 'tr', onRead: (seq) => reads.push(seq), ...props });
   let tr = draw();
-  assert.equal(tr.t, 'article'); assert.equal(tr.p['data-unread'], ''); assert.equal(tr.p['data-first'], ''); assert.equal(tr.p.tabIndex, 0, 'a card takes the focus');
+  assert.equal(tr.t, 'article'); assert.equal(tr.p['data-unread'], ''); assert.equal(tr.p['data-newest'], ''); assert.equal(tr.p.tabIndex, 0, 'a card takes the focus');
   assert.equal(text(find(tr, (n) => n.p.className === 'cp-rc-new')[0]), 'replies.new', 'the New label');
   assert.equal(text(find(tr, (n) => n.t === 'h3')[0]), 'Hazır.', 'the title');
   const ok = find(tr, (n) => n.t === 'button' && n.p['data-composer-plus-approve'] === 'reply');
@@ -173,8 +174,14 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   const opts = find(tr, (n) => n.t === 'button' && n.p.className === 'cp-rc-opt');
   assert.deepEqual(opts.map((b) => b.p['data-option']), ['1', '2'], 'the option buttons'); assert.equal(opts[0].p['data-recommended'], '', 'the recommended one');
   opts[1].p.onClick(); assert.deepEqual(picked.at(-1), ['s', 42, 2], 'an option goes through picks.pick');
-  tr.p.onClick(); assert.deepEqual(reads.at(-1), 42, 'a click on the card marks it read');
-  tr.p.onKeyDown({ key: 'Enter', target: 'self', currentTarget: 'self' }); assert.equal(reads.length, 4, 'Enter on the card too');
+  const self = { contains: (n) => n === 'in-card' };
+  globalThis.getSelection = () => ({ isCollapsed: false, anchorNode: 'in-card' });
+  const before = reads.length; tr.p.onClick({ currentTarget: self }); assert.equal(reads.length, before, 'a drag that selected text of the card does not read it');
+  globalThis.getSelection = () => ({ isCollapsed: false, anchorNode: 'elsewhere' });
+  tr.p.onClick({ currentTarget: self }); assert.deepEqual(reads.at(-1), 42, 'a selection outside the card: the click reads it');
+  reads.pop(); globalThis.getSelection = () => ({ isCollapsed: true, anchorNode: 'in-card' });
+  tr.p.onClick({ currentTarget: self }); assert.deepEqual(reads.at(-1), 42, 'a click on the card marks it read'); delete globalThis.getSelection;
+  const n = reads.length; tr.p.onKeyDown({ key: 'Enter', target: 'self', currentTarget: 'self' }); assert.equal(reads.length, n + 1, 'Enter on the card too');
   // An older card (another seq), a draft in the composer, a busy send: no buttons, the sentences and options as text.
   for (const props of [{ card: { ...card, seq: 30 } }, { offerNow: { ...offerNow, empty: false }, choiceNow: { ...choiceNow, empty: false } }]) {
     tr = draw(props);
@@ -208,45 +215,190 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   assert.equal(ReplyCard({ card, sessionId: 's', t, lang: 'tr', picks, focusable: false }).p.tabIndex, undefined, 'on the canvas its frame takes the focus');
 }
 
+// One card per topic (Furkan, 2026-11-26: "birbirinden bağımsız konuları ayrı kartlar olarak göster"): a `---` line splits a
+// reply; not inside a code block or an `onay` block; a reply without one is one card (test/fixtures/reply-sections.json is
+// also Tether's table).
+{
+  for (const c of JSON.parse(read('test/fixtures/reply-sections.json')).cases) assert.deepEqual(replySections(c.text), c.parts, `sections: ${c.name}`);
+  const two = "**Kur kolonu aynı.** Dosyalar hazır.\n\nSenden: 4 raporu güncelle.\n\n---\n\n**Yerel model kapalı kaldı.** Şu an açık.\n\n```onay\nOnaylıyorum (canlı değil): test yeniden başlasın.\n---\n```\n\n**Seçenekler:**\n1. Hemen\n2. Yarın";
+  const cards = replyCardsOf(chatOf([step(1, 0, 10, [txt('Tek konu.')]), tail(1, 10), step(2, 0, 20, [txt(two)]), tail(2, 20)]));
+  assert.deepEqual(cards.map((c) => [c.key, c.seq, c.last]), [['10:0', 10, true], ['20:0', 20, false], ['20:1', 20, true]], 'two topics: two cards of one reply, in order');
+  assert.deepEqual(cards.slice(1).map((c) => [replyParts(c.text).title, replyParts(c.text).forYou]), [['Kur kolonu aynı.', '4 raporu güncelle.'], ['Yerel model kapalı kaldı.', '']], 'each card has its own title and Senden line');
+  assert.equal(cards[1].time, cards[2].time, 'the same time');
+  assert.deepEqual(replyParts(cards[2].text).approvals, ['Onaylıyorum (canlı değil): test yeniden başlasın.\n---'], 'the onay block stays whole in its part');
+  // The option buttons only on the last part; the Approve button on the part that holds the block.
+  const t = (k) => k; const picks = { pick: () => Promise.resolve(true) };
+  const choiceNow = { offer: { seq: 20, latest: 2, options: [{ n: 1, label: 'Hemen', text: 'Hemen', recommended: false }, { n: 2, label: 'Yarın', text: 'Yarın', recommended: false }] }, state: { busy: false, error: null }, empty: true };
+  const sentence = 'Onaylıyorum (canlı değil): test yeniden başlasın.\n---';
+  const offerNow = { offer: { seq: 20, latest: 2, options: [{ n: 1, text: sentence, label: sentence, message: sentence, from: 20 }] }, state: { busy: false, error: null }, empty: true };
+  const btns = (card) => find(ReplyCard({ card, sessionId: 's', offerNow, choiceNow, picks, t, lang: 'tr' }), (n) => n.t === 'button').map((b) => b.p.className + (b.p['data-composer-plus-approve'] ?? ''));
+  assert.deepEqual(btns(cards[1]), [], 'the first topic: no buttons');
+  assert.deepEqual(btns(cards[2]), ['cp-rc-btnreply', 'cp-rc-opt', 'cp-rc-opt'], 'the last topic: Onayla and the options');
+  const failed = { ...offerNow, state: { busy: false, error: 'boom' } };
+  const alerts = (card) => find(ReplyCard({ card, sessionId: 's', offerNow: failed, picks, t, lang: 'tr' }), (n) => n.p?.role === 'alert').length;
+  assert.deepEqual([alerts(cards[1]), alerts(cards[2])], [0, 1], 'a failed send: the error only on the part with the button (review 4)');
+  const one = replyCardsOf(chatOf([step(1, 0, 30, [txt('**Tek.** Metin.\n\n```\n---\n```')]), tail(1, 30)]));
+  assert.deepEqual(one.map((c) => c.key), ['30:0'], '--- in a code block: one card');
+  // One read mark per topic (Furkan, 2026-11-26: "ayrı konuları ayrı yazsan da hepsine tek okundu geliyor ama farklı
+  // okundular gelmesi lazım"): each part of a split reply has its own read id; a reply without `---` keeps its seq, so the
+  // marks saved before stay valid.
+  assert.deepEqual(cards.map((c) => c.id), [10, '20:0', '20:1'], 'read ids: the seq for one topic, "seq:i" for each part');
+  assert.deepEqual(one.map((c) => c.id), [30], 'a `---` in a code block: still the seq');
+  const reads = []; const card1 = ReplyCard({ card: cards[1], sessionId: 's', t, lang: 'tr', picks, onRead: (id) => reads.push(id) });
+  card1.p.onClick({ currentTarget: { contains: () => false } }); card1.p.onKeyDown({ key: 'Enter', target: 1, currentTarget: 1 });
+  assert.deepEqual(reads, ['20:0', '20:0'], 'a click and Enter read the part, not the reply');
+  const mk = { floor: 5, read: [] };
+  const first = markReplies(mk, ['20:0'], cards);
+  assert.deepEqual(first, { floor: 5, read: ['20:0'] }, 'reply 10 is unread: the floor stays');
+  assert.deepEqual(cards.map((c) => replyUnread(first, c)), [true, false, true], 'only the read part: the other part stays New');
+  assert.deepEqual(markReplies(first, [10], cards), { floor: 10, read: ['20:0'] }, 'the floor stops before a reply with an unread part');
+  assert.deepEqual(markReplies({ floor: 10, read: ['20:0'] }, ['20:1'], cards), { floor: 20, read: [] }, 'all parts read: the floor moves over the reply and drops its ids');
+  assert.deepEqual(cards.map((c) => replyUnread({ floor: 5, read: [20] }, c)), [true, false, false], 'an older whole-reply mark (its seq) reads every part');
+  assert.deepEqual(markReplies({ floor: 10, read: [] }, [20], cards).floor, 20, 'a whole-reply mark moves the floor too');
+  assert.deepEqual(replyOrder(cards, { floor: 5, read: ['20:1'] }).map((c) => c.key), ['20:0', '10:0', '20:1'], 'the canvas: the unread part first');
+  // The canvas side panel reads only the card that it opens (review 2).
+  assert.deepEqual(['reply|20:1', 'reply|10:0', 'reply|99:0', 'senden|20:1', undefined, null].map((k) => sideReadId(cards, k)), ['20:1', 10, undefined, undefined, undefined, undefined], 'the side panel: the read id of the opened card only');
+  assert.match(src, /const onSelCard = \(key\) => \{ setSel\(key\); const id = sideReadId\(replies, key\); if \(id !== undefined\) replyCards\.read\(\[id\]\); \};/, 'the canvas uses it');
+  // Saved and read again (a reload): the part mark stays; junk ids are dropped.
+  mem.set(REPLY_READ_KEY, JSON.stringify({ s: { floor: 10, read: ['20:0', '20:x', 'x:1', ':1', '20:0:1', 12, '12'] } }));
+  assert.deepEqual(readReplyMarks().s.read, ['20:0', 12], 'only seqs and "seq:i" ids');
+  mem.delete(REPLY_READ_KEY);
+  const ps = createReplyRead(); ps.start('p', 5);
+  ps.mark('p', ['20:0'], cards); ps.mark('p', [10], cards);
+  assert.deepEqual(JSON.parse(mem.get(REPLY_READ_KEY)).p, { floor: 10, read: ['20:0'] }, 'saved: the floor before the split reply, its read part');
+  const back = createReplyRead().of('p');
+  assert.deepEqual(cards.map((c) => replyUnread(back, c)), [false, false, true], 'after a reload: only the other part is New');
+  // Another window read the other part: the write merges the part ids.
+  const win = JSON.parse(mem.get(REPLY_READ_KEY)); win.p.read.push('30:0'); mem.set(REPLY_READ_KEY, JSON.stringify(win));
+  ps.mark('p', ['20:1'], cards); assert.deepEqual(JSON.parse(mem.get(REPLY_READ_KEY)).p, { floor: 20, read: ['30:0'] }, 'merged with the other window, sorted by seq');
+  mem.delete(REPLY_READ_KEY);
+  // The prompt asks for it.
+  assert.match(read('index.js'), /- One reply card holds one topic: the reply cards show each part of a reply between lines of only \\`---\\` as its own card\. When a reply must also report an independent topic, put a line \\`---\\` before it and start that part with its own bold line[^\n]*Do not add a side topic that needs nothing from the user\./, 'the reply-form rule in the assistant prompt');
+}
+
+// The chat's feed (Furkan, 2026-11-26: "yeni gelen kart en altta gözüksün"): time order, the oldest on top, the newest
+// at the bottom; the newest REPLY_MAX cards; the shadow on the newest unread card. The canvas island keeps replyOrder.
+{
+  const t = (k, v) => (v === undefined ? k : `${k}:${JSON.stringify(v)}`);
+  const store = (v) => ({ subscribe: () => () => {}, getSnapshot: () => v });
+  const many = Array.from({ length: REPLY_MAX + 3 }, (_, i) => step(i + 1, 0, (i + 1) * 10, [txt(`Yanıt ${i + 1}.`)]));
+  const chat = chatOf(many);
+  const replies = { chatOf: () => ({ subscribe: () => () => {}, getSnapshot: () => chat }), rollback: { subscribe: () => () => {}, of: () => undefined },
+    check: { ask() {}, subscribe: () => () => {}, ready: () => true }, read: { subscribe: () => () => {}, of: () => ({ floor: 395, read: [410, 430] }), start() {}, mark() {}, all() {} } };
+  const host = { querySelector: () => null, getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600, bottom: 600 }), setAttribute() {}, removeAttribute() {} };
+  // useReplyCards' chat and ready, then the feed's box and its Load earlier floor (the order of the hook calls): floor 0
+  // is the feed after every Load earlier click (test the first page in the Load earlier block below).
+  hooks = []; hi = 0;
+  const states = [chat, true, { left: 0, top: 0, width: 800, height: 500 }, 0];
+  const React0 = React.useState; React.useState = (v) => [states.length > 0 ? states.shift() : typeof v === 'function' ? v() : v, () => {}];
+  const tree = ReplyFeed({ sessionId: 's', host, replies, shown: store(false), statusSeats: { subscribe: () => () => {}, getSnapshot: () => new Map() }, offers: { subscribe: () => () => {}, of: () => undefined, choiceOf: () => undefined }, picks: {}, locale: () => 'tr', t });
+  React.useState = React0;
+  const arts = find(tree, (n) => n.t === ReplyCard);
+  const seqs = arts.map((n) => n.p.card.seq);
+  assert.deepEqual(seqs, many.slice(-REPLY_MAX).map((n) => n.data.finalNode.seq), 'the newest REPLY_MAX cards, oldest on top, newest at the bottom');
+  assert.deepEqual(arts.filter((n) => n.p.newest).map((n) => n.p.card.seq), [420], 'the shadow on the newest unread card');
+  assert.deepEqual(arts.filter((n) => n.p.unread).map((n) => n.p.card.seq), [400, 420], 'unread marks stay');
+  // A split reply at the limit shows whole: the limit counts replies (seqs), not cards.
+  {
+    const split = chatOf([...many.slice(-REPLY_MAX), step(99, 0, 990, [txt('Bir.\n---\nİki.')])]);
+    hooks = []; hi = 0; const st = [split, true, { left: 0, top: 0, width: 800, height: 500 }, 0]; const R0 = React.useState;
+    React.useState = (v) => [st.length > 0 ? st.shift() : typeof v === 'function' ? v() : v, () => {}];
+    const r2 = { ...replies, chatOf: () => ({ subscribe: () => () => {}, getSnapshot: () => split }) };
+    const t2 = ReplyFeed({ sessionId: 's', host, replies: r2, shown: store(false), statusSeats: { subscribe: () => () => {}, getSnapshot: () => new Map() }, offers: { subscribe: () => () => {}, of: () => undefined, choiceOf: () => undefined }, picks: {}, locale: () => 'tr', t });
+    React.useState = R0;
+    const a2 = find(t2, (n) => n.t === ReplyCard).map((n) => n.p.card.key);
+    assert.equal(a2.length, REPLY_MAX + 1, 'the newest 40 replies with both parts of the split one'); assert.deepEqual(a2.slice(-2), ['990:0', '990:1']);
+    assert.equal(text(find(t2, (n) => n.p?.className === 'cp-rf-note')[0]), `replies.more:${JSON.stringify({ count: 1 })}`, 'the hidden replies (41 replies, the newest 40 show)');
+    assert.equal(find(t2, (n) => n.p?.['data-reply-unread'] !== undefined)[0].p['data-reply-unread'], String(find(t2, (n) => n.t === ReplyCard && n.p.unread).length), 'the unread count: the shown cards');
+  }
+  const note = find(tree, (n) => n.p?.className === 'cp-rf-note');
+  assert.equal(text(note[0]), `replies.more:${JSON.stringify({ count: 3 })}`, 'the note of the older replies is above the cards');
+  const inner = find(tree, (n) => n.p?.className === 'cp-rf-in')[0];
+  assert.ok(inner.c.flat(Infinity).indexOf(note[0]) < inner.c.flat(Infinity).indexOf(arts[0]), 'the note comes first');
+  // A structure check only (the mock React runs no effects); test/browser-reply-order.mjs measures the scroll.
+  assert.match(src, /follow\.current = true; f\.scrollTop = f\.scrollHeight; \}, \[box === null, newestKey\]\)/, 'structure: the scroll effect runs when the feed opens and when a new card comes');
+  hooks = []; hi = 0; pending = []; // the mock runs no effects
+}
+
+// The pointer (Furkan, 2026-11-26): text in a card has the text cursor and can be selected; only controls have the hand.
+{
+  assert.match(REPLY_CSS, /\.cp-rc\{[^}]*cursor:default\}/, 'the card frame: the arrow');
+  assert.doesNotMatch(REPLY_CSS.replace(/\.cp-cv-isl \.cp-rc\{cursor:pointer\}/, ''), /\.cp-rc\{[^}]*cursor:pointer/, 'no hand on the whole card (only on a canvas island, where a click opens it)');
+  assert.match(REPLY_CSS, /:is\(\[data-composer-plus-reply-feed\],\.cp-cv-side\) \.cp-rc\{-webkit-user-select:text;user-select:text\}/, 'text can be selected in the feed and the side panel');
+  assert.match(REPLY_CSS, /:is\(\[data-composer-plus-reply-feed\],\.cp-cv-side\) \.cp-rc :is\(h3,\.cp-rc-top,\.cp-rc-for,\.cp-rc-body,\.cp-rc-ok>p,ol\.cp-rc-opts,\.cp-rc-details>div\)\{cursor:text\}/, 'the text cursor over text');
+  assert.match(REPLY_CSS, /\.cp-rc :is\(button,a\[href\],summary\)\{cursor:pointer\}/, 'the hand over buttons, links and the summary');
+}
+
+// The chat toggle in the status panel header (Furkan, 2026-11-26: "sohbeti göster butonunu da simgeye dönüştür"): an icon
+// button of the header row (cp-td-btn), named by aria-label and title in the UI language, the same click.
+{
+  const at = src.indexOf('const chatLabel = '); const code = src.slice(at, src.indexOf('\n', src.indexOf('lineIcon(', at)));
+  assert.match(code, /className: 'cp-td-btn'/, 'the class of the header icons'); assert.match(code, /'aria-label': chatLabel, title: chatLabel/, 'named for hover and screen readers');
+  assert.match(code, /const chatLabel = t\(chatIsShown \? 'replies\.hideChat' : 'replies\.showChat'\)/, 'the language pack label');
+  assert.match(code, /onClick: \(\) => chatShown\.set\(!chatIsShown\)/, 'the same click'); assert.match(code, /lineIcon\(/, 'a line icon (no text)');
+  const row = src.slice(src.indexOf("React.createElement('div', { className: 'cp-st-top' },"), src.indexOf('spokenSpan),', src.indexOf("React.createElement('div', { className: 'cp-st-top' },")));
+  assert.ok(row.indexOf('chatToggle,') > row.indexOf('data-composer-plus-canvas-open') && row.indexOf('chatToggle,') < row.indexOf('data-place-button'), 'in the icon row, between the canvas and the place icons');
+}
+
+// One title rule for the Mac and Tether (test/fixtures/reply-titles.json; Tether: testReplyTitleMatchesTheMac).
+{
+  const { cases } = JSON.parse(read('test/fixtures/reply-titles.json'));
+  for (const c of cases) { const p = replyParts(c.text); assert.deepEqual([p.title, p.forYou], [c.title, c.forYou], c.name); }
+  const core = read('tether/ios/Sources/Core.swift'), ui = read('tether/ios/Sources/UI.swift');
+  assert.match(core, /func replyHead\(_ text: String\) -> ReplyHead/, 'the Swift port');
+  assert.match(ui, /if damon, l\.kind == \.assistant \{\s*let parts = replySections\(l\.text\)/, 'Tether: the Damon chat draws one card per topic of a reply');
+  assert.match(ui, /\} else if damon, l\.kind == \.error \{ replyCard \{/, 'Tether: a failed turn is a card');
+  assert.match(core, /func replySections\(_ text: String\) -> \[String\]/, 'Tether: the split port (testReplySectionsMatchTheMac)');
+  assert.match(ui, /if last, l\.kind == \.assistant, let o = c\.optionOffer/, 'Tether: the options under the last topic');
+  assert.match(ui, /if card \{ cardHead\(title: head\.title, forYou: head\.forYou\) \}/, 'Tether: the card shows the title and the For you line');
+  assert.match(ui, /Text\(verbatim: title\)[^\n]*\.textSelection\(\.enabled\)/, 'Tether: the title can be selected');
+  assert.match(ui, /private var shown: String \{ line\.kind == \.assistant \? part \?\? line\.text : line\.text \}/, 'Tether: a long press on a topic card uses its topic (review 7)');
+  for (const use of ['string = [shown, line.output]', 'ShareLink(item: shown)', 'onQuote(shown)', 'SelectableText(text: shown)']) assert.ok(ui.includes(use), `Tether menu: ${use}`);
+}
+
 // Load earlier (Furkan, 2026-11-26: "hepsi birden gözükmesin öncekini yükle"): the feed draws one page of REPLY_PAGE
-// replies first (and every unread card); each click adds one page; the order, the read marks and the New marks stay; a new
-// reply shows at once; the first card on screen keeps its place; the label is dsh's own.
+// replies first (and every unread card); each click adds one older page above them; the time order (the newest at the
+// bottom), the read marks and the New marks stay; a new reply shows at once; the first card on screen keeps its place;
+// the label is dsh's own.
 {
   assert.equal(REPLY_PAGE, 8, 'the same 8 as the first view of the assistant chat'); assert.equal(REPLY_MAX, 40);
-  // replyPage: before a click the newest 8 replies by seq (the parts of one reply stay together), in the given order;
-  // after a click every reply from the floor up (`next`: the floor after one more click).
-  const list = Array.from({ length: 20 }, (_, i) => ({ seq: 200 - i * 10 })); list.splice(1, 0, { seq: 190, part: 2 }); // 20 replies, one in 2 parts
+  // replyPage, in the feed's time order (the oldest first): before a click the newest 8 replies by seq (the parts of one
+  // reply stay together), in the given order; after a click every reply from the floor up (`next`: the floor after one
+  // more click).
+  const list = Array.from({ length: 20 }, (_, i) => ({ seq: 10 + i * 10 })); list.splice(19, 0, { seq: 190, part: 2 }); // 20 replies, one in 2 parts
   let p = replyPage(list);
-  assert.deepEqual(p.shown.map((c) => c.seq), [200, 190, 190, 180, 170, 160, 150, 140, 130], 'the first 8 replies, both parts of one');
+  assert.deepEqual(p.shown.map((c) => c.seq), [130, 140, 150, 160, 170, 180, 190, 190, 200], 'the newest 8 replies, both parts of one, oldest first');
   assert.deepEqual([p.older, p.next, p.held, p.more], [true, 50, false, 0], 'the next floor: 8 older replies');
   p = replyPage(list, p.next); assert.equal(p.shown.length, 17); assert.equal(p.next, 10, 'the last page has 4 replies');
+  assert.deepEqual(p.shown.slice(-9), replyPage(list).shown, 'the first page stays at the bottom');
   p = replyPage(list, p.next); assert.deepEqual([p.shown.length, p.older], [21, false], 'all shown: no button');
   assert.deepEqual([replyPage([]).shown, replyPage([]).older, replyPage([]).next], [[], false, null], 'no reply');
   assert.deepEqual(replyPage(list.slice(0, 5)).shown.length, 5, 'less than a page: all, no button'); assert.equal(replyPage(list.slice(0, 5)).older, false);
   // A new reply after a click: it shows, no loaded card hides.
-  assert.equal(replyPage([{ seq: 210 }, ...list], 50).shown.length, 18, 'a new reply comes, the loaded ones stay');
+  assert.equal(replyPage([...list, { seq: 210 }], 50).shown.length, 18, 'a new reply comes, the loaded ones stay');
   // A rollback took the newest replies after a click: still at least one page.
-  assert.deepEqual(replyPage(list.filter((c) => c.seq <= 100), 90).shown.map((c) => c.seq), [100, 90, 80, 70, 60, 50, 40, 30], 'withdrawn after a click: the newest page');
-  // By time, in the given order: an old read card at the top of the order waits for its page.
-  const mixed = [{ seq: 5 }, { seq: 6 }, ...Array.from({ length: 9 }, (_, i) => ({ seq: 100 - i }))];
-  assert.deepEqual(replyPage(mixed).shown.map((c) => c.seq), [100, 99, 98, 97, 96, 95, 94, 93], 'the newest 8 replies, in the given order');
+  assert.deepEqual(replyPage(list.filter((c) => c.seq <= 100), 90).shown.map((c) => c.seq), [30, 40, 50, 60, 70, 80, 90, 100], 'withdrawn after a click: the newest page');
+  // By time, not by place: an old read card waits for its page.
+  const mixed = [{ seq: 5 }, { seq: 6 }, ...Array.from({ length: 9 }, (_, i) => ({ seq: 92 + i }))];
+  assert.deepEqual(replyPage(mixed).shown.map((c) => c.seq), [93, 94, 95, 96, 97, 98, 99, 100], 'the newest 8 replies, in the given order');
   assert.deepEqual(replyPage(mixed, replyPage(mixed).next).shown.map((c) => c.seq), mixed.map((c) => c.seq), 'page 2: all, in the given order');
   // An old unread card never waits behind the button: the cut goes down to it (held: the feed keeps that floor).
   p = replyPage(mixed, null, (c) => c.seq === 6);
-  assert.deepEqual([p.shown.map((c) => c.seq), p.cut, p.held, p.older], [[6, 100, 99, 98, 97, 96, 95, 94, 93, 92], 6, true, true], 'down to the old unread card');
-  // The 40 cap by seq, in either order (newest first, or newest at the bottom); the rest is only in the chat.
-  const many = Array.from({ length: 45 }, (_, i) => ({ seq: 1000 - i }));
+  assert.deepEqual([p.shown.map((c) => c.seq), p.cut, p.held, p.older], [[6, 92, 93, 94, 95, 96, 97, 98, 99, 100], 6, true, true], 'down to the old unread card');
+  // The 40 cap by seq, in either order (newest at the bottom, or newest first); the rest is only in the chat.
+  const many = Array.from({ length: 45 }, (_, i) => ({ seq: 956 + i }));
   for (const order of [many, [...many].reverse()]) {
     let q = replyPage(order); for (let n = 0; q.older && n < 10; n++) q = replyPage(order, q.next);
     assert.deepEqual([q.shown.length, Math.min(...q.shown.map((c) => c.seq)), q.older, q.more], [40, 961, false, 5], 'the newest 40 replies, then the note');
   }
-  assert.equal(replyPage(many, null, (c) => c.seq === 955).shown.length, 8, 'an unread card past the 40 cap is only in the chat');
+  p = replyPage(many, null, (c) => c.seq === 958);
+  assert.deepEqual([p.shown.length, p.held], [8, false], 'an unread card past the 40 cap is only in the chat: it does not open the 40');
 
   // ReplyFeed with 20 replies (seq 10…200); the first view read up to 150, and 170 was read with a click.
   const nodes = []; for (let n = 1; n <= 20; n++) nodes.push(step(n, 0, n * 10, [txt(`**Yanıt ${n}.** Gövde.`)]), tail(n, n * 10));
   const chat = chatOf(nodes); let snap = chat; const subs = new Set();
   const source = { getSnapshot: () => snap, subscribe: (fn) => { subs.add(fn); return () => subs.delete(fn); } };
-  const store = createReplyRead(); store.start('feed', 150); store.mark('feed', [170], [160, 170, 180, 190, 200]);
+  const store = createReplyRead(); store.start('feed', 150); store.mark('feed', [170], [160, 170, 180, 190, 200].map((seq) => ({ seq, id: seq })));
   const replies = { chatOf: () => source, rollback: { subscribe: () => () => {}, of: () => ({ withdrawn: [], inherited: 0 }) }, check: { ask() {}, subscribe: () => () => {}, ready: () => true }, read: store };
   const scroll = { getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, bottom: 600 }), querySelector: () => null };
   const host = { querySelector: (q) => (q === '[data-conversation-scroll]' ? scroll : null), getBoundingClientRect: () => ({ left: 0, top: 0 }), setAttribute() {}, removeAttribute() {} };
@@ -254,51 +406,56 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   const props = { sessionId: 'feed', host, replies, shown: flag(false), statusSeats: { subscribe: () => () => {}, getSnapshot: () => new Map() }, offers: { subscribe: () => () => {}, of: () => undefined, choiceOf: () => undefined }, picks: {}, locale: () => 'tr', t: (k, v) => (v === undefined ? k : `${k}:${JSON.stringify(v)}`) };
   hooks = []; pending = [];
   const render = () => { for (let n = 0; n < 6; n++) { hi = 0; const out = ReplyFeed(props); const run = pending; pending = []; for (const f of run) f(); if (run.length === 0) return out; } throw Error('no stable draw'); };
-  const cardsOf = (out) => find(out, (n) => n.t === ReplyCard).map((n) => ({ seq: n.p.card.seq, unread: n.p.unread, first: n.p.first }));
+  const cardsOf = (out) => find(out, (n) => n.t === ReplyCard).map((n) => ({ seq: n.p.card.seq, unread: n.p.unread, newest: n.p.newest }));
   const olderOf = (out) => find(out, (n) => n.t === 'button' && n.p['data-reply-older'] !== undefined)[0];
   let out = render();
-  // Unread first (200, 190, 180, 160), then the read ones, newest first: only the first 8 show.
-  assert.deepEqual(cardsOf(out).map((c) => c.seq), [200, 190, 180, 160, 170, 150, 140, 130], 'one page: the first 8 cards of the order');
-  assert.deepEqual(cardsOf(out).filter((c) => c.unread).map((c) => c.seq), [200, 190, 180, 160], 'the New marks');
-  assert.equal(cardsOf(out)[0].first, true, 'the newest unread card is first');
+  // Time order (the oldest on top, the newest at the bottom): only the newest 8 replies show.
+  assert.deepEqual(cardsOf(out).map((c) => c.seq), [130, 140, 150, 160, 170, 180, 190, 200], 'one page: the newest 8 cards, in time order');
+  assert.deepEqual(cardsOf(out).filter((c) => c.unread).map((c) => c.seq), [160, 180, 190, 200], 'the New marks');
+  assert.deepEqual(cardsOf(out).filter((c) => c.newest).map((c) => c.seq), [200], 'the shadow on the newest unread card (at the bottom)');
   assert.equal(text(find(out, (n) => n.p?.['data-reply-unread'] !== undefined)[0]), 'replies.unread:{"count":4}', 'the unread count');
   let older = olderOf(out); assert.equal(text(older), 'replies.loadEarlier', 'no dsh text: our copy'); assert.equal(older.p['data-reply-older'], '8');
-  // The button is at the older end: after the last card.
+  // The button is at the older end: under the header, above the cards.
   const inner = find(out, (n) => n.p?.className === 'cp-rf-in')[0].c.flat(Infinity).filter((c) => c !== null);
-  assert.equal(inner.findIndex((c) => c.p?.className === 'cp-rf-older'), inner.length - 1, 'below the cards, at the older end');
+  assert.deepEqual([inner.findIndex((c) => c.p?.className === 'cp-rf-older'), inner.findIndex((c) => c.t === ReplyCard)], [1, 2], 'above the cards, at the older end');
   // The click keeps the first card on screen at its place (a fake feed: the card moves 200 px down as cards come above).
   const section = find(out, (n) => n.t === 'section')[0]; let cardTop = 100; const focused = [];
   const fakeCard = (seq) => ({ isConnected: true, dataset: { reply: String(seq) }, getBoundingClientRect: () => ({ top: cardTop, bottom: cardTop + 50 }), focus: () => focused.push(seq) });
-  const feedEl = { scrollTop: 40, getBoundingClientRect: () => ({ top: 0 }), querySelector: () => null, querySelectorAll: () => [fakeCard(200), fakeCard(120), fakeCard(40)] };
+  const feedEl = { scrollTop: 40, getBoundingClientRect: () => ({ top: 0 }), querySelector: () => null, querySelectorAll: () => [fakeCard(10), fakeCard(40), fakeCard(120), fakeCard(200)] };
   section.p.ref.current = feedEl;
   const before = cardsOf(out);
   older.p.onClick({ currentTarget: older }); cardTop = 300; out = render();
   assert.equal(feedEl.scrollTop, 240, 'the first card on screen keeps its place');
-  assert.deepEqual(cardsOf(out).slice(0, 8), before, 'the first page stays as it was (order, read and New marks)');
-  assert.deepEqual(cardsOf(out).map((c) => c.seq).slice(8), [120, 110, 100, 90, 80, 70, 60, 50], 'the next 8');
+  assert.deepEqual(cardsOf(out).slice(-8), before, 'the first page stays as it was, at the bottom (order, read and New marks)');
+  assert.deepEqual(cardsOf(out).map((c) => c.seq).slice(0, 8), [50, 60, 70, 80, 90, 100, 110, 120], 'the next 8, above them');
   older = olderOf(out); assert.equal(older.p['data-reply-older'], '16');
-  // The last click with the keyboard: the button goes, the focus goes to the first card that the click added.
+  // The last click with the keyboard: the button goes, the focus goes to the first card that the click added (in the
+  // list's order: where the button was).
   globalThis.document.activeElement = older; older.p.onClick({ currentTarget: older }); out = render(); delete globalThis.document.activeElement;
-  assert.deepEqual(focused, [40], 'the focus on the first card that the last click added (below seq 50)'); section.p.ref.current = null;
+  assert.deepEqual(focused, [10], 'the focus on the first card that the last click added (below seq 50)'); section.p.ref.current = null;
   assert.equal(cardsOf(out).length, 20); assert.equal(olderOf(out), undefined, 'all shown: no button');
   assert.equal(find(out, (n) => n.p?.className === 'cp-rf-note').length, 0, 'no note under 40 replies');
   // Read marks still work on a card of a later page; a new reply shows at once.
   find(out, (n) => n.t === ReplyCard && n.p.card.seq === 160)[0].p.onRead(160); out = render();
   assert.equal(cardsOf(out).find((c) => c.seq === 160).unread, false, 'a click reads a card');
   snap = chatOf([...nodes, step(21, 0, 210, [txt('**Yeni yanıt.**')]), tail(21, 210)]); for (const fn of subs) fn(); out = render();
-  assert.deepEqual(cardsOf(out)[0], { seq: 210, unread: true, first: true }, 'a new reply shows at once, New, on top');
+  assert.deepEqual([cardsOf(out).length, cardsOf(out).at(-1)], [21, { seq: 210, unread: true, newest: true }], 'a new reply shows at once, New, at the bottom; the loaded cards stay');
   // The cards of a new chat column start with one page again (a new ReplyFeed).
   hooks = []; out = render(); assert.equal(cardsOf(out).length, 8, 'a new feed: one page');
   // An old unread card shows on the first page (no New card behind the button), and stays after it is read.
-  snap = chat; store.all('old', 20); store.mark('old', nodes.filter((n) => n.kind === 'assistant-step' && n.data.finalNode.seq > 30).map((n) => n.data.finalNode.seq), nodes.filter((n) => n.kind === 'assistant-step').map((n) => n.data.finalNode.seq));
+  snap = chat; const all = nodes.filter((n) => n.kind === 'assistant-step').map((n) => ({ seq: n.data.finalNode.seq, id: n.data.finalNode.seq }));
+  store.all('old', 20); store.mark('old', all.filter((c) => c.seq > 30).map((c) => c.id), all);
   props.sessionId = 'old'; hooks = []; out = render();
-  assert.deepEqual(cardsOf(out).map((c) => c.seq), [30, 200, 190, 180, 170, 160, 150, 140, 130, 120, 110, 100, 90, 80, 70, 60, 50, 40], 'the old unread card and every card above it');
+  assert.deepEqual(cardsOf(out).map((c) => c.seq), [30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200], 'the old unread card and every card after it');
   find(out, (n) => n.t === ReplyCard && n.p.card.seq === 30)[0].p.onRead(30); out = render();
-  assert.deepEqual([cardsOf(out).length, cardsOf(out).at(-1)], [18, { seq: 30, unread: false, first: false }], 'read, it stays');
+  assert.deepEqual([cardsOf(out).length, cardsOf(out)[0]], [18, { seq: 30, unread: false, newest: false }], 'read, it stays');
   assert.equal(olderOf(out).p['data-reply-older'], '18', 'Load earlier for the 2 older ones');
   // dsh's own label (its chat.loadOlder now, e.g. dsh 0.2.2's German "Früher laden"), else our copy.
   props.loadOlder = () => 'Früher laden'; out = render(); assert.equal(text(olderOf(out)), 'Früher laden', "dsh's own label");
   props.sessionId = 'feed'; delete props.loadOlder;
+  // The click stops the follow to the bottom, so the cards that come above do not move the feed (a structure check: the
+  // mock runs no ResizeObserver; test/browser-reply-pages.mjs measures it).
+  assert.match(src, /follow\.current = false; \/\/ the cards that come above must not move the feed to its bottom\n\s*setFloor\(page\.next\);/, 'structure: Load earlier stops the follow');
 }
 
 // The texts: replies.loadEarlier is our language packs' copy of dsh's chat.loadOlder (the label when dsh has no text).

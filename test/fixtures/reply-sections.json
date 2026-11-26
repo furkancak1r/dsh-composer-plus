@@ -1,0 +1,19 @@
+{
+  "about": "The topics of a Damon reply: one card per part between `---` lines (client.js replySections and its Swift port replySections in tether/ios/Sources/Core.swift). test/reply-cards.test.mjs and Tether's testReplySectionsMatchTheMac read this table.",
+  "cases": [
+    { "name": "no separator: one card", "text": "**Rapor hazır.** Testler geçti.\n\nSenden: dosyaları güncelle.", "parts": ["**Rapor hazır.** Testler geçti.\n\nSenden: dosyaları güncelle."] },
+    { "name": "two topics", "text": "**Kur kolonu dört firmada aynı.** Dosyalar hazır.\n\nSenden: 4 raporu güncelle.\n\n---\n\n**Yerel model 11 dakika kapalı kaldı.** Şu an açık.", "parts": ["**Kur kolonu dört firmada aynı.** Dosyalar hazır.\n\nSenden: 4 raporu güncelle.", "**Yerel model 11 dakika kapalı kaldı.** Şu an açık."] },
+    { "name": "--- in a code block does not split", "text": "**Çıktı.**\n\n```text\nbaşlık\n---\nsatır\n```", "parts": ["**Çıktı.**\n\n```text\nbaşlık\n---\nsatır\n```"] },
+    { "name": "--- in a tilde code block does not split", "text": "A.\n~~~\n---\n~~~\nB.", "parts": ["A.\n~~~\n---\n~~~\nB."] },
+    { "name": "--- in an onay block does not split", "text": "**Onay gerekiyor.**\n\n```onay\nOnaylıyorum (canlı değil): dal main'e alınsın.\n---\n```", "parts": ["**Onay gerekiyor.**\n\n```onay\nOnaylıyorum (canlı değil): dal main'e alınsın.\n---\n```"] },
+    { "name": "three topics, longer and indented rules", "text": "Bir.\n -----\nİki.\n   ---   \nÜç.", "parts": ["Bir.", "İki.", "Üç."] },
+    { "name": "an empty part is left out", "text": "---\n\nBir.\n\n---\n---\n\nİki.\n\n---", "parts": ["Bir.", "İki."] },
+    { "name": "only separators: the reply as it is", "text": "---", "parts": ["---"] },
+    { "name": "not a separator: text after the hyphens, a list item, four spaces", "text": "A.\n--- not alone\n- - -\n    ---\nB.", "parts": ["A.\n--- not alone\n- - -\n    ---\nB."] },
+    { "name": "a setext heading underline is a separator too", "text": "Başlık\n---\nMetin.", "parts": ["Başlık", "Metin."] },
+    { "name": "an unclosed code block keeps the rest", "text": "A.\n```\n---\nB.", "parts": ["A.\n```\n---\nB."] },
+    { "name": "the options stay with the last part", "text": "**Kur kolonu hazır.**\n\n---\n\n**Ne zaman?**\n\n**Seçenekler:**\n1. Hemen\n2. Yarın", "parts": ["**Kur kolonu hazır.**", "**Ne zaman?**\n\n**Seçenekler:**\n1. Hemen\n2. Yarın"] },
+    { "name": "CRLF line ends", "text": "A.\r\n---\r\nB.", "parts": ["A.", "B."] },
+    { "name": "a backtick fence with a backtick in its info is no fence", "text": "A.\n``` a`b\n---\nB.", "parts": ["A.\n``` a`b", "B."] }
+  ]
+}
