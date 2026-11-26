@@ -24,6 +24,18 @@ Scope: Tether only (and shared tables, docs). No phone install, no signing, no l
   Out: /Users/furkancakir/Damon/Belgeler/Composer Plus/tether-esitleme-20261126/ (tether-damon-read.png, tether-damon-pages.png).
 
 ## Last checkpoint
+- 2026-11-26 23:1x (second chat). Review 2 fixed in 7847b9d6 (held cut `initial: true`, 13 README limits sentences, one
+  `replyCard` helper with Mark as read only on a New card, jump without the 100 ms sleep, FEATURES.md images gap row).
+  `npm test` exit 0; iOS 128 tests, 0 failures; simulator build BUILD SUCCEEDED (7847b9d6).
+  - Review 3 (7847b9d6, separate subagent review-guard-3): P1 0, P2 0, P3 2, P4 5 -> fixed in the next commit: optionPicks
+    docs (13 `how`, llms, FEATURES row: Tether hides the list too); cards of the shown rows (`cardCache.cards(all)`,
+    `replyCards([ChatRow])`; a `[quiet]` reply has no card id); `replyPage` default `max: .max` (the table test passes
+    `replyMax`); doc comment of `startReplyMarks`; FEATURES first reply is New; `optionListStart` (one end-of-list scan);
+    the scroll after a page change waits for the next body (`scrollAfterPage`, `.onChange(of: scrollAfterPage == nil ?
+    nil : rows.first?.id)`), not a main-queue hop.
+  - Open steps: review round 4 on the final diff (repeat until a round has no finding); `git fetch`, merge origin/main if
+    it moved (keep both sides in tether/FEATURES.md and this plan); npm test, simulator build, iOS tests; screenshots of
+    the merged code with new names; merge into main (--no-ff), push. No signing, iPhone install, live copy or release.
 - 2026-11-26 21:3x (about 165 tool calls: handover to a new chat). HEAD b0109d88 + this plan commit.
   - Review 1 (759df990): P1 0, P2 2, P3 4, P4 5 -> all fixed in b0109d88 (replyRead in perMacKeys, first row found again
     by seq after a dsh page, jump floor only below the cut, find shows all loaded rows, ReplyCardCache, VoiceOver Mark as

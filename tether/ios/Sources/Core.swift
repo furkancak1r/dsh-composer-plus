@@ -760,8 +760,7 @@ func parseOptions(_ text: String) -> [ChatOption] {
     let blank = { (l: String) in l.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     while let l = lines.last, blank(l) { lines.removeLast() }
     // From the end: the list (items, indented lines, blank lines); the line above it must be the heading.
-    var at = lines.count - 1
-    while at >= 0, blank(lines[at]) || leadingBlank(lines[at]) > 0 || groups(optionItemRE, lines[at]) != nil { at -= 1 }
+    let at = optionListStart(lines) - 1
     guard at >= 0, isOptionHeading(lines[at]) else { return [] }
     // A heading inside a code block is code. A fence inside the list is indented: it is part of an item.
     var fenced = false
@@ -1086,8 +1085,7 @@ func replyHead(_ text: String) -> ReplyHead {
     var out = ReplyHead(), opts = Set<Int>()
     out.options = parseOptions(lines.enumerated().filter { !skip.contains($0.offset) }.map(\.element).joined(separator: "\n"))
     if !out.options.isEmpty {
-        var at = lines.count - 1
-        while at >= 0, skip.contains(at) || blank(lines[at]) || lines[at].first == " " || lines[at].first == "\t" || groups(optionItemRE, lines[at]) != nil { at -= 1 }
+        let at = optionListStart(lines, skip: skip) - 1
         if at >= 0 { opts = Set(at..<lines.count).subtracting(skip); skip.formUnion(opts) }
     }
     var body: [String] = [], text = false, code = false, i = 0
@@ -1123,9 +1121,15 @@ func replyHead(_ text: String) -> ReplyHead {
 func dropOptionList(_ text: String) -> String {
     guard !parseOptions(text).isEmpty else { return text }
     let lines = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n").components(separatedBy: "\n")
-    var at = lines.count - 1
-    while at >= 0, lines[at].trimmingCharacters(in: jsTrim).isEmpty || lines[at].first == " " || lines[at].first == "\t" || groups(optionItemRE, lines[at]) != nil { at -= 1 }
+    let at = optionListStart(lines) - 1
     return at < 0 ? text : lines[...at].joined(separator: "\n")
+}
+/// The option list at the end of `lines` (`parseOptions`' scan: items, indented lines and blank lines; `skip`: lines
+/// that are not text, such as a closed `onay` block): the index of its first line, right after the heading.
+private func optionListStart(_ lines: [String], skip: Set<Int> = []) -> Int {
+    var at = lines.count - 1
+    while at >= 0, skip.contains(at) || lines[at].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || leadingBlank(lines[at]) > 0 || groups(optionItemRE, lines[at]) != nil { at -= 1 }
+    return at + 1
 }
 
 /// Damon reply cards: the read marks and the pages, ported from client.js (`markReplies`, `replyUnread`, `replyPage`;
@@ -1156,13 +1160,13 @@ func markReplies(_ m: ReplyMark, _ ids: [String], _ cards: [ReplyCardID]) -> Rep
 /// Load earlier (Mac, 2026-11-26): first the cards of the newest `replyPageSize` replies, and every unread card among
 /// the newest `replyMax` replies; each tap adds `replyPageSize` older replies. `cut`: the oldest seq shown; `held`: an
 /// unread card holds the cut below the floor (the view keeps `cut` as its floor, so the card stays after you read it);
-/// `older`: Load earlier has more; `next`: the floor after one more tap; `more`: the replies past `replyMax` (always 0 with
-/// the phone's `max: .max`; kept for the shared table).
+/// `older`: Load earlier has more; `next`: the floor after one more tap; `more`: the replies past the cap (always 0 on
+/// the phone; kept for the shared table).
 let replyPageSize = 8, replyMax = 40
 struct ReplyPage: Equatable { var cut: Int; var held: Bool; var older: Bool; var next: Int?; var more: Int }
-/// `max`: the Mac's cap (its older replies are in the hidden chat); the phone passes `.max`, because it pages on through
-/// dsh's history (Client.loadOlder) and has no other place for older replies.
-func replyPage(_ cards: [ReplyCardID], floor: Int? = nil, unread: (ReplyCardID) -> Bool = { _ in false }, max cap: Int = replyMax) -> ReplyPage {
+/// `max`: no cap on the phone, because it pages on through dsh's history (Client.loadOlder) and has no other place for
+/// older replies; the Mac caps at `replyMax` (its older replies are in the hidden chat), which the shared table checks.
+func replyPage(_ cards: [ReplyCardID], floor: Int? = nil, unread: (ReplyCardID) -> Bool = { _ in false }, max cap: Int = .max) -> ReplyPage {
     let all = Set(cards.map(\.seq)).sorted(by: >), seqs = Array(all.prefix(cap))
     let base = min(floor ?? .max, seqs.count >= replyPageSize ? seqs[replyPageSize - 1] : .min)
     let low = seqs.last ?? .max
@@ -1180,14 +1184,16 @@ func replyCards(_ t: [Line]) -> [ReplyCardID] {
         return l.kind == .error ? [ReplyCardID(seq: s, id: "\(s)")] : replyCardIDs(seq: s, parts: replySections(l.text).count)
     }
 }
-/// `replyCards` of the drawn lines, kept while they are the same lines (the Mac's `replySig`): the rows only grow at the
-/// end or are made again with new ids (a rebuild), so the count and the first and last ids name them.
+/// The cards of the shown rows: the lines that a folded turn hides are no cards (no New mark, no count, no page cut).
+func replyCards(_ rows: [ChatRow]) -> [ReplyCardID] { replyCards(rows.compactMap { if case .line(let l) = $0 { l } else { nil } }) }
+/// `replyCards` of the shown rows, kept while they are the same rows (the Mac's `replySig`): the rows only grow at the
+/// end, fold, or are made again with new ids (a rebuild), so the count and the first and last ids name them.
 final class ReplyCardCache {
     private var key: (Int, UUID?, UUID?)?, value: [ReplyCardID] = []
-    func cards(_ t: [Line]) -> [ReplyCardID] {
-        let k = (t.count, t.first?.id, t.last?.id)
+    func cards(_ rows: [ChatRow]) -> [ReplyCardID] {
+        let k = (rows.count, rows.first?.id, rows.last?.id)
         if let key, key == k { return value }
-        key = k; value = replyCards(t); return value
+        key = k; value = replyCards(rows); return value
     }
 }
 /// Load earlier: the rows from the first card at or after seq `cut`, with the rows just before it (its question and
@@ -2038,9 +2044,9 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     private static func loadReplyMarks(_ key: String) -> [String: ReplyMark] {
         UserDefaults.standard.data(forKey: key).flatMap { try? JSONDecoder().decode([String: ReplyMark].self, from: $0) } ?? [:]
     }
-    /// The first view of chat `sid`: every reply up to seq `top` counts as read (client.js createReplyRead `start`).
     /// The newest event seq of the open chat (its first snapshot, then each live event).
     var lastSeq: Int? { events.last?["seq"] as? Int }
+    /// The first view of chat `sid`: every reply up to seq `top` counts as read (client.js createReplyRead `start`).
     func startReplyMarks(_ sid: String, top: Int) { if replyMarks[sid] == nil { replyMarks[sid] = ReplyMark(floor: top, read: []) } }
     /// `ids` read in chat `sid` (a tap on a card or one of its buttons); `cards`: the chat's cards, for the floor.
     func readReplies(_ sid: String, _ ids: [String], cards: [ReplyCardID]) {

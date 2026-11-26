@@ -1825,7 +1825,7 @@ final class AgentboxIdeasTests: XCTestCase {
         if ProcessInfo.processInfo.environment["SHOT_STATE"] == "pages" {
             c.replaySnapshot((1...12).flatMap { n in turn(100 + n * 10, "Soru \(n)", "**Yanıt \(n).** Kısa bir güncelleme.") })
             c.replyMarks["damon"] = ReplyMark(floor: 999, read: [])
-            XCTAssertEqual(replyPage(replyCards(botLines(c.transcript)), max: .max).older, true, "Load earlier shows")
+            XCTAssertEqual(replyPage(replyCards(botLines(c.transcript))).older, true, "Load earlier shows")
         }
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
         let w = UIWindow(windowScene: scene)
@@ -1876,7 +1876,7 @@ final class AgentboxIdeasTests: XCTestCase {
         for c in try XCTUnwrap(table["unread"] as? [J]) { XCTAssertEqual(replyUnread(mark(c["mark"]), card(c["card"] as! J)), c["want"] as? Bool, c["name"] as! String) }
         for c in try XCTUnwrap(table["pages"] as? [J]) {
             let seqs = (c["seqs"] as! [NSNumber]).map(\.intValue), un = Set((c["unread"] as! [NSNumber]).map(\.intValue))
-            let p = replyPage(seqs.map { ReplyCardID(seq: $0, id: "\($0)") }, floor: (c["floor"] as? NSNumber)?.intValue, unread: { un.contains($0.seq) })
+            let p = replyPage(seqs.map { ReplyCardID(seq: $0, id: "\($0)") }, floor: (c["floor"] as? NSNumber)?.intValue, unread: { un.contains($0.seq) }, max: replyMax)
             let w = c["want"] as! J, name = c["name"] as! String
             if let cut = w["cut"] as? NSNumber { XCTAssertEqual(p.cut, cut.intValue, name); XCTAssertEqual(seqs.filter { $0 >= p.cut }.count, (w["shown"] as! NSNumber).intValue, name) }
             XCTAssertEqual([p.held, p.older], [w["held"] as! Bool, w["older"] as! Bool], name)
@@ -1884,11 +1884,16 @@ final class AgentboxIdeasTests: XCTestCase {
         }
         // The phone has no 40 cap (it pages on through dsh's history): 45 replies, every page reaches the oldest.
         let many = (956...1000).map { ReplyCardID(seq: $0, id: "\($0)") }
-        var p = replyPage(many, max: .max); while p.older { p = replyPage(many, floor: p.next, max: .max) }
+        var p = replyPage(many); while p.older { p = replyPage(many, floor: p.next) }
         XCTAssertEqual([p.cut, p.more], [956, 0])
         // A split reply: one card per topic, each with its own read id; an error line has its seq.
         XCTAssertEqual(replyCardIDs(seq: 20, parts: 2).map(\.id), ["20:0", "20:1"]); XCTAssertEqual(replyCardIDs(seq: 20, parts: 1).map(\.id), ["20"])
         XCTAssertEqual(replyCards([Line(kind: .assistant, text: "A\n\n---\n\nB", seq: 5), Line(kind: .assistant, text: "[quiet]", seq: 7), Line(kind: .error, text: "x", seq: 9)]).map(\.id), ["5:0", "5:1", "9"])
+        // Assistant messages only off: a folded turn shows only its answer, so its other texts are no cards (review 3).
+        let t = [Line(kind: .user, text: "q", seq: 1), Line(kind: .assistant, text: "looking", seq: 2), Line(kind: .tool, text: "ls", seq: 3),
+                 Line(kind: .assistant, text: "done", seq: 4), Line(kind: .turn, text: "", seq: 5)]
+        XCTAssertEqual(replyCards(chatRows(t, open: [], running: false)).map(\.id), ["4"], "folded: only the answer")
+        XCTAssertEqual(replyCards(chatRows(t, open: [t[4].id], running: false)).map(\.id), ["2", "4"], "opened: every text")
     }
 
     /// Load earlier: the rows of the shown page start with the question and steps before the first shown card.

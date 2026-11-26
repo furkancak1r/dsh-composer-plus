@@ -598,7 +598,9 @@ struct ConversationView: View {
     @State private var loadingOlder = false
     /// Damon reply cards, Load earlier: the oldest reply seq that the chat shows (nil: the newest page; `replyPage`).
     @State private var replyFloor: Int?
-    /// The cards of the drawn lines, kept while the lines stay the same (a keystroke draws the chat again).
+    /// Load earlier and Open message: the row to scroll to (and to focus with VoiceOver) once a new page is in the list.
+    @State private var scrollAfterPage: (id: UUID, anchor: UnitPoint, focus: UUID?)?
+    /// The cards of the shown rows, kept while the rows stay the same (a keystroke draws the chat again).
     @State private var cardCache = ReplyCardCache()
     /// VoiceOver: after the last Load earlier, the newest card that it added (the Mac moves the keyboard focus there).
     @AccessibilityFocusState private var replyFocus: UUID?
@@ -778,9 +780,10 @@ struct ConversationView: View {
                 // cards of the newest 8 replies and every unread card first, 8 older replies per tap. No 40 cap: the chat
                 // and the cards are one list here, so older replies come from dsh's history (Client.loadOlder).
                 // While the find bar is open, every loaded row shows, so each hit can be reached.
-                let cards = damon ? cardCache.cards(lines) : []
+                // The cards of the shown rows only: a folded turn's hidden texts are no cards (no New, no count, no cut).
+                let cards = damon ? cardCache.cards(all) : []
                 let mark = damon ? c.current.flatMap { c.replyMarks[$0] } : nil
-                let page = damon && finding == nil ? replyPage(cards, floor: replyFloor, unread: { replyUnread(mark, $0) }, max: .max) : nil
+                let page = damon && finding == nil ? replyPage(cards, floor: replyFloor, unread: { replyUnread(mark, $0) }) : nil
                 let rows = page.map { rowsFrom(all, cut: $0.cut) } ?? all
                 let unread = cards.filter { replyUnread(mark, $0) }
                 let read = CardRead(mark: mark, newest: unread.last?.id, cards: cards)
@@ -859,11 +862,19 @@ struct ConversationView: View {
                         if damon, !unread.isEmpty, let sid = c.current { unreadBar(sid, count: unread.count, top: c.lastSeq ?? cards.last?.seq ?? 0) }
                     }
                 }
-                .onChange(of: c.current) { finding = nil; replyFloor = nil }
+                .onChange(of: c.current) { finding = nil; replyFloor = nil; scrollAfterPage = nil }
                 // The first view of the Damon chat: its older replies count as read (the Mac's rule).
                 .onChange(of: damon && !c.loadingChat ? c.lastSeq : nil, initial: true) { _, top in if let top, let sid = c.current { c.startReplyMarks(sid, top: top) } }
                 // An unread card holds the page's cut: it stays on screen after you read it.
                 .onChange(of: page?.held == true ? page?.cut : nil, initial: true) { _, cut in if let cut { replyFloor = cut } }
+                // Load earlier, Open message above the page: the scroll runs after the body that has the new page's rows
+                // (the value changes when a scroll waits, also when the first row stays the same).
+                .onChange(of: scrollAfterPage == nil ? nil : rows.first?.id) {
+                    guard let s = scrollAfterPage else { return }
+                    scrollAfterPage = nil
+                    proxy.scrollTo(s.id, anchor: s.anchor)
+                    if let f = s.focus { replyFocus = f }
+                }
                 // composer pinned via safeAreaInset so keyboard/tab switches never leave it floating mid-screen
                 .safeAreaInset(edge: .bottom, spacing: 0) {
                     VStack(spacing: 0) {
@@ -935,22 +946,21 @@ struct ConversationView: View {
     private func loadEarlierCards(_ page: ReplyPage, _ proxy: ScrollViewProxy) {
         follow = false
         let done = { (floor: Int?) in
+            // The row that was first on screen, found again by its seq (a dsh page makes every row again, with new ids).
+            let rows = chatRows(damonLines, open: openTurns, running: c.running), cards = replyCards(rows)
+            let focus = UIAccessibility.isVoiceOverRunning && !c.hasOlder && !replyPage(cards, floor: floor).older
+                ? cards.last(where: { $0.seq < page.cut }).flatMap { card in damonLines.last { $0.seq == card.seq && isCardLine($0) }?.id } : nil
+            // The row may not be in the list yet (a lower floor adds older rows; a dsh page makes the rows again), so the
+            // scroll waits for the next body (`scrollAfterPage`).
+            scrollAfterPage = rowsFrom(rows, cut: page.cut).first.map { ($0.id, .top, focus) }
             replyFloor = floor
-            DispatchQueue.main.async {
-                // The row that was first on screen, found again by its seq: a dsh page makes every row again (new ids).
-                if let first = rowsFrom(chatRows(damonLines, open: openTurns, running: c.running), cut: page.cut).first { proxy.scrollTo(first.id, anchor: .top) }
-                let cards = replyCards(damonLines)
-                guard UIAccessibility.isVoiceOverRunning, !c.hasOlder, !replyPage(cards, floor: floor, max: .max).older,
-                      let seq = cards.last(where: { $0.seq < page.cut })?.seq else { return }
-                replyFocus = damonLines.last { $0.seq == seq && isCardLine($0) }?.id
-            }
         }
         if page.older { done(page.next); return }
         loadingOlder = true
         c.run(waits: false) {
             defer { loadingOlder = false }
             try await c.loadOlder()
-            done(replyPage(replyCards(damonLines), floor: page.cut, max: .max).next)
+            done(replyPage(replyCards(chatRows(damonLines, open: openTurns, running: c.running)), floor: page.cut).next)
         }
     }
 
@@ -971,7 +981,7 @@ struct ConversationView: View {
                 // newest New card has a shadow; a tap on it or on one of its buttons reads it.
                 if damon, l.kind == .assistant {
                     let parts = replySections(l.text)
-                    let ids = l.seq.map { replyCardIDs(seq: $0, parts: parts.count) }
+                    let ids = isCardLine(l) ? l.seq.map { replyCardIDs(seq: $0, parts: parts.count) } : nil // a `[quiet]` reply is never New
                     VStack(alignment: .leading, spacing: 14) {
                         ForEach(Array(parts.enumerated()), id: \.offset) { i, part in
                             replyCard(ids?[i], read) { new in lineContent(l, approval: approval, part: part, last: i == parts.count - 1, unread: new) }
@@ -1046,16 +1056,16 @@ struct ConversationView: View {
         let target = c.current == j.sessionId ? jumpTarget(chatRows(c.transcript, open: openTurns, running: c.running), seq: j.seq) : nil
         if c.jump == j { c.jump = nil }
         guard let target else { c.error = String(localized: "This message is not in the chat any more."); return }
-        // Load earlier: when the target row is above the page, the page starts at the first card at or after it (its rows
-        // go back to the card before). The scroll waits for the next main-queue turn, after the new rows are laid out.
-        if damon, let s = c.transcript.first(where: { $0.id == target })?.seq {
-            let cards = cardCache.cards(damonLines), mark = c.current.flatMap { c.replyMarks[$0] }
-            let cut = replyPage(cards, floor: replyFloor, unread: { replyUnread(mark, $0) }, max: .max).cut
-            if let need = cards.first(where: { $0.seq >= s })?.seq, need < cut { replyFloor = need }
-        }
         follow = false
-        DispatchQueue.main.async { withAnimation { proxy.scrollTo(target, anchor: .center) } }
         marked = target
+        // Load earlier: when the target row is above the page, the page starts at the first card at or after it (its rows
+        // go back to the card before), and the scroll waits until those rows are in the list (`scrollAfterPage`).
+        if damon, finding == nil, let s = c.transcript.first(where: { $0.id == target })?.seq {
+            let cards = cardCache.cards(chatRows(damonLines, open: openTurns, running: c.running)), mark = c.current.flatMap { c.replyMarks[$0] }
+            let cut = replyPage(cards, floor: replyFloor, unread: { replyUnread(mark, $0) }).cut
+            if let need = cards.first(where: { $0.seq >= s })?.seq, need < cut { scrollAfterPage = (target, .center, nil); replyFloor = need; return }
+        }
+        withAnimation { proxy.scrollTo(target, anchor: .center) }
     }
 
     /// Secret input (Composer Plus): the agent waits for a secret; Enter opens the sheet with a secure field.

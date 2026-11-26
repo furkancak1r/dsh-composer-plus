@@ -354,7 +354,8 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   // Tether (2026-11-26, parity): the read marks (New, N unread, Mark all as read; this phone keeps them per Mac) and
   // Load earlier (replyPage, 8 replies per tap) use the ports of the shared table above.
   assert.match(core, /func markReplies\(_ m: ReplyMark/, 'Tether: the read port'); assert.match(core, /func replyPage\(_ cards: \[ReplyCardID\]/, 'Tether: the page port');
-  assert.match(ui, /replyPage\(cards, floor: replyFloor, unread: \{ replyUnread\(mark, \$0\) \}, max: \.max\)/, 'Tether: the Damon chat pages its cards');
+  assert.match(ui, /replyPage\(cards, floor: replyFloor, unread: \{ replyUnread\(mark, \$0\) \}\)/, 'Tether: the Damon chat pages its cards');
+  assert.match(core, /max cap: Int = \.max\) -> ReplyPage/, 'Tether: no 40 cap by default'); assert.match(ui, /let cards = damon \? cardCache\.cards\(all\)/, 'Tether: the cards of the shown rows (review 3)');
   assert.match(ui, /\.simultaneousGesture\(TapGesture\(\)\.onEnded \{ readCard\(id, read\) \}\)/, 'Tether: a tap reads the card');
   // Review 2: an unread card below the first page holds the cut also on the first draw; VoiceOver's Mark as read only on
   // a New card; Open message scrolls after the page change without a fixed wait.
@@ -362,7 +363,8 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   assert.match(ui, /\.accessibilityActions \{ if unread \{ Button\(String\(localized: "replies\.markRead"/, 'Tether: Mark as read only on a New card');
   assert.equal((ui.match(/"replies\.markRead"/g) || []).length, 1, 'Tether: one Mark as read action for both card kinds');
   const jump = ui.slice(ui.indexOf('private func jump('), ui.indexOf('func secretBar('));
-  assert.ok(jump.includes('replyFloor = need }') && !/milliseconds\(100\)/.test(jump), 'Tether: no fixed wait after the page change');
+  assert.ok(jump.includes('scrollAfterPage = (target, .center, nil); replyFloor = need') && !/milliseconds\(100\)/.test(jump), 'Tether: the scroll waits for the new page (no fixed wait)');
+  assert.match(ui, /\.onChange\(of: scrollAfterPage == nil \? nil : rows\.first\?\.id\) \{\n\s*guard let s = scrollAfterPage/, 'Tether: the pending scroll runs when the new page is in the list');
   assert.match(core, /forKey: key\("replyRead"\)/, 'Tether: the marks are kept per Mac');
   assert.match(ui, /Text\(verbatim: title\)[^\n]*\.textSelection\(\.enabled\)/, 'Tether: the title can be selected');
   assert.match(ui, /private var shown: String \{ line\.kind == \.assistant \? part \?\? line\.text : line\.text \}/, 'Tether: a long press on a topic card uses its topic (review 7)');
