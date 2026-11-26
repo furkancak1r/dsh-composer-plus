@@ -4340,6 +4340,8 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
           // One card per topic (Furkan, 2026-11-26): a `---` line splits the reply; `key` names the part, `last` holds the options.
           // `id` is the read id (Furkan, 2026-11-26: "farklı okundular gelmesi lazım"): each part of a split reply has its own
           // ("seq:i"); a reply without `---` keeps its seq, so the read marks saved before stay valid.
+          // ponytail: the id is the part's place; if a later split rule cuts an old reply in other parts, those parts can
+          // show New again (and a client older than 2026-11-26 drops "seq:i" ids). Upgrade: a hash of the part's text.
           const parts = replySections(text);
           parts.forEach((part, i) => cards.push({ kind: 'reply', key: `${seq}:${i}`, id: parts.length > 1 ? `${seq}:${i}` : seq, seq, turn: n.data.turn, time: n.data.finalNode.time ?? n.data.time, text: part, last: i === parts.length - 1 }));
         } else if (n?.kind === 'turn-error' && Number.isSafeInteger(n.data?.seq) && kept(n.data.seq)) {
@@ -4451,6 +4453,8 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
     /** The canvas's Updates island: unread first, then the read ones; each part newest first. The chat's feed (ReplyFeed)
      * keeps the time order of replyCardsOf instead (Furkan, 2026-11-26: "yeni gelen kart en altta gözüksün"). */
     const replyOrder = (cards, mark) => [...cards].sort((a, b) => Number(replyUnread(mark, b)) - Number(replyUnread(mark, a)) || b.seq - a.seq);
+    /** The read id of the reply card that the canvas side panel opens (`reply|<card key>`); undefined for another card. */
+    const sideReadId = (cards, key) => (typeof key === 'string' && key.startsWith('reply|') ? cards.find((c) => `reply|${c.key}` === key)?.id : undefined);
     /** The read store: at the first view of a chat (`start`), every reply up to the chat's newest seq counts as read. A
      * write merges what another window saved (the higher floor, both lists). */
     function createReplyRead() {
@@ -4655,7 +4659,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         return () => { ro.disconnect(); f.removeEventListener('scroll', onScroll); };
       }, [box === null]);
       const lang = locale?.();
-      const toggle = (on) => React.createElement('button', { type: 'button', className: `cp-rc-btn${on ? '' : ' cp-rf-pill'}`, 'data-composer-plus-chat-toggle': on ? 'show' : 'hide', 'aria-pressed': !on, onClick: () => shown.set(on) }, t(on ? 'replies.showChat' : 'replies.hideChat'));
+      const toggle = (on) => React.createElement('button', { type: 'button', className: `cp-rc-btn${on ? '' : ' cp-rf-pill'}`, 'data-composer-plus-chat-toggle': on ? 'show' : 'hide', onClick: () => shown.set(on) }, t(on ? 'replies.showChat' : 'replies.hideChat'));
       if (chatShown) return panel ? null : React.createElement(React.Fragment, null, React.createElement('style', null, REPLY_CSS), toggle(false));
       if (box === null) return null;
       return React.createElement('section', { ref: feedRef, [REPLY_FEED_ATTR]: '', 'aria-label': t('replies.title'), style: box },
@@ -5198,7 +5202,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         const unreadReplies = replies.filter((rc) => replyUnread(replyCards.mark, rc));
         const replyEl = (rc) => React.createElement(ReplyCard, { card: rc, sessionId, unread: replyUnread(replyCards.mark, rc), offerNow, choiceNow: choice, picks, t, lang, failure, focusable: false, onRead: (id) => replyCards.read([id]) });
         // A reply card opened in the side panel counts as read (only that card: each part of a split reply on its own).
-        const onSelCard = (key) => { setSel(key); const rc = key?.startsWith('reply|') ? replies.find((c) => `reply|${c.key}` === key) : undefined; if (rc !== undefined) replyCards.read([rc.id]); };
+        const onSelCard = (key) => { setSel(key); const id = sideReadId(replies, key); if (id !== undefined) replyCards.read([id]); };
         const islands = [
           ...(replyOn ? [{ key: 'updates', title: t('replies.title'), count: unreadReplies.length, tone: 'business', quiet: t('replies.none'),
             // The card in the side panel stays on the island after it is read (it can move below the first five).

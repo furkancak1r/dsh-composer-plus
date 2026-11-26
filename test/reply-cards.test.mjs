@@ -21,11 +21,11 @@ globalThis.document = { body: { tag: 'body' }, querySelector: () => null, addEve
 const ANCHOR = '/** Feature switches, in Settings order.';
 const src = read('client.js');
 assert.ok(src.includes(ANCHOR));
-eval(src.replace(ANCHOR, `globalThis.__rc = { failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, ReplyFeed, replySections, REPLY_READ_KEY, REPLY_SHOWN_KEY, REPLY_CSS, REPLY_MAX };\n    ${ANCHOR}`));
+eval(src.replace(ANCHOR, `globalThis.__rc = { failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, ReplyFeed, replySections, sideReadId, REPLY_READ_KEY, REPLY_SHOWN_KEY, REPLY_CSS, REPLY_MAX };\n    ${ANCHOR}`));
 const h = (t, p, ...c) => ({ t, p: p ?? {}, c });
 const React = { createElement: h, Fragment: 'F', useState: (v) => [typeof v === 'function' ? v() : v, () => {}], useRef: (v) => ({ current: v }), useEffect() {}, useLayoutEffect() {}, useSyncExternalStore: (_s, get) => get(), useMemo: (f) => f(), useCallback: (f) => f };
 mod.factory((n) => (n === 'react' ? React : n === 'react-dom' ? { createPortal: (el, host, key) => ({ portal: el, host, key }) } : {}));
-const { failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, ReplyFeed, replySections, REPLY_READ_KEY, REPLY_SHOWN_KEY, REPLY_CSS, REPLY_MAX } = globalThis.__rc;
+const { failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, ReplyFeed, replySections, sideReadId, REPLY_READ_KEY, REPLY_SHOWN_KEY, REPLY_CSS, REPLY_MAX } = globalThis.__rc;
 const find = (n, pred) => { if (n === null || typeof n !== 'object') return []; if (Array.isArray(n)) return n.flatMap((c) => find(c, pred)); return [...(pred(n) ? [n] : []), ...(n.c ?? []).flat(Infinity).flatMap((c) => find(c, pred))]; };
 const text = (n) => (typeof n === 'string' ? n : Array.isArray(n) ? n.map(text).join('') : n?.c ? text(n.c) : '');
 
@@ -247,6 +247,9 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   assert.deepEqual(cards.map((c) => replyUnread({ floor: 5, read: [20] }, c)), [true, false, false], 'an older whole-reply mark (its seq) reads every part');
   assert.deepEqual(markReplies({ floor: 10, read: [] }, [20], cards).floor, 20, 'a whole-reply mark moves the floor too');
   assert.deepEqual(replyOrder(cards, { floor: 5, read: ['20:1'] }).map((c) => c.key), ['20:0', '10:0', '20:1'], 'the canvas: the unread part first');
+  // The canvas side panel reads only the card that it opens (review 2).
+  assert.deepEqual(['reply|20:1', 'reply|10:0', 'reply|99:0', 'senden|20:1', undefined, null].map((k) => sideReadId(cards, k)), ['20:1', 10, undefined, undefined, undefined, undefined], 'the side panel: the read id of the opened card only');
+  assert.match(src, /const onSelCard = \(key\) => \{ setSel\(key\); const id = sideReadId\(replies, key\); if \(id !== undefined\) replyCards\.read\(\[id\]\); \};/, 'the canvas uses it');
   // Saved and read again (a reload): the part mark stays; junk ids are dropped.
   mem.set(REPLY_READ_KEY, JSON.stringify({ s: { floor: 10, read: ['20:0', '20:x', 'x:1', ':1', '20:0:1', 12, '12'] } }));
   assert.deepEqual(readReplyMarks().s.read, ['20:0', 12], 'only seqs and "seq:i" ids');
@@ -301,7 +304,8 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   assert.equal(text(note[0]), `replies.more:${JSON.stringify({ count: 3 })}`, 'the note of the older replies is above the cards');
   const inner = find(tree, (n) => n.p?.className === 'cp-rf-in')[0];
   assert.ok(inner.c.flat(Infinity).indexOf(note[0]) < inner.c.flat(Infinity).indexOf(arts[0]), 'the note comes first');
-  assert.match(src, /follow\.current = true; f\.scrollTop = f\.scrollHeight; \}, \[box === null, newestKey\]\)/, 'the feed goes to the newest card when it opens and when a new card comes');
+  // A structure check only (the mock React runs no effects); test/browser-reply-order.mjs measures the scroll.
+  assert.match(src, /follow\.current = true; f\.scrollTop = f\.scrollHeight; \}, \[box === null, newestKey\]\)/, 'structure: the scroll effect runs when the feed opens and when a new card comes');
 }
 
 // The pointer (Furkan, 2026-11-26): text in a card has the text cursor and can be selected; only controls have the hand.
