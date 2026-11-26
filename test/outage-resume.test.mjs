@@ -1,7 +1,7 @@
 // Resume after an AIProxy outage (Host half), with fakes only (no real AIProxy, no real dsh):
-// - outageError: AIProxy's 499 request_cancelled and "Connection error." trigger; AIProxy's 429 and 503 upstream_rejected
-//   (the provider refused the request) are 'rejected'; a user stop, a denied approval and other errors (409, 500, a 499
-//   or 429 with another code) do not.
+// - outageError: AIProxy's 499 request_cancelled and "Connection error." trigger; AIProxy's 429, 500 and 503 upstream_rejected
+//   and 504 upstream_timeout (the provider refused the request or did not answer in time) are 'rejected'; a user stop, a
+//   denied approval and other errors (409, a 500 or 504 with another code, a 499 or 429 with another code) do not.
 // - outageWatch: failures within the window are one outage; it waits for a failed health check (or a Connection error)
 //   and then for the settle time of good checks; a 499 while AIProxy stays up continues nothing;
 //   one message per chat per outage, at most perHour per hour; a chat that moved on gets nothing; `left(id, why)` gets
@@ -33,6 +33,13 @@ const C503 = 'aiproxy API error (503): {"code":"upstream_rejected","message":"Sa
 assert.equal(outageError({ kind: 'error', error: { message: C429, code: 'RATE_LIMIT' } }), 'rejected', '429');
 assert.equal(outageError({ kind: 'error', error: { message: C503, code: 'SERVER' } }), 'rejected', '503');
 assert.equal(outageError(err('429: {"code":"upstream_rejected","message":"x"}')), 'rejected', 'the openai-completions form');
+// Live logs of 2026-11-26: 500 upstream_rejected and 504 upstream_timeout ended four branch chats and one root chat.
+const C500 = 'aiproxy API error (500): {"code":"upstream_rejected","message":"Sağlayıcı isteği reddetti (HTTP 500)."}';
+const C504 = 'aiproxy API error (504): {"code":"upstream_timeout","message":"Sağlayıcı yanıt zaman aşımı."}';
+assert.equal(outageError({ kind: 'error', error: { message: C500, code: 'SERVER' } }), 'rejected', '500');
+assert.equal(outageError({ kind: 'error', error: { message: C504, code: 'SERVER' } }), 'rejected', '504');
+assert.equal(outageError(err('500: {"code":"upstream_rejected","message":"x"}')), 'rejected', '500, the openai-completions form');
+assert.equal(outageError(err('504: {"code":"upstream_timeout","message":"x"}')), 'rejected', '504, the openai-completions form');
 for (const [reason, why] of [
   [{ kind: 'aborted', reason: { kind: 'user' } }, 'a user stop'],
   [{ kind: 'aborted', reason: { kind: 'disposed' } }, 'dsh quit'],
@@ -40,7 +47,12 @@ for (const [reason, why] of [
   [{ kind: 'completed' }, 'a finished turn'],
   [err('aiproxy API error (429): {"code":"rate_limited","message":"x"}'), 'a 429 with another code'],
   [err('aiproxy API error (503): {"code":"all_failed","message":"x"}'), 'a 503 with another code'],
-  [err('aiproxy API error (500): {"code":"upstream_rejected","message":"x"}'), 'upstream_rejected with another status'],
+  [err('aiproxy API error (500): {"code":"internal_error","message":"x"}'), 'a 500 with another code'],
+  [err('aiproxy API error (504): {"code":"internal_error","message":"x"}'), 'a 504 with another code'],
+  [err('aiproxy API error (504): {"code":"upstream_rejected","message":"x"}'), 'upstream_rejected with 504'],
+  [err('aiproxy API error (500): {"code":"upstream_timeout","message":"x"}'), 'upstream_timeout with 500'],
+  [err('aiproxy API error (502): {"code":"upstream_rejected","message":"x"}'), 'upstream_rejected with 502'],
+  [err('aiproxy API error (400): {"code":"upstream_rejected","message":"x"}'), 'upstream_rejected with 400'],
   [err('aiproxy API error (502): {"code":"internal_error","message":"upstream_rejected 429"}'), 'the words in another error'],
   [err('aiproxy API error (409): {"code":"session_mismatch","message":"x"}'), '409'],
   [err('aiproxy API error (499): {"code":"client_gone","message":"x"}'), 'a 499 with another code'],
