@@ -2855,6 +2855,7 @@
     "replies.choice": "선택지를 고르세요",
     "replies.none": "아직 답장이 없습니다.",
     "replies.more": "이전 답장 {count}개는 채팅에 있습니다(채팅 보기).",
+    "replies.loadEarlier": "이전 기록 로드",
     "canvas.onlyMine": "나를 기다리는 것만",
     "canvas.home": "{name}(으)로 돌아가기",
     "canvas.hint": "드래그: 이동 · 휠: 확대/축소 · 화살표 키, + 및 −",

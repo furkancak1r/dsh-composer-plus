@@ -2855,6 +2855,7 @@
     "replies.choice": "Wähle eine Option",
     "replies.none": "Noch keine Antwort.",
     "replies.more": "{count} ältere Antworten stehen im Chat (Chat anzeigen).",
+    "replies.loadEarlier": "Ältere laden",
     "canvas.onlyMine": "Nur, was auf mich wartet",
     "canvas.home": "Zurück zu {name}",
     "canvas.hint": "Ziehen: bewegen · Rad: zoomen · Pfeiltasten, + und −",

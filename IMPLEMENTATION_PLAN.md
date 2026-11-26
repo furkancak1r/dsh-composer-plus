@@ -4621,3 +4621,34 @@ Objective (Furkan, 2026-11-24): "sürüyor kısmında damonın yapacağı ve akt
 - Open steps: merge main into the branch, review-guard loop (diff > 3 files: until no P1/P2), merge --no-ff into main, push, delete the branch and the worktree. Live copy only after Furkan's "tamam".
 - Review round 1 (review-guard subagent, main...HEAD): P1 0, P2 0, P3 3, P4 6. Fixed: the count bar counts only what runs, then "sırada N" (P3); an empty chip shows cards.filterEmpty (P3); fr/ja/vi cards.queued no longer read as "waits for you" (P3); functional folds update, one predicate, a brighter cp-cs-run pulse, hi wording, the plan's base (P4). Kept: "· sırada 0" in the group header (the spec example); fr/de chip label = group label (accurate).
 - Last checkpoint: review fixes committed; after them `npm test` exit 0, browser-running-filter PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5; browser-card-stack, browser-assistant-todos, browser-assistant-chat-tasks PASS on 0.2.2-rc.5. Next: merge --no-ff into main and push.
+
+## Güncellemeler: Öncekileri yükle (2026-11-26, feat/updates-feed-load-earlier, from main f86a0a4c)
+- Request (Furkan, Damon chat, 2026-11-26): "güncellemelerde de yeni kartlarda yani hepsi birden gözükmesin öncekini yükle
+  olayı burada da geçerli olsun performans açısından".
+- Pattern found (step 1): dsh's chat "Load earlier" button (dsh-client-ui-chat ChatView.tsx `.older` row, label
+  `chat.loadOlder`: tr "Öncekileri yükle"; page = at least 50 messages and 2 turns, `PAGE_MESSAGES`); Composer Plus in the
+  same Damon chat shows the newest `ASSISTANT_TURNS = 8` turns first. The feed showed up to `REPLY_MAX = 40` cards at once.
+- Decision: one page = `ASSISTANT_TURNS` (8) replies (a page of 50 would never page under the 40 cap); the label is dsh's
+  own `chat.loadOlder` text at runtime (fallback key `replies.loadEarlier`, the same texts); the look is dsh's `.older` CSS.
+- Invariants: card order (replyOrder) unchanged; read marks unchanged; a new card shows at once; the first card on screen
+  keeps its place after a load; the 40 cap and its note stay; the canvas island is unchanged (it shows 5 + unread).
+- Allowed paths: client.js, locales/*.json, docs/features.json, README*.md, llms.txt, tether/FEATURES.md,
+  scripts/demo-card-stack.mjs (one fake-model answer), test/reply-cards.test.mjs, test/browser-reply-pages.mjs,
+  package.json (only if a test needs it), IMPLEMENTATION_PLAN.md.
+- Checks: `npm test`; `node test/reply-cards.test.mjs`; `PLAYWRIGHT=<Mergen playwright 1.58> node test/browser-reply-pages.mjs
+  <dsh 0.2.0-rc.2> <0.2.1-rc.2> <0.2.2-rc.5>`; browser-status-canvas on the same three (regression).
+- Screenshots: /Users/furkancakir/Damon/Belgeler/Composer Plus/guncellemeler-oncekini-yukle-20261126/ (new folder).
+- Done (2026-11-26 14:2x): code (client.js replyPage, ReplyFeed floor state, dsh .older look), replies.loadEarlier in en,
+  zh and 11 locales (= dsh's chat.loadOlder of each pack), docs/features.json (13 how + llms), README limits (13),
+  tether/FEATURES.md gap row (Tether unchanged), demo model "DEMO-REPLY <n>", test/reply-cards.test.mjs (replyPage +
+  ReplyFeed with a hook runtime), test/browser-reply-pages.mjs (new; headless, chromiumSandbox).
+- Decision: paging by time (seq), not by place in the unread-first order, so a click never moves or hides a shown card;
+  an old unread card past the first page waits for its page (the unread count and Tümünü okundu say still count it).
+- Last passing: `npm test` exit 0; `node test/reply-cards.test.mjs` ok; `PLAYWRIGHT=<Mergen playwright 1.58> node
+  test/browser-reply-pages.mjs <bin>` PASS on dsh 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5; browser-status-canvas PASS on the
+  same three.
+- Screenshots (main f86a0a4c = önce, branch = yeni): guncellemeler-ilk-once.png, guncellemeler-ilk--once-2.png,
+  guncellemeler-ilk-alt--once-2.png, guncellemeler-ilk-yeni.png, guncellemeler-sonra-yeni.png,
+  guncellemeler-ilk--yeni-2.png, guncellemeler-ilk-alt--yeni-2.png, guncellemeler-sonra--yeni-2.png.
+- Furkan's approval (2026-11-26): "Öncekini yükle" branch to main and push when the review is clean; live copy separate.
+- Open: review-guard (separate subagent, repeat until no P1/P2: diff > 3 files), merge origin/main, tests, merge, push.

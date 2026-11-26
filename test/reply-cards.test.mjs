@@ -21,11 +21,17 @@ globalThis.document = { body: { tag: 'body' }, querySelector: () => null, addEve
 const ANCHOR = '/** Feature switches, in Settings order.';
 const src = read('client.js');
 assert.ok(src.includes(ANCHOR));
-eval(src.replace(ANCHOR, `globalThis.__rc = { failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, REPLY_READ_KEY, REPLY_SHOWN_KEY };\n    ${ANCHOR}`));
+eval(src.replace(ANCHOR, `globalThis.__rc = { failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, ReplyFeed, replyPage, REPLY_PAGE, REPLY_MAX, REPLY_READ_KEY, REPLY_SHOWN_KEY };\n    ${ANCHOR}`));
 const h = (t, p, ...c) => ({ t, p: p ?? {}, c });
-const React = { createElement: h, Fragment: 'F', useState: (v) => [typeof v === 'function' ? v() : v, () => {}], useRef: (v) => ({ current: v }), useEffect() {}, useLayoutEffect() {}, useSyncExternalStore: (_s, get) => get(), useMemo: (f) => f(), useCallback: (f) => f };
+// A small hook runtime (by call order) for ReplyFeed: state, refs and effects with deps (run after each draw).
+let hooks = []; let hi = 0; let pending = [];
+const changed = (a, b) => a === undefined || b === undefined || a.length !== b.length || a.some((x, i) => !Object.is(x, b[i]));
+const React = { createElement: h, Fragment: 'F', useState: (v) => { const i = hi++; if (!(i in hooks)) hooks[i] = typeof v === 'function' ? v() : v; return [hooks[i], (x) => { hooks[i] = typeof x === 'function' ? x(hooks[i]) : x; }]; },
+  useRef: (v) => { const i = hi++; return hooks[i] ??= { current: v }; }, useSyncExternalStore: (_s, get) => get(), useMemo: (f) => f(), useCallback: (f) => f,
+  useLayoutEffect: (f, deps) => { const i = hi++; const old = hooks[i]; if (old === undefined || changed(old.deps, deps)) pending.push(() => { old?.off?.(); hooks[i] = { deps, off: f() }; }); } };
+React.useEffect = React.useLayoutEffect;
 mod.factory((n) => (n === 'react' ? React : n === 'react-dom' ? { createPortal: (el, host, key) => ({ portal: el, host, key }) } : {}));
-const { failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, REPLY_READ_KEY, REPLY_SHOWN_KEY } = globalThis.__rc;
+const { failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, ReplyFeed, replyPage, REPLY_PAGE, REPLY_MAX, REPLY_READ_KEY, REPLY_SHOWN_KEY } = globalThis.__rc;
 const find = (n, pred) => { if (n === null || typeof n !== 'object') return []; if (Array.isArray(n)) return n.flatMap((c) => find(c, pred)); return [...(pred(n) ? [n] : []), ...(n.c ?? []).flat(Infinity).flatMap((c) => find(c, pred))]; };
 const text = (n) => (typeof n === 'string' ? n : Array.isArray(n) ? n.map(text).join('') : n?.c ? text(n.c) : '');
 
@@ -201,6 +207,75 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   assert.equal(failureTextOf({ bind: () => { throw Error('boom'); } }, 'AUTH'), '', 'a throwing bind'); assert.equal(failureTextOf(undefined, 'AUTH'), '', 'no locale');
   assert.equal(ReplyCard({ card, sessionId: 's', t, lang: 'tr', picks, focusable: false }).p.tabIndex, undefined, 'on the canvas its frame takes the focus');
 }
+
+// Load earlier (Furkan, 2026-11-26: "hepsi birden gözükmesin öncekini yükle"): the feed draws one page of REPLY_PAGE
+// replies first; each click adds one page; the order, the read marks and the New marks stay; a new reply shows at once.
+{
+  assert.equal(REPLY_PAGE, 8, 'the same 8 as the first view of the assistant chat'); assert.equal(REPLY_MAX, 40);
+  // replyPage: before a click the newest 8 replies by seq (the parts of one reply stay together), in the given order;
+  // after a click every reply from the floor up (`next`: the floor after one more click).
+  const list = Array.from({ length: 20 }, (_, i) => ({ seq: 200 - i * 10 })); list.splice(1, 0, { seq: 190, part: 2 }); // 20 replies, one in 2 parts
+  let p = replyPage(list);
+  assert.deepEqual(p.shown.map((c) => c.seq), [200, 190, 190, 180, 170, 160, 150, 140, 130], 'the first 8 replies, both parts of one');
+  assert.deepEqual([p.older, p.next], [true, 50], 'the next floor: 8 older replies');
+  p = replyPage(list, p.next); assert.equal(p.shown.length, 17); assert.equal(p.next, 10, 'the last page has 4 replies');
+  p = replyPage(list, p.next); assert.deepEqual([p.shown.length, p.older], [21, false], 'all shown: no button');
+  assert.deepEqual([replyPage([]).shown, replyPage([]).older], [[], false]);
+  // A new reply after a click: it shows, no loaded card hides.
+  assert.equal(replyPage([{ seq: 210 }, ...list], 50).shown.length, 18, 'a new reply comes, the loaded ones stay');
+  // By time, in the given order: an old card at the top of the order waits for its page.
+  const mixed = [{ seq: 5 }, { seq: 6 }, ...Array.from({ length: 9 }, (_, i) => ({ seq: 100 - i }))];
+  assert.deepEqual(replyPage(mixed).shown.map((c) => c.seq), [100, 99, 98, 97, 96, 95, 94, 93], 'the newest 8 replies, in the given order');
+  assert.deepEqual(replyPage(mixed, replyPage(mixed).next).shown.map((c) => c.seq), mixed.map((c) => c.seq), 'page 2: all, in the given order');
+
+  // ReplyFeed with 20 replies (seq 10…200); the first view read up to 150, and 170 was read with a click.
+  const nodes = []; for (let n = 1; n <= 20; n++) nodes.push(step(n, 0, n * 10, [txt(`**Yanıt ${n}.** Gövde.`)]), tail(n, n * 10));
+  const chat = chatOf(nodes); let snap = chat; const subs = new Set();
+  const source = { getSnapshot: () => snap, subscribe: (fn) => { subs.add(fn); return () => subs.delete(fn); } };
+  const store = createReplyRead(); store.start('feed', 150); store.mark('feed', [170], [160, 170, 180, 190, 200]);
+  const replies = { chatOf: () => source, rollback: { subscribe: () => () => {}, of: () => ({ withdrawn: [], inherited: 0 }) }, check: { ask() {}, subscribe: () => () => {}, ready: () => true }, read: store };
+  const scroll = { getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, bottom: 600 }), querySelector: () => null };
+  const host = { querySelector: (q) => (q === '[data-conversation-scroll]' ? scroll : null), getBoundingClientRect: () => ({ left: 0, top: 0 }), setAttribute() {}, removeAttribute() {} };
+  const flag = (v) => ({ subscribe: () => () => {}, getSnapshot: () => v, set() {} });
+  const props = { sessionId: 'feed', host, replies, shown: flag(false), statusSeats: { subscribe: () => () => {}, getSnapshot: () => new Map() }, offers: { subscribe: () => () => {}, of: () => undefined, choiceOf: () => undefined }, picks: {}, locale: () => 'tr', t: (k, v) => (v === undefined ? k : `${k}:${JSON.stringify(v)}`) };
+  hooks = []; pending = [];
+  const render = () => { for (let n = 0; n < 6; n++) { hi = 0; const out = ReplyFeed(props); const run = pending; pending = []; for (const f of run) f(); if (run.length === 0) return out; } throw Error('no stable draw'); };
+  const cardsOf = (out) => find(out, (n) => n.t === ReplyCard).map((n) => ({ seq: n.p.card.seq, unread: n.p.unread, first: n.p.first }));
+  const olderOf = (out) => find(out, (n) => n.t === 'button' && n.p['data-reply-older'] !== undefined)[0];
+  let out = render();
+  // Unread first (200, 190, 180, 160), then the read ones, newest first: only the first 8 show.
+  assert.deepEqual(cardsOf(out).map((c) => c.seq), [200, 190, 180, 160, 170, 150, 140, 130], 'one page: the first 8 cards of the order');
+  assert.deepEqual(cardsOf(out).filter((c) => c.unread).map((c) => c.seq), [200, 190, 180, 160], 'the New marks');
+  assert.equal(cardsOf(out)[0].first, true, 'the newest unread card is first');
+  assert.equal(text(find(out, (n) => n.p?.['data-reply-unread'] !== undefined)[0]), 'replies.unread:{"count":4}', 'the unread count of all cards');
+  let older = olderOf(out); assert.equal(text(older), 'replies.loadEarlier', "dsh's label"); assert.equal(older.p['data-reply-older'], '8');
+  // The button is at the older end: after the last card.
+  const inner = find(out, (n) => n.p?.className === 'cp-rf-in')[0].c.flat(Infinity).filter((c) => c !== null);
+  assert.equal(inner.findIndex((c) => c.p?.className === 'cp-rf-older'), inner.length - 1, 'below the cards, at the older end');
+  // A click adds one page; the cards of the first page and their marks stay.
+  const before = cardsOf(out);
+  older.p.onClick(); out = render();
+  assert.deepEqual(cardsOf(out).slice(0, 8), before, 'the first page stays as it was (order, read and New marks)');
+  assert.deepEqual(cardsOf(out).map((c) => c.seq).slice(8), [120, 110, 100, 90, 80, 70, 60, 50], 'the next 8');
+  older = olderOf(out); assert.equal(older.p['data-reply-older'], '16');
+  older.p.onClick(); out = render();
+  assert.equal(cardsOf(out).length, 20); assert.equal(olderOf(out), undefined, 'all shown: no button');
+  assert.equal(find(out, (n) => n.p?.className === 'cp-rf-note').length, 0, 'no note under 40 replies');
+  // Read marks still work on a card of a later page; a new reply shows at once.
+  find(out, (n) => n.t === ReplyCard && n.p.card.seq === 160)[0].p.onRead(160); out = render();
+  assert.equal(cardsOf(out).find((c) => c.seq === 160).unread, false, 'a click reads a card');
+  snap = chatOf([...nodes, step(21, 0, 210, [txt('**Yeni yanıt.**')]), tail(21, 210)]); for (const fn of subs) fn(); out = render();
+  assert.deepEqual(cardsOf(out)[0], { seq: 210, unread: true, first: true }, 'a new reply shows at once, New, on top');
+  // The cards of a new chat column start with one page again (a new ReplyFeed).
+  hooks = []; out = render(); assert.equal(cardsOf(out).length, 8, 'a new feed: one page');
+}
+
+// The texts: replies.loadEarlier is dsh's own chat.loadOlder label in each language pack (the same label as dsh's button).
+for (const f of ['de', 'es', 'fr', 'hi', 'id', 'ja', 'ko', 'pt-BR', 'ru', 'tr', 'vi']) {
+  const pack = JSON.parse(read(`locales/${f}.json`));
+  assert.equal(pack['dsh-composer-plus']['replies.loadEarlier'], pack.chat['chat.loadOlder'], `${f}: dsh's label`);
+}
+assert.match(src, /'replies\.loadEarlier': 'Load earlier',/, 'en: dsh\'s label'); assert.match(src, /'replies\.loadEarlier': '加载更早',/, 'zh: dsh\'s label');
 
 // The feature: its switch, Settings screenshot, category, chat toggle key.
 assert.match(src, /const FEATURES = \[[^\]]*'assistantReplyCards'/, 'its own switch'); assert.match(src, /const SHOT_OF = \{[^}]*assistantReplyCards: 'assistantReplyCards'/, 'its screenshot');
