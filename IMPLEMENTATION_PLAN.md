@@ -4648,3 +4648,10 @@ Source: Furkan in the Assistant chat, 2026-11-26 (relayed by Damon): "kararlara 
 1. review-guard round 1 runs (subagent review-1). Diff > 100 lines and > 3 files: repeat rounds until no P1/P2; fix every finding; tests again.
 2. If origin/main moved: rebase, tests again.
 3. Merge --no-ff into main, push. No live copy update (Furkan first sees the screenshots and writes "tamam"). No release.
+
+### Checkpoint 2026-11-26 16:45 (after a provider error at 12:32 and the resume)
+- Review round 1 (review-1b; review-1 failed with no report): P1 0, P2 0, P3 4, P4 1. Fixed in fc1d045e (modal checks skip the peek, focus after a peek close, per-chat drafts, tests, docs wording).
+- Review round 2 (review-2): P1 0, P2 0, P3 1, P4 1. Fixed in 8f053d04 (setDecide writes decideKept at once, error kept; tests for a failure after unmount and the peek-close focus).
+- Review round 3 (review-3) failed with no report; started again.
+- Last passing: `npm test` exit 0; `PLAYWRIGHT=<Mergen playwright> node test/browser-card-stack.mjs <0.2.2-rc.5> <0.2.0-rc.2> <0.2.1-rc.2>` PASS ×3 (at 8f053d04).
+- Open: round 3 clean → rebase on origin/main if it moved, tests, merge --no-ff into main, push. Furkan approved the merge on 2026-11-26 ("Kararlar … review temizse main'e alınıp push edilsin (deploy ve canlı kopya ayrı onayla)"). No live copy, no release.
