@@ -209,7 +209,8 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
 }
 
 // Load earlier (Furkan, 2026-11-26: "hepsi birden gözükmesin öncekini yükle"): the feed draws one page of REPLY_PAGE
-// replies first; each click adds one page; the order, the read marks and the New marks stay; a new reply shows at once.
+// replies first (and every unread card); each click adds one page; the order, the read marks and the New marks stay; a new
+// reply shows at once; the first card on screen keeps its place; the label is dsh's own.
 {
   assert.equal(REPLY_PAGE, 8, 'the same 8 as the first view of the assistant chat'); assert.equal(REPLY_MAX, 40);
   // replyPage: before a click the newest 8 replies by seq (the parts of one reply stay together), in the given order;
@@ -217,16 +218,29 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   const list = Array.from({ length: 20 }, (_, i) => ({ seq: 200 - i * 10 })); list.splice(1, 0, { seq: 190, part: 2 }); // 20 replies, one in 2 parts
   let p = replyPage(list);
   assert.deepEqual(p.shown.map((c) => c.seq), [200, 190, 190, 180, 170, 160, 150, 140, 130], 'the first 8 replies, both parts of one');
-  assert.deepEqual([p.older, p.next], [true, 50], 'the next floor: 8 older replies');
+  assert.deepEqual([p.older, p.next, p.held, p.more], [true, 50, false, 0], 'the next floor: 8 older replies');
   p = replyPage(list, p.next); assert.equal(p.shown.length, 17); assert.equal(p.next, 10, 'the last page has 4 replies');
   p = replyPage(list, p.next); assert.deepEqual([p.shown.length, p.older], [21, false], 'all shown: no button');
-  assert.deepEqual([replyPage([]).shown, replyPage([]).older], [[], false]);
+  assert.deepEqual([replyPage([]).shown, replyPage([]).older, replyPage([]).next], [[], false, null], 'no reply');
+  assert.deepEqual(replyPage(list.slice(0, 5)).shown.length, 5, 'less than a page: all, no button'); assert.equal(replyPage(list.slice(0, 5)).older, false);
   // A new reply after a click: it shows, no loaded card hides.
   assert.equal(replyPage([{ seq: 210 }, ...list], 50).shown.length, 18, 'a new reply comes, the loaded ones stay');
-  // By time, in the given order: an old card at the top of the order waits for its page.
+  // A rollback took the newest replies after a click: still at least one page.
+  assert.deepEqual(replyPage(list.filter((c) => c.seq <= 100), 90).shown.map((c) => c.seq), [100, 90, 80, 70, 60, 50, 40, 30], 'withdrawn after a click: the newest page');
+  // By time, in the given order: an old read card at the top of the order waits for its page.
   const mixed = [{ seq: 5 }, { seq: 6 }, ...Array.from({ length: 9 }, (_, i) => ({ seq: 100 - i }))];
   assert.deepEqual(replyPage(mixed).shown.map((c) => c.seq), [100, 99, 98, 97, 96, 95, 94, 93], 'the newest 8 replies, in the given order');
   assert.deepEqual(replyPage(mixed, replyPage(mixed).next).shown.map((c) => c.seq), mixed.map((c) => c.seq), 'page 2: all, in the given order');
+  // An old unread card never waits behind the button: the cut goes down to it (held: the feed keeps that floor).
+  p = replyPage(mixed, null, (c) => c.seq === 6);
+  assert.deepEqual([p.shown.map((c) => c.seq), p.cut, p.held, p.older], [[6, 100, 99, 98, 97, 96, 95, 94, 93, 92], 6, true, true], 'down to the old unread card');
+  // The 40 cap by seq, in either order (newest first, or newest at the bottom); the rest is only in the chat.
+  const many = Array.from({ length: 45 }, (_, i) => ({ seq: 1000 - i }));
+  for (const order of [many, [...many].reverse()]) {
+    let q = replyPage(order); for (let n = 0; q.older && n < 10; n++) q = replyPage(order, q.next);
+    assert.deepEqual([q.shown.length, Math.min(...q.shown.map((c) => c.seq)), q.older, q.more], [40, 961, false, 5], 'the newest 40 replies, then the note');
+  }
+  assert.equal(replyPage(many, null, (c) => c.seq === 955).shown.length, 8, 'an unread card past the 40 cap is only in the chat');
 
   // ReplyFeed with 20 replies (seq 10…200); the first view read up to 150, and 170 was read with a click.
   const nodes = []; for (let n = 1; n <= 20; n++) nodes.push(step(n, 0, n * 10, [txt(`**Yanıt ${n}.** Gövde.`)]), tail(n, n * 10));
@@ -247,18 +261,25 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   assert.deepEqual(cardsOf(out).map((c) => c.seq), [200, 190, 180, 160, 170, 150, 140, 130], 'one page: the first 8 cards of the order');
   assert.deepEqual(cardsOf(out).filter((c) => c.unread).map((c) => c.seq), [200, 190, 180, 160], 'the New marks');
   assert.equal(cardsOf(out)[0].first, true, 'the newest unread card is first');
-  assert.equal(text(find(out, (n) => n.p?.['data-reply-unread'] !== undefined)[0]), 'replies.unread:{"count":4}', 'the unread count of all cards');
-  let older = olderOf(out); assert.equal(text(older), 'replies.loadEarlier', "dsh's label"); assert.equal(older.p['data-reply-older'], '8');
+  assert.equal(text(find(out, (n) => n.p?.['data-reply-unread'] !== undefined)[0]), 'replies.unread:{"count":4}', 'the unread count');
+  let older = olderOf(out); assert.equal(text(older), 'replies.loadEarlier', 'no dsh text: our copy'); assert.equal(older.p['data-reply-older'], '8');
   // The button is at the older end: after the last card.
   const inner = find(out, (n) => n.p?.className === 'cp-rf-in')[0].c.flat(Infinity).filter((c) => c !== null);
   assert.equal(inner.findIndex((c) => c.p?.className === 'cp-rf-older'), inner.length - 1, 'below the cards, at the older end');
-  // A click adds one page; the cards of the first page and their marks stay.
+  // The click keeps the first card on screen at its place (a fake feed: the card moves 200 px down as cards come above).
+  const section = find(out, (n) => n.t === 'section')[0]; let cardTop = 100; const focused = [];
+  const fakeCard = (seq) => ({ isConnected: true, dataset: { reply: String(seq) }, getBoundingClientRect: () => ({ top: cardTop, bottom: cardTop + 50 }), focus: () => focused.push(seq) });
+  const feedEl = { scrollTop: 40, getBoundingClientRect: () => ({ top: 0 }), querySelector: () => null, querySelectorAll: () => [fakeCard(200), fakeCard(120), fakeCard(40)] };
+  section.p.ref.current = feedEl;
   const before = cardsOf(out);
-  older.p.onClick(); out = render();
+  older.p.onClick({ currentTarget: older }); cardTop = 300; out = render();
+  assert.equal(feedEl.scrollTop, 240, 'the first card on screen keeps its place');
   assert.deepEqual(cardsOf(out).slice(0, 8), before, 'the first page stays as it was (order, read and New marks)');
   assert.deepEqual(cardsOf(out).map((c) => c.seq).slice(8), [120, 110, 100, 90, 80, 70, 60, 50], 'the next 8');
   older = olderOf(out); assert.equal(older.p['data-reply-older'], '16');
-  older.p.onClick(); out = render();
+  // The last click with the keyboard: the button goes, the focus goes to the first card that the click added.
+  globalThis.document.activeElement = older; older.p.onClick({ currentTarget: older }); out = render(); delete globalThis.document.activeElement;
+  assert.deepEqual(focused, [40], 'the focus on the first card that the last click added (below seq 50)'); section.p.ref.current = null;
   assert.equal(cardsOf(out).length, 20); assert.equal(olderOf(out), undefined, 'all shown: no button');
   assert.equal(find(out, (n) => n.p?.className === 'cp-rf-note').length, 0, 'no note under 40 replies');
   // Read marks still work on a card of a later page; a new reply shows at once.
@@ -268,14 +289,25 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   assert.deepEqual(cardsOf(out)[0], { seq: 210, unread: true, first: true }, 'a new reply shows at once, New, on top');
   // The cards of a new chat column start with one page again (a new ReplyFeed).
   hooks = []; out = render(); assert.equal(cardsOf(out).length, 8, 'a new feed: one page');
+  // An old unread card shows on the first page (no New card behind the button), and stays after it is read.
+  snap = chat; store.all('old', 20); store.mark('old', nodes.filter((n) => n.kind === 'assistant-step' && n.data.finalNode.seq > 30).map((n) => n.data.finalNode.seq), nodes.filter((n) => n.kind === 'assistant-step').map((n) => n.data.finalNode.seq));
+  props.sessionId = 'old'; hooks = []; out = render();
+  assert.deepEqual(cardsOf(out).map((c) => c.seq), [30, 200, 190, 180, 170, 160, 150, 140, 130, 120, 110, 100, 90, 80, 70, 60, 50, 40], 'the old unread card and every card above it');
+  find(out, (n) => n.t === ReplyCard && n.p.card.seq === 30)[0].p.onRead(30); out = render();
+  assert.deepEqual([cardsOf(out).length, cardsOf(out).at(-1)], [18, { seq: 30, unread: false, first: false }], 'read, it stays');
+  assert.equal(olderOf(out).p['data-reply-older'], '18', 'Load earlier for the 2 older ones');
+  // dsh's own label (its chat.loadOlder now, e.g. dsh 0.2.2's German "Früher laden"), else our copy.
+  props.loadOlder = () => 'Früher laden'; out = render(); assert.equal(text(olderOf(out)), 'Früher laden', "dsh's own label");
+  props.sessionId = 'feed'; delete props.loadOlder;
 }
 
-// The texts: replies.loadEarlier is dsh's own chat.loadOlder label in each language pack (the same label as dsh's button).
+// The texts: replies.loadEarlier is our language packs' copy of dsh's chat.loadOlder (the label when dsh has no text).
 for (const f of ['de', 'es', 'fr', 'hi', 'id', 'ja', 'ko', 'pt-BR', 'ru', 'tr', 'vi']) {
   const pack = JSON.parse(read(`locales/${f}.json`));
-  assert.equal(pack['dsh-composer-plus']['replies.loadEarlier'], pack.chat['chat.loadOlder'], `${f}: dsh's label`);
+  assert.equal(pack['dsh-composer-plus']['replies.loadEarlier'], pack.chat['chat.loadOlder'], `${f}: the copy`);
 }
-assert.match(src, /'replies\.loadEarlier': 'Load earlier',/, 'en: dsh\'s label'); assert.match(src, /'replies\.loadEarlier': '加载更早',/, 'zh: dsh\'s label');
+assert.match(src, /'replies\.loadEarlier': 'Load earlier',/, 'en'); assert.match(src, /'replies\.loadEarlier': '加载更早',/, 'zh');
+assert.match(src, /loadOlder: \(\) => chatTextOf\(ctx\.locale, 'chat\.loadOlder'\)/, "the feed asks dsh's chat dictionary");
 
 // The feature: its switch, Settings screenshot, category, chat toggle key.
 assert.match(src, /const FEATURES = \[[^\]]*'assistantReplyCards'/, 'its own switch'); assert.match(src, /const SHOT_OF = \{[^}]*assistantReplyCards: 'assistantReplyCards'/, 'its screenshot');

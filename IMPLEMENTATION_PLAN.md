@@ -4651,4 +4651,22 @@ Objective (Furkan, 2026-11-24): "sürüyor kısmında damonın yapacağı ve akt
   guncellemeler-ilk-alt--once-2.png, guncellemeler-ilk-yeni.png, guncellemeler-sonra-yeni.png,
   guncellemeler-ilk--yeni-2.png, guncellemeler-ilk-alt--yeni-2.png, guncellemeler-sonra--yeni-2.png.
 - Furkan's approval (2026-11-26): "Öncekini yükle" branch to main and push when the review is clean; live copy separate.
-- Open: review-guard (separate subagent, repeat until no P1/P2: diff > 3 files), merge origin/main, tests, merge, push.
+- Review round 1 (review-guard subagent, origin/main...404d2251): P1 0, P2 1, P3 5, P4 2. Fixed (not committed in a
+  reviewed state yet): P2 the label is dsh's own chat.loadOlder text at run time (chatTextOf through ctx.locale.bind('chat'),
+  e.g. dsh 0.2.2 de "Früher laden"); replies.loadEarlier is only the fallback (README limit sentence in 13 languages).
+  P3 the 40 cap by seq inside replyPage (either order) + 45-reply unit test; P3 every unread card among the newest 40 shows
+  (the floor goes down to it and stays after it is read; docs say so); P3 after the last click from the keyboard the
+  focus goes to the first added card; P3 browser test asserts scrollTop > 0 before the click; unit test checks the
+  scroll keep with a fake feed. P4 a rollback after a click still shows at least one page; plan text aligned.
+  Not fixed (merge checklist for fix/chat-card-order-tether, no defect here): with newest-at-bottom the button and the
+  replies.more note go above the cards, its follow ResizeObserver must stop in loadEarlier, browser-reply-pages and the
+  new unit test need its order.
+- After the fixes: `npm test` exit 0; `node test/reply-cards.test.mjs` ok; `git diff --check` clean.
+- DENIED by Auto review (2026-11-26 ~14:55, not retried): the background run of test/browser-reply-pages.mjs on dsh
+  0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5 after the review fixes. Reason given: the approval in the Assistant chat names the
+  review and the merge, not this test run. The browser test of the fixed code did not run (it passed on 404d2251).
+- Open steps: Furkan's approval of the browser test run (exact command below); then review-guard round 2 in a separate
+  subagent; merge origin/main; tests; merge into main; push main. No live copy, no release.
+  Command: `PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-reply-pages.mjs
+  <dsh-0.2.0-rc.2 bin> <dsh-0.2.1-rc.2 bin> <0.2.2-rc.5 bin>` and the same for test/browser-status-canvas.mjs.
+- Last passing test command: `npm test` (exit 0, after the review fixes).

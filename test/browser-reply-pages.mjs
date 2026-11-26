@@ -85,6 +85,7 @@ try {
       let first = await state();
       assert.equal(first.length, 8, `one page: ${JSON.stringify(first.map((c) => c.title))}`);
       assert.deepEqual(first.map((c) => c.title), Array.from({ length: 8 }, (_, i) => `Güncelleme ${MORE - i}: örnek iş bitti.`), 'the newest 8, newest first (all read: they came before the first view)');
+      // dsh's own label: its chat.loadOlder text (dsh has no Turkish: Composer Plus's Turkish pack gives it to dsh).
       assert.equal(await older.innerText(), 'Öncekileri yükle', "dsh's Turkish label");
       assert.equal(await older.getAttribute('data-reply-older'), '8');
       const look = await older.evaluate((b) => { const s = getComputedStyle(b); const last = [...b.closest('.cp-rf-in').children].at(-1); return { last: last.contains(b), size: s.fontSize, pad: s.padding, border: s.borderStyle }; });
@@ -102,6 +103,7 @@ try {
       // The feed scrolls: the first card on screen keeps its place after the click.
       await feed.evaluate((f) => { f.scrollTop = f.scrollHeight; }); await pause(300);
       const at = () => feed.evaluate((f) => { const top = f.getBoundingClientRect().top; const c = [...f.querySelectorAll('article.cp-rc')].find((el) => el.getBoundingClientRect().bottom > top); return { seq: c.dataset.reply, top: Math.round(c.getBoundingClientRect().top) }; });
+      assert.ok(await feed.evaluate((f) => f.scrollTop > 0), 'the feed scrolls before the click');
       const placeBefore = await at();
       await older.click(); await pause(500);
       const after = await state();

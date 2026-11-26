@@ -4312,15 +4312,19 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
      * label and the look of dsh's own button above a chat) adds the next REPLY_PAGE older ones. The same 8 as the first
      * view of the assistant chat (ASSISTANT_TURNS). */
     const REPLY_PAGE = ASSISTANT_TURNS;
-    /** The feed's cards from seq `floor` up (null before the first click: the newest REPLY_PAGE replies), in the order of
-     * `cards` (the feed's order does not change). By seq, so the parts of a reply stay together, a card that you read
-     * stays shown, and a new reply after a click shows without hiding a loaded one. `older`: Load earlier has more;
-     * `next`: the floor after one more click (REPLY_PAGE older replies). */
-    function replyPage(cards, floor = null) {
-      const seqs = [...new Set(cards.map((c) => c.seq))].sort((a, b) => b - a);
-      const cut = floor ?? seqs[REPLY_PAGE - 1] ?? -Infinity;
+    /** The feed's cards from seq `floor` up (null before the first click: the newest REPLY_PAGE replies) and down to the
+     * oldest card that is `unread` (no New card waits behind the button), among the newest REPLY_MAX replies, in the
+     * order of `cards` (the feed's order does not change). By seq, so the parts of a reply stay together and a new reply
+     * after a click shows without hiding a loaded one. `cut`: the oldest seq shown; `held`: an unread card holds the cut
+     * below the floor (the feed then keeps `cut` as its floor, so the card stays after you read it); `older`: Load
+     * earlier has more; `next`: the floor after one more click; `more`: the replies past REPLY_MAX (only in the chat). */
+    function replyPage(cards, floor = null, unread = () => false) {
+      const all = [...new Set(cards.map((c) => c.seq))].sort((a, b) => b - a); const seqs = all.slice(0, REPLY_MAX);
+      // At least the newest page (also after a rollback took replies above the floor), then down to the oldest unread card.
+      const base = Math.min(floor ?? Infinity, seqs[REPLY_PAGE - 1] ?? -Infinity);
+      const cut = Math.max(seqs.at(-1) ?? Infinity, Math.min(base, ...cards.filter(unread).map((c) => c.seq)));
       const shown = cards.filter((c) => c.seq >= cut); const n = seqs.filter((s) => s >= cut).length;
-      return { shown, older: shown.length < cards.length, next: seqs[Math.min(n + REPLY_PAGE, seqs.length) - 1] ?? null };
+      return { shown, cut, held: cut < base, older: n < seqs.length, next: seqs[Math.min(n + REPLY_PAGE, seqs.length) - 1] ?? null, more: all.length - seqs.length };
     }
     const replyMemo = new WeakMap();
     /** The cards of a chat snapshot (dsh's chat nodes): `{ kind: 'reply', seq, turn, time, text }` for each settled reply
@@ -4333,8 +4337,11 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
     /** dsh's own text of a known failure code (its `chat` dictionary, the active language); '' when this dsh has no text for
      * it (dsh's lookup gives the key back) or the code is not known. */
     function failureTextOf(locale, code) {
-      if (typeof code !== 'string' || !Object.hasOwn(FAILURE_KEYS, code)) return '';
-      const key = `message.failure.${FAILURE_KEYS[code]}`;
+      return typeof code === 'string' && Object.hasOwn(FAILURE_KEYS, code) ? chatTextOf(locale, `message.failure.${FAILURE_KEYS[code]}`) : '';
+    }
+    /** dsh's own text `key` of its `chat` dictionary in the active language; '' when this dsh has no text for it (dsh's
+     * lookup gives the key back). In a language that dsh does not have, our pack's copy of the dictionary answers. */
+    function chatTextOf(locale, key) {
       try { const text = locale?.bind?.('chat')?.(key); return typeof text === 'string' && text !== key ? text : ''; } catch { return ''; }
     }
     const asksYou = (text) => { const p = replyParts(text); return p.approvals.length > 0 || p.options.length > 0 || p.forYou !== ''; };
@@ -4585,7 +4592,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
      * göster" flag). The chat under the cards is hidden, not removed (dsh's history
      * loader reads its rows' boxes; its scroll stays). When the chat shows and no status panel has the toggle, a pill
      * "Sohbeti gizle" hides it again. */
-    function ReplyFeed({ sessionId, host, replies, shown, statusSeats, offers, picks, locale, t, failure }) {
+    function ReplyFeed({ sessionId, host, replies, shown, statusSeats, offers, picks, locale, t, failure, loadOlder }) {
       const chatShown = React.useSyncExternalStore(shown.subscribe, shown.getSnapshot);
       const panel = React.useSyncExternalStore(statusSeats.subscribe, () => statusSeats.getSnapshot().has(sessionId));
       const offerNow = React.useSyncExternalStore(offers.subscribe, () => offers.of(sessionId));
@@ -4615,22 +4622,24 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       // A new unread card comes on top: the feed shows it.
       const newest = unread[0]?.seq ?? null;
       React.useEffect(() => { if (newest !== null && feedRef.current) feedRef.current.scrollTop = 0; }, [newest]);
-      // Load earlier: the cards of the newest replies show, each click adds one older page (replyPage), in the same order.
-      // The unread count and Tümünü okundu say still count every card. The first card on screen keeps its place after the
-      // click (the cards of an older page can come above it).
-      const [floor, setFloor] = React.useState(null); // the oldest seq that Load earlier showed (replyPage)
-      const page = replyPage(ordered.slice(0, REPLY_MAX), floor);
-      const kept = React.useRef(null); // { card, top } at the click
+      // Load earlier: the cards of the newest replies (and every unread one) show, each click adds one older page
+      // (replyPage), in the same order. The first card on screen keeps its place after the click: in this order the
+      // older cards come below it, in an order with the newest at the bottom they come above it.
+      const [floor, setFloor] = React.useState(null); // the oldest seq that the feed shows (replyPage)
+      const page = replyPage(ordered, floor, (c) => replyUnread(mark, c.seq));
+      React.useLayoutEffect(() => { if (page.held) setFloor(page.cut); }, [page.held, page.cut]);
+      const kept = React.useRef(null); // { card, top, cut, focus } at the click
       React.useLayoutEffect(() => {
         const place = kept.current; kept.current = null; const f = feedRef.current;
-        if (place === null || f == null || !place.card.isConnected) return;
-        const moved = place.card.getBoundingClientRect().top - place.top;
-        if (Math.abs(moved) > 0.5) f.scrollTop += moved;
+        if (place === null || f == null) return;
+        if (place.card?.isConnected) { const moved = place.card.getBoundingClientRect().top - place.top; if (Math.abs(moved) > 0.5) f.scrollTop += moved; }
+        // The button had the focus and is gone (all shown): the focus goes to the first card that the click added.
+        if (place.focus && f.querySelector?.('[data-reply-older]') == null) [...f.querySelectorAll('article.cp-rc')].find((el) => Number(el.dataset.reply) < place.cut)?.focus?.({ preventScroll: true });
       }, [floor]);
-      const loadEarlier = () => {
+      const loadEarlier = (ev) => {
         const f = feedRef.current; const top = f?.getBoundingClientRect().top ?? 0;
         const card = [...(f?.querySelectorAll('article.cp-rc') ?? [])].find((el) => el.getBoundingClientRect().bottom > top);
-        kept.current = card === undefined ? null : { card, top: card.getBoundingClientRect().top };
+        kept.current = { card, top: card?.getBoundingClientRect().top ?? 0, cut: page.cut, focus: ev?.currentTarget != null && ev.currentTarget === globalThis.document?.activeElement };
         setFloor(page.next);
       };
       const lang = locale?.();
@@ -4648,11 +4657,11 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
           ordered.length === 0 ? React.createElement('p', { className: 'cp-rf-note' }, t('replies.none')) : null,
           page.shown.map((card, i) => React.createElement(ReplyCard, { key: card.seq, card, sessionId, unread: replyUnread(mark, card.seq), first: i === 0 && replyUnread(mark, card.seq),
             offerNow, choiceNow, picks, t, lang, failure, onRead: (seq) => read([seq]) })),
-          // At the older end of the list (the order puts the newest first). replies.loadEarlier is dsh's `chat.loadOlder` text
-          // in each language (test/reply-cards.test.mjs compares them).
+          // At the older end of the list (the order puts the newest first), with the label of dsh's own button (`loadOlder`:
+          // its `chat.loadOlder` text now); replies.loadEarlier, the same text as our packs' copy, only when dsh has none.
           page.older ? React.createElement('div', { className: 'cp-rf-older' }, React.createElement('button', { type: 'button', 'data-reply-older': String(page.shown.length), onClick: loadEarlier },
-            t('replies.loadEarlier'))) : null,
-          !page.older && ordered.length > REPLY_MAX ? React.createElement('p', { className: 'cp-rf-note' }, t('replies.more', { count: ordered.length - REPLY_MAX })) : null));
+            loadOlder?.() || t('replies.loadEarlier'))) : null,
+          !page.older && page.more > 0 ? React.createElement('p', { className: 'cp-rf-note' }, t('replies.more', { count: page.more })) : null));
     }
     /** The card stack in the Damon chat (the Durum panel's data, statusCards' groups): the count bar (Get summary,
      * Projects, Refresh, fold), the summary card, the Onay card (both stay in place while the cards scroll), then Sorun,
@@ -16341,7 +16350,8 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
           name: 'shell.overlay',
           id: 'assistant-replies',
           locale: LOCALE_NS,
-          inject: () => ({ seats: replySeats, replies: replyData, shown: chatShownFlag, statusSeats, offers: cardOffers, picks: optionPicks, failure: failureText, locale: () => ctx.locale?.getSnapshot?.().active }),
+          inject: () => ({ seats: replySeats, replies: replyData, shown: chatShownFlag, statusSeats, offers: cardOffers, picks: optionPicks, failure: failureText, locale: () => ctx.locale?.getSnapshot?.().active,
+            loadOlder: () => chatTextOf(ctx.locale, 'chat.loadOlder') }), // the label of dsh's own Load earlier button, in its language
         }, ReplyFeeds))]);
         feature('assistantCallouts', () => [...watchAssistantStatus(), ctx.slots.inject('shell.overlay', () => ctx.slots.register({
           name: 'shell.overlay',
