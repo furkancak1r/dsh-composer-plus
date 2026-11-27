@@ -4203,7 +4203,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
     const suggestFold = (s) => String(s ?? '').normalize('NFKD').replace(/[\p{M}\p{Cf}]/gu, '').toLocaleLowerCase('tr').replace(/ı/g, 'i');
     const SUGGEST_BLOCKED = /(?<![\p{L}\p{N}])(?:onayl(?:i|idir|iyorum|iyoruz|adim)|onay\s+ver(?:iyorum|dim)|izin\s+ver(?:iyorum|dim)|i\s+approve|approved\s*:|karar\s*:|decision\s*:)(?![\p{L}\p{N}])|canli\s+deploy\s+\S+\s+[0-9a-f]{7,40}(?![\p{L}\p{N}])/u;
     const SUGGEST_LIVE = /^\s*CANLI\s+DEPLOY(?![\p{L}\p{N}])/mu;
-    const SUGGEST_MIXED = /(?<!\p{L})(?=\p{L}*\p{Script=Latin})(?=\p{L}*[\p{Script=Cyrillic}\p{Script=Greek}])\p{L}+/u;
+    const SUGGEST_MIXED = /(?<!\p{L})(?=(?:\p{L}*?\p{Script=Latin}){3})(?=\p{L}*[\p{Script=Cyrillic}\p{Script=Greek}])\p{L}+/u;
     const suggestBlocked = (text) => {
       const plain = String(text ?? '').normalize('NFKD').replace(/[\p{M}\p{Cf}]/gu, '');
       return SUGGEST_LIVE.test(plain) || SUGGEST_MIXED.test(plain) || SUGGEST_BLOCKED.test(suggestFold(text));
@@ -4256,7 +4256,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       + `[${DECIDE_ATTR}] .cp-dc-sgs{display:flex;flex-direction:column;gap:8px;padding-top:12px;border-top:.5px solid var(--dsw-alias-border-l3,rgba(127,127,127,.35))}`
       + `[${DECIDE_ATTR}] .cp-dc-sgs-head{display:flex;align-items:baseline;gap:8px}[${DECIDE_ATTR}] .cp-dc-sgs-head h3{flex:1}`
       + `[${DECIDE_ATTR}] .cp-dc-sg{box-sizing:border-box;display:flex;flex-direction:column;gap:4px;width:100%;padding:10px 14px;border:.5px solid var(--dsw-alias-border-l3,rgba(127,127,127,.35));border-radius:var(--dsw-radius-lg,12px);background:none;color:inherit;font:inherit;text-align:left;overflow-wrap:anywhere;cursor:pointer}`
-      + `[${DECIDE_ATTR}] .cp-dc-sg-top{display:flex;flex-wrap:wrap;align-items:center;gap:6px}[${DECIDE_ATTR}] .cp-dc-sg-top b{font-weight:600}[${DECIDE_ATTR}] .cp-dc-sg-top .cp-dc-tag{margin-left:0}`
+      + `[${DECIDE_ATTR}] .cp-dc-sg-top{display:flex;flex-wrap:wrap;align-items:center;gap:6px}[${DECIDE_ATTR}] .cp-dc-sg-top b{font-weight:600}[${DECIDE_ATTR}] .cp-dc-sg-top .cp-dc-tag{flex:0 1 auto;margin-left:0;white-space:normal;overflow-wrap:anywhere}`
       + `[${DECIDE_ATTR}] .cp-dc-sg-meta{font-size:12px;line-height:16px;color:var(--dsw-alias-label-secondary,#555)}`
       + `@media (hover:hover){[${DECIDE_ATTR}] .cp-dc-sg:hover:not([aria-disabled="true"]){background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.12))}}`
       + `@media (prefers-reduced-motion:reduce){[${DECIDE_ATTR}] .cp-dc-card{animation:none}}`;

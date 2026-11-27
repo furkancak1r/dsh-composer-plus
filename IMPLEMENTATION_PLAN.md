@@ -142,8 +142,14 @@ IMPLEMENTATION_PLAN.md. Screenshots only to the folder above.
   work keeps the to-do nudge; late → done when cards come later; dead askSummary removed; comments; README Limits
   sentence (13 files); store wait tests in assistant-todos-client; dialog order test. P2 "older dsh not run" answered
   by the PASS above. Last passing: `npm test` exit 0 (2026-11-27 13:5x).
-- Open: review round 2 (separate subagent); a clean review-guard round; merge into main only after
-  `gh release view v1.33.0` shows the release (13:15: "release not found").
+- Review 2 (P1 0, P2 0, P3 4, P4 2), fixed: the mixed-script check needs 3 Latin letters (µs, kΩ, Δt pass; a Cyrillic
+  or Greek letter in "onaylıyorum" is still refused) and the refusal texts name it; the note keeps a reply to the user's
+  own message ("Write nothing in the chat about this note … A reply to the user's own message in this turn stays");
+  agent/status test with mixed summary and suggest markers (completed: one wake; Stop: both markers go, only the
+  suggest request is missed); a long project tag wraps; suggestFold not exported. Open, for Furkan: Tether parity (the
+  2026-11-26 rule "every Damon feature also goes to Tether" vs the earlier "Kararlar desktop only"), written in
+  tether/FEATURES.md. Last passing: `npm test` exit 0 (2026-11-27 14:5x).
+- Open: a clean review-guard round (round 3); merge into main only after `gh release view v1.33.0` shows the release.
 
 # Quiet turns leave no card, and small tasks start quietly (branch fix/hide-quiet-only-turns, 2026-11-27)
 

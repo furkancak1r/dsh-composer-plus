@@ -12594,11 +12594,11 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
         const id = mine(exec);
         if (id === undefined) throw refused('This tool works only in the Composer Plus assistant chat.', 403);
         const { items, blocked } = cleanSuggestions(args?.suggestions);
-        if (items.length === 0) throw refused(blocked > 0 ? `Every suggestion was refused: a card sends its text as the user's message, so it never has an approval word ("Onaylıyorum", "onaylı", "onayladım", "I approve"), "Karar:", "Decision:" or "CANLI DEPLOY". Write suggestions, not approvals.`
+        if (items.length === 0) throw refused(blocked > 0 ? `Every suggestion was refused: a card sends its text as the user's message, so it never has an approval word ("Onaylıyorum", "onaylı", "onayladım", "I approve"), "Karar:", "Decision:", "CANLI DEPLOY", or a word that mixes Latin with Greek or Cyrillic letters. Write suggestions, not approvals.`
           : `suggestions is 1 to ${SUGGEST_LIMITS.items} items, each with title (1 to ${SUGGEST_LIMITS.title} characters), text (1 to ${SUGGEST_LIMITS.text}), why (1 to ${SUGGEST_LIMITS.why}) and source (1 to ${SUGGEST_LIMITS.source}); project at most ${SUGGEST_LIMITS.project}.`, 400);
         suggestions.set(id, { at: now(), items });
         suggestAsks.delete(id); // the request got its suggestions
-        return `The Kararlar dialog shows ${items.length} suggestion cards${blocked > 0 ? ` (${blocked} left out: an approval word, "Karar:", "Decision:" or "CANLI DEPLOY"; write it again in other words if it is a suggestion)` : ''}. Reply with only \`[quiet]\`.`;
+        return `The Kararlar dialog shows ${items.length} suggestion cards${blocked > 0 ? ` (${blocked} left out: an approval word, "Karar:", "Decision:", "CANLI DEPLOY", or a word that mixes Latin with Greek or Cyrillic letters; write it again in other words if it is a suggestion)` : ''}. Reply with only \`[quiet]\`.`;
       },
     },
   ];
@@ -13074,20 +13074,21 @@ export const STATUS_SUGGEST_NOTE = `[Composer Plus → Status panel] The user cl
 1. Collect what you know: this chat (chat_read for older messages) and memory_recall (decisions, open items, rules).
 2. Start one subagent in the background that reads the project notes of your folder: only in its subfolders that hold notes and documents (your folder's AGENTS.md names them), never the folder root itself, never a folder named Gizli, never .env or key files; it changes no file. It returns per project: what it does, its open problems and the slow or repeated steps that the notes show, each with the file path.
 3. When its result comes, call status_suggestions_set: up to ${SUGGEST_LIMITS.items} items, the most useful first, in the user's language, in plain words. Each item: project (none for all projects or a new project), title, 1 to 3 sentences, why, source (the chat, the memory entry or the note file). Do not guess: set unverified true for an item with a claim that you did not check against a source. A card sends its title and text as the user's message, so never write an approval or a decision: no approval word ("Onaylıyorum", "onaylı", "onayladım", "onay veriyorum", "izin veriyorum", "I approve"), no "Karar:" or "Decision:", no "CANLI DEPLOY" in capitals (the panel leaves such a card out).
-This note comes before the to-do rules: add no to-do item for this work. Write nothing in the chat for it: reply with only \`[quiet]\`, in this turn and in the turn with the subagent's result. When a task runs in this turn, continue it after these steps.`;
+This note comes before the to-do rules: add no to-do item for this work. Write nothing in the chat about this note: when this turn has no other reply, reply with only \`[quiet]\`, and so does the turn with the subagent's result. A reply to the user's own message in this turn stays. When a task runs in this turn, continue it after these steps.`;
 const suggestMessage = () => Object.freeze({ id: randomUUID(), role: 'user', content: Object.freeze([Object.freeze({ type: 'text', text: STATUS_SUGGEST_NOTE })]),
   source: Object.freeze({ kind: SUMMARY_SOURCE, form: 'snapshot' }) });
 /** The safety rule of a suggestion card (its text goes as the user's message): never an approval or a decision. Blocked:
  * an approval word (the forms that Auto review takes as an approval: onaylı, onaylıdır, onaylıyorum, onaylıyoruz,
  * onayladım, onay veriyorum/verdim, izin veriyorum/verdim, I approve, approved:), the decision form "Karar:"/"Decision:",
  * the strict live-deploy line ("canlı deploy <product> <sha>", any case) and a text or line that starts with "CANLI DEPLOY"
- * in capitals (Furkan, 2026-11-27); a word that mixes Latin with Cyrillic or Greek letters (an "о" that looks like "o").
+ * in capitals (Furkan, 2026-11-27); a word with 3 or more Latin letters and a Cyrillic or Greek letter (an "о" that looks
+ * like "o"; a unit such as "µs" or "kΩ" passes).
  * The text is folded first (marks and format characters out, Turkish lower case, ı → i). The same rule is in client.js
  * (suggestBlocked; test/assistant-suggest.test.mjs compares them). */
-export const suggestFold = (s) => String(s ?? '').normalize('NFKD').replace(/[\p{M}\p{Cf}]/gu, '').toLocaleLowerCase('tr').replace(/ı/g, 'i');
+const suggestFold = (s) => String(s ?? '').normalize('NFKD').replace(/[\p{M}\p{Cf}]/gu, '').toLocaleLowerCase('tr').replace(/ı/g, 'i');
 const SUGGEST_BLOCKED = /(?<![\p{L}\p{N}])(?:onayl(?:i|idir|iyorum|iyoruz|adim)|onay\s+ver(?:iyorum|dim)|izin\s+ver(?:iyorum|dim)|i\s+approve|approved\s*:|karar\s*:|decision\s*:)(?![\p{L}\p{N}])|canli\s+deploy\s+\S+\s+[0-9a-f]{7,40}(?![\p{L}\p{N}])/u;
 const SUGGEST_LIVE = /^\s*CANLI\s+DEPLOY(?![\p{L}\p{N}])/mu;
-const SUGGEST_MIXED = /(?<!\p{L})(?=\p{L}*\p{Script=Latin})(?=\p{L}*[\p{Script=Cyrillic}\p{Script=Greek}])\p{L}+/u;
+const SUGGEST_MIXED = /(?<!\p{L})(?=(?:\p{L}*?\p{Script=Latin}){3})(?=\p{L}*[\p{Script=Cyrillic}\p{Script=Greek}])\p{L}+/u;
 export const suggestBlocked = (text) => {
   const plain = String(text ?? '').normalize('NFKD').replace(/[\p{M}\p{Cf}]/gu, '');
   return SUGGEST_LIVE.test(plain) || SUGGEST_MIXED.test(plain) || SUGGEST_BLOCKED.test(suggestFold(text));
