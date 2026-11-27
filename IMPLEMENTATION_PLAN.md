@@ -1,3 +1,40 @@
+# Quiet turns: hide the in-between chat rows too (branch fix/hide-quiet-turn-chat-rows, 2026-11-27)
+
+Source: Furkan, Assistant chat, 2026-11-27: "sessiz turda Damon sohbetindeki 'alt ajana verdim' gibi ara satırlar da
+gizlensin mi? → Gizlensin, dalda yapılıp main'e alınsın, Tether'e de eşi eklensin". Base: main ee06f990. Standing
+approval: merge into main after a clean review. Not in scope: live copy, release, npm publish, DSH restart.
+
+## Done (5e3a269e)
+- Requirements 1-3, 5: client.js `hushedRowKeys`: in an ended Damon turn whose closing answer is only `[quiet]`
+  (hushedTurns), each text step with a tool call that is no card (not afterDenial, not asksYou) gets the 0-height box of
+  the quiet rows. The denial line, a line that asks you, user rows, approval and question cards, and every row of a
+  running turn stay. Only the assistant chat (AssistantChatView). Tether had the rule already (botLines, before shot).
+- Tests: test/assistant-subagent-rows.test.mjs (store test + the shared `hushed` table, ended and running; red on
+  ee06f990), test/browser-assistant-answers.mjs (LOOK and STARTED lines hidden also with FOLDED_REPLIES=all; red on
+  ee06f990), iOS testHushedTurnsMatchTheMac (chatRows from the same table, folded and opened turn).
+- Docs: docs/features.json assistantChatView (llms + 13 how), build:readme, tether/FEATURES.md assistantChatView.
+- Screenshots: /Users/furkancakir/Damon/Belgeler/Composer Plus/sessiz-tur-satir-20261127/
+  damon-sohbet-, damon-kartlar-, tether-damon- with -once-ee06f990 and -sonra-5e3a269e.
+
+## Last passing (5e3a269e)
+- `npm test` exit 0; iOS `cd tether/ios && xcodebuild -project DSHMobile.xcodeproj -scheme DSHMobile -destination 'platform=iOS Simulator,id=787CAECE-7075-4681-B0CE-7FBE5A5DFD49' -derivedDataPath ../build/DerivedData test CODE_SIGNING_ALLOWED=NO`
+  130 tests, 2 skipped, 0 failures; `TMPDIR=~/Library/Caches/cp-quiet-rows-tests PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-assistant-answers.mjs <0.2.0-rc.2> <0.2.1-rc.2> <0.2.2-rc.5>`
+  PASS x3 and FOLDED_REPLIES=all PASS on 0.2.2-rc.5.
+
+## Open: requirement 4 (hold while a turn runs) needs a choice (stopped by the task's rule)
+- Facts (dsh 0.2.2-rc.5 source): a step streams its text block before its tool-call block (dsh-client-ui-chat
+  conversation-nodes/assistant.ts updateChunk); a turn's closing answer is known only at turn/end (turn-tail.ts). The
+  card hold (replyCardsOf) gives no card to such a text until the turn ends. Tether's botLines holds it the same way
+  in the running turn, but its LiveTail shows the text while it streams.
+- A. Hold as the cards (and Tether): in every running Damon turn, hide each text step with a tool call that asks
+  nothing; after the end, show it only when the turn is not hushed. Cost: no progress line in any running turn, and a
+  short flash while the text streams before its tool call.
+- B. Keep 5e3a269e: the line shows while the turn runs and goes at the turn's end.
+- D. Hide every assistant text of a running Damon turn (also while it streams) until it ends; dsh's running status
+  stays. No flash; no text at all until the turn ends.
+- Next after the choice: implement, tests, review-guard loop (diff > 100 lines and > 3 files: repeat until no P1/P2),
+  fetch/merge origin/main, tests, merge --no-ff into main, push, CI.
+
 # Quiet turns leave no card, and small tasks start quietly (branch fix/hide-quiet-only-turns, 2026-11-27)
 
 Source: Furkan in the Assistant chat, 2026-11-27 (relayed by Damon): "Yalnız `[quiet]` dönen bir turda Composer Damon
