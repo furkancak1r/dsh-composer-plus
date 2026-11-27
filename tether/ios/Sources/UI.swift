@@ -986,7 +986,8 @@ struct ConversationView: View {
                 // between `---` lines, `replySections`) and each failed turn is a card with its buttons, in time order (the
                 // newest at the bottom, where the chat opens and follows). A New card has a blue edge and the New label; the
                 // newest New card has a shadow; a tap on it or on one of its buttons reads it.
-                if damon, l.kind == .assistant {
+                // A text that a stop cut is a plain row with its Stopped mark, as dsh's chat draws it (no card: 2026-11-27).
+                if damon, l.kind == .assistant, !l.interrupted {
                     let parts = replySections(l.text)
                     let ids = isCardLine(l) ? l.seq.map { replyCardIDs(seq: $0, parts: parts.count) } : nil // a `[quiet]` reply is never New
                     VStack(alignment: .leading, spacing: 14) {
@@ -1815,6 +1816,7 @@ struct LineView: View {
                     VStack(alignment: .leading, spacing: 4) { ForEach(head.options, id: \.n) { o in Text(verbatim: "\(o.n). \(o.label)") } }
                         .font(.subheadline).foregroundStyle(.secondary).textSelection(.enabled)
                 }
+                if line.interrupted { Text(String(localized: "Stopped")).font(.caption).foregroundStyle(.secondary) }
                 if !live {
                     Button {
                         UIPasteboard.general.string = part ?? line.text; UIImpactFeedbackGenerator(style: .light).impactOccurred()

@@ -11678,9 +11678,10 @@ export const damonAbout = (assistant, sessionId, headerOf) => {
  * running turn: a message that you typed (steered) into a turn that news, a schedule, a subagent or a hidden note opened,
  * and a subagent's notice (`subagent-settled`, `agent-message`). A part's texts leave out a text that a rollback withdrew
  * and a partial text that a stop cut (`interrupted`). The part of your steered message answers you: its newest text that
- * does not start or end with `[quiet]`. Any other part, also a turn that you opened: none when its first text starts with
- * `[quiet]` or its last text ends with it; the turn's last text decides instead while the part's newest message has a
- * tool call ("Checking." with a tool call, then `[quiet]`) or when your next message cut it. Else its newest text. A completed turn: the words of
+ * does not start or end with `[quiet]`. Any other part, also a turn that you opened: none when its last text starts or
+ * ends with `[quiet]`; the turn's last text decides too while the part's newest message has a tool call ("Checking." with
+ * a tool call, then `[quiet]`) or when your next message cut it. Else its newest text: a part that starts with `[quiet]`
+ * and ends with a real answer (its card) pushes that answer (2026-11-27). A completed turn: the words of
  * its newest part that has some, else none. A failed turn: none (the gateway's DSH error push tells it). A stopped or
  * cut-off turn: those words, or '' (the gateway shows the chat). Events without a turn end and without a text: none.
  * ponytail: Resume after an outage continues a turn with a typed prompt (source `user`), so a message that you type into
@@ -11709,7 +11710,7 @@ export function damonPushWords(events, from = 0) {
   }
   const words = ({ parts, end, last }) => {
     const said = ({ typed, texts: t, done }) => (typed ? t.findLast((x) => !quietMark(x))
-      : t.length === 0 || /^\[quiet\]/i.test(t[0]) || /\[quiet\]$/i.test(done ? t.at(-1) : last) ? undefined : t.at(-1));
+      : t.length === 0 || quietMark(t.at(-1)) || quietMark(done ? t.at(-1) : last) ? undefined : t.at(-1));
     const w = parts.map(said).findLast((x) => x !== undefined);
     if (end === 'completed') return w;
     if (end === 'error' || (end === undefined && last === undefined)) return undefined;

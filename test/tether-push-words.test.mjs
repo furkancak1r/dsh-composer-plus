@@ -88,10 +88,16 @@ const steps = (seq, kind, texts, end = 'completed') => [{ seq, type: 'turn/start
   ...texts.map((t, i) => ({ seq: seq + 2 + i, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: t }, { type: 'tool-call', id: `t${i}`, name: 'chats_list' }] } } })),
   { seq: seq + 2 + texts.length, type: 'turn/end', data: { reason: { kind: end } } }];
 for (const [texts, why] of [[['[quiet]'], 'only [quiet]'], [['[quiet]\nThe audit found 2 issues.'], 'starts with [quiet]'],
-  [['[quiet]', 'Updated the list.'], 'first text [quiet], then text'], [['Checking the chats.', '[quiet]'], 'a progress text, then [quiet]'],
+  [['Checking the chats.', '[quiet]'], 'a progress text, then [quiet]'],
   [['Checking the chats. [quiet]'], 'ends with [quiet]'], [['Checking.', 'Done: nothing new. [QUIET]'], 'last text ends with [QUIET]']]) {
   assert.equal(pushWords(steps(1, NEWS, texts), 0), undefined, `Damon: ${why}: no push`);
 }
+// A turn that starts with [quiet] and ends with a real answer (its card) pushes that answer (2026-11-27, Furkan: "sessiz
+// başlayıp kartla biten turda bildirim gelsin"): three [quiet] texts with a tool call, then the closing answer.
+assert.equal(pushWords(steps(1, NEWS, ['[quiet]', 'Updated the list.']), 0), 'Updated the list.', 'Damon: first text [quiet], then text: push');
+const quietThenCard = [{ seq: 1, type: 'turn/start' }, prompt(2, NEWS), say(3, '[quiet]'), tool(4), say(5, '[quiet]'), tool(6), say(7, '[quiet]'), tool(8),
+  say(9, '**prosogutma bitti.** Rapor hazır.'), { seq: 10, type: 'turn/end', data: { reason: { kind: 'completed' } } }];
+assert.equal(pushWords(quietThenCard, 0), '**prosogutma bitti.** Rapor hazır.', 'Damon: [quiet] texts, then a card: the card pushes');
 assert.equal(pushWords(steps(1, 'user', ['Checking.', 'Fixed the login.']), 0), 'Fixed the login.', 'Damon: a real reply pushes its newest text');
 // A partial text that a stop cut (dsh logs it with `interrupted: true`) is not a reply.
 const cut = { seq: 3, type: 'assistant/message', data: { interrupted: true, message: { content: [{ type: 'text', text: 'Half a sent' }] } } };
