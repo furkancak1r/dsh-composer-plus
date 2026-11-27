@@ -1,3 +1,126 @@
+# Kararlar: "third eye" suggestion cards (branch feat/decisions-window-suggestion-cards, 2026-11-27)
+
+Source: Furkan, relayed by Damon (2026-11-27): one clickable row under the last decision card of the Kararlar dialog; a
+click makes Damon read the chat history, the memory and the vault project notes and suggest things for all projects, as
+cards like the decision cards; one click on a card sends it to the chat as Furkan's message. Viewpoint: a senior developer
+from outside ("Why did you do it this way? It should be like this."), bottlenecks, optimizations, better ways, a new
+project when it helps, each with its reason, plain Turkish, UX first, "doğrulanmadı" on each unverified claim, no guesses.
+Base: main ee06f990. Not in release 1.33.0 (branch chore/release-1-33-0, untouched). No live copy, no DSH or AIProxy restart.
+
+## Phase 0 result (gate, passed)
+
+1. The existing feature suggestion system: one candidate, **Feature ideas** (`featureIdeas`): index.js:15-16 (header),
+   1459 (`IDEAS_SYSTEM`), 1554 (`suggestIdeas`), 3063 (`installIdeas`, route `/api/composer-plus.ideas`); client.js:10202
+   (`suggestIdeas`), 10426 (Suggest features button); docs/features.json `featureIdeas` (line 93); Tether UI.swift:3589
+   (`IdeasSheet`). Searched with no other match: prompts (`~/ai-maintenance/*/prompts`: audits and maintainers, no
+   suggestion feature), the Damon AGENTS.md, the vault memory (only the 2026-11-27 "üçüncü göz" entries of this task),
+   the active schedules (no suggestion automation; "Asistanı iyileştir" is no longer in schedule_list). Not a feature
+   suggestion system: Suggest for memory (`memorySuggest`, memory notes), Typing completion, Next message prediction.
+2. The Kararlar dialog is complete on main: merge e1343314 is an ancestor of origin/main ee06f990.
+   - Panel button: client.js:5316-5324 (`cp-dc-open`, badge, `decide.button`).
+   - Pop-up: client.js:4209-4424 `DecisionDialog`, native modal `<dialog>`, blurred backdrop client.js:4170; portal
+     client.js:5325-5327.
+   - Decision cards: client.js:4378-4393 (one card, options, Başka bir cevap, Atla/Sonra/Sil, ‹ ›).
+   - Click sends "Karar: …": client.js:4310-4325 `answer` → `picks.say` (client.js:8827) with `decide.message`
+     ("Karar: {item} → {answer}", locales/tr.json).
+   - Tests: test/decision-dialog.test.mjs (line 131: the exact "Karar: …" message once), test/assistant-todos-client.test.mjs
+     (lines 208-218, 456-551: button, portal, focus), test/browser-card-stack.mjs step 10-11 (real dsh), test/browser-
+     status-canvas.mjs 5b, test/status-contrast.test.mjs. Run now: decision-dialog ok, assistant-todos-client ok.
+
+## Design (decisions with evidence; smallest change)
+
+- Start: the Get summary path. index.js:12581 `askSummary` puts a marker (steer, or `wakeWithContinue` for an idle chat)
+  and the pre-step hook (index.js:12600) turns it into a hidden note (logged, not a chat bubble). New: POST
+  `{sessionId, action: "suggest"}` on `/api/composer-plus.assistant-todos` (the same route as `action: "summary"`,
+  index.js:12888), marker kind `composer-plus-status-suggest`, the note `STATUS_SUGGEST_NOTE`. The logged note keeps the
+  summary note's source kind (`composer-plus-status-summary`), so DAMON_PROMPTS (index.js:11726) and Tether's
+  `damonPrompts` (Core.swift:1369) treat it as a hidden note with no change (ponytail).
+- Result: a new tool `status_suggestions_set({suggestions: [{project?, title, text, why, source, unverified?}]})` in the
+  same tool list (index.js:12505), so it is in TODO_TOOLS: only the assistant chat, its subagents get it denied
+  (test/assistant-todos.test.mjs:183), on the Assistant always free list (index.js:11523). Why not an existing path:
+  `status_summary_set` replaces the panel's project summary and has no reason, source or unverified field; a to-do decision
+  item would go into the Kararlar queue and its click sends "Karar: …", which the safety invariant forbids.
+  The Host keeps the newest set per chat in memory (ponytail: gone after a dsh restart; upgrade: a file like
+  summaryStore). GET adds `suggest {at, items}`, `suggestAsked`, `suggestMissed`.
+- Inputs: Damon itself may call only chats_list, chat_read, memory_*, subagent… (index.js:11529; other tools are refused,
+  index.js:11824), so it cannot read vault files. The note asks Damon to collect this chat and memory_recall, then start one
+  background subagent (file read tools; subagent gets the to-do tools denied) to read the project notes in its folder: only
+  in subfolders, never the folder root, never a folder named Gizli, read only, memory files never by hand. Damon's
+  AGENTS.md:112 names the subfolders (Belgeler/, Günlük/, Hafıza/ to read) and asks to pass them to the subagent.
+  When the result comes, Damon calls status_suggestions_set and replies only `[quiet]`.
+- Quiet: both turns reply `[quiet]` (no card, no row: main ee06f990). The turn with the note gets no to-do nudge (no
+  "Sürüyor" item for this work). The subagent's task card still shows in Sürüyor while it runs (true and useful).
+- Wait: open request per chat for 15 min (`SUGGEST_ASK_MS`); `missed` when the turn that took the note ended without a
+  subagent and without the tool. The dialog shows "hazırlanıyor" until the cards come, else "gelmedi, tekrar dene".
+- Reach: the Kararlar button also shows when nothing waits (its text "Bekleyen karar ya da not yok", `data-decide-none`
+  kept), so the row is always reachable. Choice (not asked: the global rule says pick the recommended option and report).
+- Cards (Turkish UI texts in locales/tr.json): project tag, title, 1-3 sentences, "Neden: …", "Kaynak: …", tag
+  "doğrulanmadı". One click on a card sends "Öneri: <title> — <text>" on `picks.say` (the Kararlar send path and guard),
+  then the card shows "✓ Gönderildi" and cannot send again.
+- Safety invariant: the Host drops a suggestion whose title or text (any line) starts with "Onaylıyorum", "CANLI DEPLOY"
+  or "Karar:" (case and Turkish İ/ı folded) or has "onaylıyorum" anywhere; all dropped → the tool refuses. The client
+  checks the same rule again before a send (`suggestionMessage` returns null). Tests for both.
+- Tether: no Kararlar dialog (tether/FEATURES.md:117, desktop only by Damon's decision), so nothing is built there; the
+  difference goes to tether/FEATURES.md. GET's new fields reach Tether through the gateway; Tether ignores unknown fields.
+- Feature switch: part of `assistantTodos` (Assistant status panel), like Get summary and Kararlar: no new FEATURES id,
+  no new screenshot; docs/features.json `assistantTodos` (`how` 13 languages, `llms`) and its route entry change.
+
+## Invariants
+
+- A card never sends an approval or a decision; the sent text always starts with "Öneri:".
+- No model turn without a click. One open request per chat. Switch off (assistantTodos) removes the tool, the note path
+  and the state (existing `apply(false)`).
+- Gizli is never read; no file is written by the suggestion work; no live copy, release or DSH restart.
+
+## Acceptance
+
+1. Row under the card area of the Kararlar dialog (also at "Hepsi bitti"); one click starts one request (a second click
+   while it waits does nothing).
+2. Loading state while it waits; cards when status_suggestions_set ran; an error or late line with Tekrar dene.
+3. A card click sends "Öneri: <title> — <text>" once as Furkan's message; blocked texts never show and never send.
+4. Chat stays quiet (no reply card for the two turns).
+5. npm test exit 0; headless screenshots (row, loading, cards, chat after click) in
+   /Users/furkancakir/Damon/Belgeler/Composer Plus/oneri-karti-20261127/.
+
+## Phases
+
+1. Host (index.js) + client (client.js) + texts (en, zh, 11 locales) + docs (features.json, build:readme) + unit tests
+   (new test/assistant-suggest.test.mjs in test:all; updates to the panel tests) + full npm test. Checkpoint, commit.
+2. Demo model and browser check (scripts/demo-card-stack.mjs, test/browser-card-stack.mjs step 12, DECIDE_SHOTS) on
+   real dsh, headless, chromiumSandbox true; the four screenshots. Checkpoint, commit.
+3. Review (review-guard loop until no P1/P2; the diff is larger than 100 lines and 3 files), fixes, tests; merge into main
+   only after `gh release view v1.33.0` shows the release.
+
+## Allowed paths
+
+client.js, index.js, locales/*.json, docs/features.json, generated docs (README*.md feature region, llms.txt,
+docs/ROUTES.md), scripts/demo-card-stack.mjs, test/*.mjs, package.json (test:all only), tether/FEATURES.md,
+IMPLEMENTATION_PLAN.md. Screenshots only to the folder above.
+
+## Checks
+
+- `npm test` (all), `node test/assistant-suggest.test.mjs`, `node test/decision-dialog.test.mjs`,
+  `node test/assistant-todos-client.test.mjs`, `node test/assistant-status.test.mjs`.
+- Browser: `PLAYWRIGHT=… DECIDE_SHOTS=<folder> node test/browser-card-stack.mjs <dsh bin>` on the installed test dsh
+  versions under ~/ai-maintenance/dsh-composer-plus/dsh/.
+
+## Risks
+
+- The subagent can take minutes; 15 min wait covers it, else "gelmedi". Not verified: real run time on Furkan's vault.
+- The model can ignore the note (no subagent, no tool): `missed` ends the wait at the turn end.
+- Auto review approval detection reads user messages: "Öneri:" prefix and the block rule keep approval words out. Not
+  verified against the Auto review plugin code (only its tests were read).
+
+## Not verified
+
+- Whether Damon's subagents have memory tools (not needed: Damon passes the memory points in the task).
+- Real model quality of the suggestions (depends on the model; the note sets the viewpoint).
+
+## Last checkpoint
+
+- 2026-11-27 Phase 0 done; design written. Open: phases 1-3. Last passing test: `node test/decision-dialog.test.mjs`,
+  `node test/assistant-todos-client.test.mjs` (both ok on ee06f990).
+
 # Quiet turns leave no card, and small tasks start quietly (branch fix/hide-quiet-only-turns, 2026-11-27)
 
 Source: Furkan in the Assistant chat, 2026-11-27 (relayed by Damon): "Yalnız `[quiet]` dönen bir turda Composer Damon
