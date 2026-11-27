@@ -5517,7 +5517,7 @@ client.js:4951). Two cards need two dsh nodes with the same seq; dsh keys its no
   damon-kartlar-once.png, tether-damon-once.png. After: same names with -<merge short sha>.
 - a (6 copies of one subagent failure note) and d: no code path found, no code change (see Phase 0). Not verified.
 
-## Checkpoint 2026-11-27 19:0x (second chat)
+## Last checkpoint (2026-11-27 18:5x, second chat)
 - Browser after the merge (b9e32d9d): browser-assistant-answers PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5 and
   FOLDED_REPLIES=all PASS on 0.2.2-rc.5.
 - Flake check (assistant-bot "a quiet reply with a denied step is news", 3 s wait): full `npm test` 3 times on the branch
@@ -5531,7 +5531,7 @@ client.js:4951). Two cards need two dsh nodes with the same seq; dsh keys its no
 - Review 3 (review-guard-3, head 2bc30fcb): P1 0, P2 0, P3 0, P4 2 (testDuplicateCardScreen comment; this checkpoint).
   Fixed in the next commit. Next: review round 4 (must be clean), fetch, merge into main, push, CI, after screenshots.
 
-## Last checkpoint (2026-11-27 17:1x, about 150 tool calls: the first chat stopped here)
+## Checkpoint 2026-11-27 17:1x (first chat, about 150 tool calls; its open steps 1-2 are done, see above)
 - Head: 102d799d (merge of origin/main cd1ff110 into the branch) + this plan commit. Branch commits after the plan:
   d10992d8 (fix), 1738d3ce (review 1 fixes), 102d799d (merge).
 - `gh release view v1.33.0`: the release exists (checked 16:4x). origin/main was cd1ff110 at 16:5x.
