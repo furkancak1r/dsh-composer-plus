@@ -22,21 +22,32 @@ files. Out of scope: code changes, Tether builds and iPhone installs, a DSH rest
 
 ## Review
 - Round 1 (review-guard-1, aa8a938b): P1 0, P2 0, P3 4, P4 3. All fixed in 0bfea124 (notes text, 13 languages).
-- Round 2 (review-guard-2, 0bfea124): P1 0, P2 1, P3 0, P4 0: this Phase 2 assumed that main stays at ee06f990. Fixed here.
+- Round 2 (review-guard-2, 0bfea124): P1 0, P2 1, P3 0, P4 0: this Phase 2 assumed that main stays at ee06f990. Fixed in
+  37a77ef3.
+- Round 3 (review-guard-3, 37a77ef3): P1 0, P2 1, P3 1, P4 4, all in this plan text. Fixed in the next commit. P2 (no CI
+  on the release commit): the release branch is not pushed (the approval names only the main push). The owner's task
+  allows "CI or the full local test suite" on the exact release commit when main moved; CI passed on ee06f990 (test run
+  45949596957), and the full local `npm test` runs on the reviewed head.
 
-## Main moved (verified 2026-11-27 12:57)
+## Main moved (verified 2026-11-27 12:57, again 13:31)
 - origin/main and local main are 189fc00c (merge of fix/error-review-20261126, 12:00; parents ee06f990 and f53b7ecb;
-  33 files, index.js +122/-26). Furkan did not see it, so it is not in 1.33.0.
+  33 files, index.js +99/-23). The approval names ee06f990, so 189fc00c is not in 1.33.0.
 - A --no-ff merge of this branch into 189fc00c conflicts only in IMPLEMENTATION_PLAN.md (keep both sections).
 
 ## Phase 2 (after a clean review)
-1. Merge into main with --no-ff (only the version files can conflict), run `npm test` on the merge, push, wait for CI on
-   main. The merge commit has the code of 189fc00c: it is not the release commit.
-2. Release commit = the head of this branch (ee06f990 plus the version files). Run `npm test` on that exact commit.
-   `gh release create v1.33.0 assets/active.txt assets/installed.txt --target <branch head sha> --latest --notes "$(node
-   -p "require('./release-notes.json').notes.en")"`. Never tag the merge commit or main. Watch release.yml; check
-   releases/latest and https://registry.npmjs.org/dsh-composer-plus/1.33.0.
-3. awesome-dsh-plugin PR (only data/plugins/furkancak1r__dsh-composer-plus.yml).
+1. `git fetch`; if origin/main is not 189fc00c, stop and run `git merge-tree` again. Merge into main with --no-ff; only
+   IMPLEMENTATION_PLAN.md conflicts (keep both sections). Run `npm test` on the merge, push, wait for CI on main. The merge
+   commit has the code of 189fc00c: it is not the release commit.
+2. Release commit R = the reviewed branch head, as a full 40-character SHA (`git rev-parse <merge commit>^2`): ee06f990
+   plus the version files. Before the release: full `npm test` and `npm pack --dry-run` on R (version 1.33.0; from
+   tether/ only gateway/{server.mjs,admin.html,qr.swift}). `gh release create v1.33.0 assets/active.txt
+   assets/installed.txt --target R --latest --notes "$(node -p "require('./release-notes.json').notes.en")"`. Never tag
+   the merge commit or main. Watch release.yml; check releases/latest and
+   https://registry.npmjs.org/dsh-composer-plus/1.33.0.
+3. awesome-dsh-plugin PR: `gh repo sync furkancak1r/awesome-dsh-plugin`, a new branch of the fork, change only
+   data/plugins/furkancak1r__dsh-composer-plus.yml: description.en and description.zh name the new features with the
+   labels of README.md and README.zh.md (one line in single quotes, ends with a period, no marketing words, about 700
+   characters at most). No PR when no feature name changes.
 4. Live copy: BLOCKED until Furkan decides. scripts/live-copy-check.mjs checks only first-parent commits of main; no such
    commit has the release commit's files (189fc00c code differs, the merge has 189fc00c code), so after a copy of the
    release commit it prints MIXED, not MATCH. AGENTS.md: stop and report, do not patch. No backup, no copy, no DSH restart.
