@@ -55,6 +55,46 @@ approval: merge into main after a clean review. Not in scope: live copy, release
 - Next after the choice: implement, tests, review-guard loop (diff > 100 lines and > 3 files: repeat until no P1/P2),
   fetch/merge origin/main, tests, merge --no-ff into main, push, CI.
 
+# Error review 2026-11-26: AIProxy 500/504 resume and guess-word note (branch fix/error-review-20261126)
+
+Source: the daily mistake review of 2026-11-26 (report: ~/Damon/Günlük/Hata-incelemesi/2026-11-26.md). Approval (Furkan,
+Assistant chat, 2026-11-27): "26.11 hata incelemesi Composer Plus dalında tahmin notu bulguları düzeltilsin, review temizse
+main'e alınıp push edilsin (canlı değil)". Base: origin/main e1343314. No live copy, no release, no Tether change.
+
+- Change 1, AIProxy 500/504 resume (d08ad263, e1500ce7, d86b9c62): outageError() also returns 'rejected' for 500
+  upstream_rejected and 504 upstream_timeout before the answer starts. Reviews: 3 rounds, last round clean; no finding in the
+  later final rounds.
+- Change 2, guess-word note (c49e8846, 338978a2, 8cd44ea4, 5203c1f3, f5eb3c75): guessWords(), guessText(), GUESS_QUOTED and
+  guessNote() in index.js; tests in test/assistant-guards.test.mjs item 5.
+- Final review rounds of origin/main...HEAD: round 1 P2 1 P3 2; round 2 P2 2 P3 1 P4 3; round 3 P4 2 (fixed in f5eb3c75);
+  round 4 (after the merge of origin/main 4b3a3d25 in b8b29a49) P1 0 P2 0 P3 0 P4 1 (this plan section, fixed here).
+- Merge 9c533c17 (origin/main ee06f990, quiet turns): conflicts in index.js (guess-word code kept; main's AUTO_DENIED
+  regex and its .test() call kept), docs/features.json (assistant llms: main's sentences and the branch's clause (4)
+  together), llms.txt (regenerated), this file (both sections). `npm test` exit 0 after the merge.
+- Round 5 (review-guard-5, head 751da998, 2026-11-27 09:4x, after Furkan's new approval): P1 0, P2 0, P3 0, P4 1. The
+  merge 9c533c17 lost nothing from either side. Fixed: a fenced code block in a list item (4 or more spaces: `10. `,
+  nested `- `) counted as text; guessText now finds a fence with any indent (ANY_FENCE; blankFences of selfQuotes keeps
+  0-3 spaces). Test rows in assistant-guards item 5 (red on 751da998: 3 of 3). A 4-space code block without a fence
+  still counts (ponytail comment).
+- Round 6 (review-guard-6, head 9be6e6e2): P1 0, P2 0, P3 0, P4 3, all from ANY_FENCE. Fixed: the closing fence has at
+  most 3 more spaces than the opening one (an indented ``` line inside a block is text); a backtick fence has no backtick
+  after it ("```kod``` tamam" is inline code); the ponytail comment names the limit (a ``` line with 4+ spaces opens a
+  block also outside a list item). Test rows red on 9be6e6e2 (4 of 4); selfQuotes: 0 differences on 20,000 random texts.
+- Round 7 (review-guard-7, head 31e76018): P1 0, P2 0, P3 0, P4 1. Fixed: the fence indent counts a tab as the next tab
+  stop of 4 columns (CommonMark §2.2, `indentOf`). Test rows red on 31e76018 (2 of 2); selfQuotes 0 differences.
+  review-guard-7 left its scratch folder ~/Library/Caches/cp-review7 (Auto review denied its delete: it needs Furkan's
+  written approval that names cp-review7 and the delete).
+- Round 8 (review-guard-8, head 834ea6e1): P1 0, P2 0, P3 0, P4 1. Fixed: a fence or a `>` quote right after list markers
+  on the same line (`- ```bash`, `1. > alıntı`) is code or a quote (LIST_LEAD, ANY_FENCE, LIST_QUOTE). The ponytail
+  comment names the general limit (the check reads lines, not the Markdown tree). Test rows red on 834ea6e1 (5 of 5);
+  selfQuotes 0 differences on 20,000 random texts.
+- Last checkpoint: the round-8 fix commit. Last passing test command: `npm test` (exit 0, 2026-11-27 11:3x).
+- Known limit: the link-target pattern cuts two nested parenthesis levels; a guess word inside a third level counts.
+- Open steps:
+  1. Review-guard round 9 of origin/main...HEAD (separate subagent). Merge only on a clean round.
+  2. When the round is clean: fetch, merge origin/main if it moved, `npm test`, merge into main with --no-ff, push main,
+     check the CI run. Keep the branch and its folder.
+
 # Quiet turns leave no card, and small tasks start quietly (branch fix/hide-quiet-only-turns, 2026-11-27)
 
 Source: Furkan in the Assistant chat, 2026-11-27 (relayed by Damon): "Yalnız `[quiet]` dönen bir turda Composer Damon
