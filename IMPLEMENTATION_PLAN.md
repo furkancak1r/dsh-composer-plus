@@ -175,6 +175,189 @@ IMPLEMENTATION_PLAN.md. Screenshots only to the folder above.
   and 0.2.2-rc.5 (~/ai-maintenance/dsh-composer-plus/dsh/0.2.2-rc.5/node_modules/@deepseek-ai/dsh/lib/bin.js) at f1405ca2
   (mkdir the TMPDIR folder first; macOS has no `timeout` command).
 
+# Quiet turns: hide the in-between chat rows too (branch fix/hide-quiet-turn-chat-rows, 2026-11-27)
+
+Source: Furkan, Assistant chat, 2026-11-27: "sessiz turda Damon sohbetindeki 'alt ajana verdim' gibi ara satırlar da
+gizlensin mi? → Gizlensin, dalda yapılıp main'e alınsın, Tether'e de eşi eklensin". Base: main ee06f990. Standing
+approval: merge into main after a clean review. Not in scope: live copy, release, npm publish, DSH restart.
+
+## Done (5e3a269e)
+- Requirements 1-3, 5: client.js `hushedRowKeys`: in an ended Damon turn whose closing answer is only `[quiet]`
+  (hushedTurns), each text step with a tool call that is no card (not afterDenial, not asksYou) gets the 0-height box of
+  the quiet rows. The denial line, a line that asks you, user rows, approval and question cards, and every row of a
+  running turn stay. Only the assistant chat (AssistantChatView). Tether had the rule already (botLines, before shot).
+- Tests: test/assistant-subagent-rows.test.mjs (store test + the shared `hushed` table, ended and running; red on
+  ee06f990), test/browser-assistant-answers.mjs (LOOK and STARTED lines hidden also with FOLDED_REPLIES=all; red on
+  ee06f990), iOS testHushedTurnsMatchTheMac (one chatRows assertion on the same table, open: []).
+- Docs: docs/features.json assistantChatView (llms + 13 how), build:readme, tether/FEATURES.md assistantChatView.
+- Screenshots: /Users/furkancakir/Damon/Belgeler/Composer Plus/sessiz-tur-satir-20261127/
+  damon-sohbet-, damon-kartlar-, tether-damon- with -once-ee06f990 and -sonra-5e3a269e.
+
+## Last passing (5e3a269e)
+- `npm test` exit 0; iOS `cd tether/ios && xcodebuild -project DSHMobile.xcodeproj -scheme DSHMobile -destination 'platform=iOS Simulator,id=787CAECE-7075-4681-B0CE-7FBE5A5DFD49' -derivedDataPath ../build/DerivedData test CODE_SIGNING_ALLOWED=NO`
+  130 tests, 2 skipped, 0 failures; `TMPDIR=~/Library/Caches/cp-quiet-rows-tests PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-assistant-answers.mjs <0.2.0-rc.2> <0.2.1-rc.2> <0.2.2-rc.5>`
+  PASS x3 and FOLDED_REPLIES=all PASS on 0.2.2-rc.5.
+
+## Requirement 4: decided 2026-11-27 (option B, no code change)
+- Furkan, Assistant chat, 2026-11-27: "Karar ver: sessiz turda ara satır, tur sürerken nasıl görünsün? → Tur sürerken
+  görünsün, sessiz bitince gizlensin". This is option B below: 5e3a269e stays as it is.
+- origin/main was ee06f990 at 10:4x; it moved to 189fc00c (fix/error-review-20261126 merge) at 12:03, which the plan
+  missed (review 3). Merged in bcc75978 (conflict only in this file, both sections kept). Review loop until a round has no
+  P1/P2, then fix the P3/P4 of the last round.
+
+## Review (this branch)
+- Round 1 (review-guard-1, head dd49aadd): P1 0, P2 0, P3 1, P4 2. Fixed in 1b546b1d: tether/FEATURES.md said that Tether
+  hides the line only after the turn ends (it hides it while the turn runs too): row text, new "Assistant chat: gaps" row,
+  client.js and Core.swift comments; the iOS test's `open` loop tested nothing (one assertion now); a hushed turn whose every
+  text is hidden took a place of the 8-turn cap (`quietTurnSet(chat, hidden)` only for `setQuietTurns`; assistant-cap turn
+  64, red on dd49aadd's client.js).
+- Last passing (1b546b1d): `npm test` exit 0; iOS 130 tests, 2 skipped, 0 failures (simulator 787CAECE);
+  browser-assistant-answers PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5 and FOLDED_REPLIES=all on 0.2.2-rc.5.
+- Round 2 (review-guard-2, head 1b546b1d): P1 0, P2 0, P3 0, P4 2. Fixed in the next commit: this plan (stale lines) and
+  the `about` text of test/fixtures/quiet-replies.json (names hushedRowKeys and assistant-subagent-rows as readers).
+- Round 3 (review-guard-3, head 9f715ba0): P1 0, P2 0, P3 1, P4 2. Fixed in the next commit:
+  1. P3: the Host's quietRun still counts a hidden "gave it to a subagent" text as news (green dot, desktop notification,
+     Tether badge). Not new in this branch: main's reply cards (replyCardsOf) and Tether's botLines already hid that text.
+     Not changed (a Host rule change is outside Furkan's request); written as an accepted limit: docs/features.json
+     assistantChatView llms, tether/FEATURES.md assistantChatView row, a ponytail note at index.js runTexts.
+  2. P4: a news turn whose every text is hidden kept its news note (dsh's Verbose work details). Now newsRowKeys gets the
+     same quietTurnSet(chat, hidden) as the cap; assistant-subagent-rows turn 27 (red on 9f715ba0's client.js).
+  3. P4: origin/main moved to 189fc00c at 12:03: merged in bcc75978 (conflict only in this file, both sections kept).
+- Last passing (round-3 fixes): `npm test` exit 0; browser-assistant-answers PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5
+  and FOLDED_REPLIES=all on 0.2.2-rc.5. iOS not run again (no Swift change after 1b546b1d: 130 tests, 0 failures).
+- Round 4 (review-guard-4, head d2348f9b, origin/main 189fc00c): P1 0, P2 0, P3 0, P4 1. Merge bcc75978 lost no hunk.
+  Fixed in the next commit: the accepted-limit text said "no push"; an answer to a message typed into the running turn
+  (quiet-replies.json `steered` row 9) still pushes its hidden words. docs/features.json llms and tether/FEATURES.md.
+- Round 5 (review-guard-5, head 5f0aafc5, origin/main 189fc00c): P1 0, P2 0, P3 0, P4 1. Fixed in the next commit: the
+  push exception holds only for a message typed into a turn that you did not start by typing (index.js damonPushWords
+  `typed: kind === 'user' && turn.opened !== 'user'`). docs/features.json llms and tether/FEATURES.md.
+- Round 6 (review-guard-6, head 73b49fb8): P1 0, P2 0, P3 0, P4 0: clean.
+- origin/main moved to 9e4bb6f0 (1.33.0 release merge: package.json, README version notes, release-notes.json, plan).
+  Merged in 98ab0639 (conflict only in this file, both sections kept). The changed lines of `git diff origin/main
+  98ab0639` (without this file) equal those of the reviewed `git diff 189fc00c 73b49fb8`, same files.
+- Last passing (98ab0639): `npm test` exit 0; iOS 130 tests, 2 skipped, 0 failures (simulator 787CAECE);
+  browser-assistant-answers PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5 and FOLDED_REPLIES=all on 0.2.2-rc.5.
+- Open steps: merge --no-ff into main, npm test, push main, CI. Keep the branch and its folder. No live copy, release,
+  npm publish, DSH restart. Screen did not change in the review fixes (cap count and docs only): no new
+  screenshots. No live copy, release, npm publish, DSH restart.
+
+## Requirement 4 options (before the decision)
+- Facts (dsh 0.2.2-rc.5 source): a step streams its text block before its tool-call block (dsh-client-ui-chat
+  conversation-nodes/assistant.ts updateChunk); a turn's closing answer is known only at turn/end (turn-tail.ts). The
+  card hold (replyCardsOf) gives no card to such a text until the turn ends. Tether's botLines holds it the same way
+  in the running turn, but its LiveTail shows the text while it streams.
+- A. Hold as the cards (and Tether): in every running Damon turn, hide each text step with a tool call that asks
+  nothing; after the end, show it only when the turn is not hushed. Cost: no progress line in any running turn, and a
+  short flash while the text streams before its tool call.
+- B. Keep 5e3a269e: the line shows while the turn runs and goes at the turn's end.
+- D. Hide every assistant text of a running Damon turn (also while it streams) until it ends; dsh's running status
+  stays. No flash; no text at all until the turn ends.
+- Next after the choice: implement, tests, review-guard loop (diff > 100 lines and > 3 files: repeat until no P1/P2),
+  fetch/merge origin/main, tests, merge --no-ff into main, push, CI.
+
+# Release 1.33.0 (branch chore/release-1-33-0, 2026-11-27)
+
+Approval (Furkan, Assistant chat, 2026-11-27): "Onaylıyorum: Composer Plus canlı kopyadaki ee06f990 için 1.33.0 sürümü
+yapılsın: sürüm dalı review sonrası main'e alınıp push edilsin, GitHub release ve npm yayını yapılsın, eklenti listesine PR
+açılsın, canlı kopya yedekle release commit'ine eşitlensin (yalnız bu Mac); …". Content: exactly ee06f990 plus the version
+files. Out of scope: code changes, Tether builds and iPhone installs, a DSH restart.
+
+## Verified facts (2026-11-27)
+- Branch base ee06f990 = origin/main = local main at 11:10 (main moved later: see "Main moved"). v1.32.0 is the newest release (tag on f498e87f, GitHub
+  Latest 2026-11-25); npm dist-tags latest 1.32.0, registry.npmjs.org/dsh-composer-plus/1.33.0 gives 404.
+  dsh npm dist-tags: latest 0.2.2-rc.5, alpha 0.2.3-alpha.2.
+- Bump: minor. docs/features.json has 88 ids at ee06f990 and 87 at v1.32.0 (new: assistantReplyCards); changed docs:
+  assistant, assistantChatView, assistantFree, assistantTodos (canvas, Decisions), optionPicks.
+
+## Phase 1 (version files)
+- package.json 1.33.0; 26 README notes (2 per README × 13); release-notes.json (1.33.0, 13 languages; bold names are labels
+  from client.js en/zh and locales/<id>.json). Load earlier: dsh's own chat.loadOlder text; en, zh, tr, pt-BR, ko, id,
+  vi, hi equal replies.loadEarlier; de, es, fr, ru, ja add dsh 0.2.2's own text in parentheses, as their READMEs do.
+- Notes cover the merges after v1.32.0: f86a0a4c (canvas islands, reply cards), b3d67832 (order, `---` topic cards),
+  2308766c (Load earlier), e1343314 (Decisions dialog), 7593f3f8 (Tether parity), 4b3a3d25 (card images), ee06f990 (quiet
+  small tasks, denial reason).
+
+## Review
+- Round 1 (review-guard-1, aa8a938b): P1 0, P2 0, P3 4, P4 3. All fixed in 0bfea124 (notes text, 13 languages).
+- Round 2 (review-guard-2, 0bfea124): P1 0, P2 1, P3 0, P4 0: this Phase 2 assumed that main stays at ee06f990. Fixed in
+  37a77ef3.
+- Round 3 (review-guard-3, 37a77ef3): P1 0, P2 1, P3 1, P4 4, all in this plan text. Fixed in the next commit. P2 (no CI
+  on the release commit): the release branch is not pushed (the approval names only the main push). The owner's task
+  allows "CI or the full local test suite" on the exact release commit when main moved; CI passed on ee06f990 (test run
+  45949596957), and the full local `npm test` runs on the reviewed head.
+- Round 4 (review-guard-4, 5e3edf7a): P1 0, P2 0, P3 1, P4 1, in this Phase 2 text. Fixed in the next commit (order of
+  the R checks, a manual merge without push-branch or merge-main, the full awesome-dsh-plugin rule).
+- Round 5 (review-guard-5, 2b5812c5): P1 0, P2 0, P3 0, P4 2, in the Phase 2 merge step (push-branch reason, the merge
+  commit after the conflict). Fixed in the next commit.
+
+## Main moved (verified 2026-11-27 12:57, again 13:31)
+- origin/main and local main are 189fc00c (merge of fix/error-review-20261126, 12:00; parents ee06f990 and f53b7ecb;
+  33 files, index.js +99/-23). The approval names ee06f990, so 189fc00c is not in 1.33.0.
+- A --no-ff merge of this branch into 189fc00c conflicts only in IMPLEMENTATION_PLAN.md (keep both sections).
+
+## Phase 2 (after a clean review)
+1. In this worktree, R = `git rev-parse HEAD` (full 40-character SHA) after the clean review: ee06f990 plus the version
+   files. Add no commit to the branch until the v1.33.0 tag exists. Run the full `npm test` and `npm pack --dry-run` on R
+   (version 1.33.0; from tether/ only gateway/{server.mjs,admin.html,qr.swift}).
+2. `git fetch`; if origin/main is not 189fc00c, stop and run `git merge-tree` again. Merge by hand in the main worktree:
+   `git -C <repo root> merge --no-ff chore/release-1-33-0`. Do not use push-branch or merge-main: both push the release
+   branch (not in the approval), and merge-main also deletes this branch and worktree. Keep both sections in
+   IMPLEMENTATION_PLAN.md, run `git add IMPLEMENTATION_PLAN.md` and `git commit --no-edit`, run `npm test` on the merge
+   commit, check `git rev-parse HEAD^2` = R, run `git push origin main`, wait for CI on main. The merge
+   commit has the code of 189fc00c: it is not the release commit. Keep this branch and worktree until the release exists.
+3. `gh release create v1.33.0 assets/active.txt assets/installed.txt --target R --latest --notes "$(node -p
+   "require('./release-notes.json').notes.en")"`. Never tag the merge commit or main. Watch release.yml; check
+   releases/latest and https://registry.npmjs.org/dsh-composer-plus/1.33.0.
+4. awesome-dsh-plugin PR: `gh repo sync furkancak1r/awesome-dsh-plugin`, a new branch of the fork, change only
+   data/plugins/furkancak1r__dsh-composer-plus.yml; the PR goes to awesome-dsh-plugin/awesome-dsh-plugin (rules: its
+   contributing.md). description.en and description.zh name the new features with the labels of README.md and
+   README.zh.md (one line in single quotes, ends with a period, no marketing words, about 700 characters at most: take
+   out a smaller feature). Each claim must be true for the code of R. If no feature name changes, tell the owner and
+   send no PR.
+5. Live copy: BLOCKED until Furkan decides. scripts/live-copy-check.mjs checks only first-parent commits of main; no such
+   commit has the release commit's files (189fc00c code differs, the merge has 189fc00c code), so after a copy of the
+   release commit it prints MIXED, not MATCH. AGENTS.md: stop and report, do not patch. No backup, no copy, no DSH restart.
+
+# Error review 2026-11-26: AIProxy 500/504 resume and guess-word note (branch fix/error-review-20261126)
+
+Source: the daily mistake review of 2026-11-26 (report: ~/Damon/Günlük/Hata-incelemesi/2026-11-26.md). Approval (Furkan,
+Assistant chat, 2026-11-27): "26.11 hata incelemesi Composer Plus dalında tahmin notu bulguları düzeltilsin, review temizse
+main'e alınıp push edilsin (canlı değil)". Base: origin/main e1343314. No live copy, no release, no Tether change.
+
+- Change 1, AIProxy 500/504 resume (d08ad263, e1500ce7, d86b9c62): outageError() also returns 'rejected' for 500
+  upstream_rejected and 504 upstream_timeout before the answer starts. Reviews: 3 rounds, last round clean; no finding in the
+  later final rounds.
+- Change 2, guess-word note (c49e8846, 338978a2, 8cd44ea4, 5203c1f3, f5eb3c75): guessWords(), guessText(), GUESS_QUOTED and
+  guessNote() in index.js; tests in test/assistant-guards.test.mjs item 5.
+- Final review rounds of origin/main...HEAD: round 1 P2 1 P3 2; round 2 P2 2 P3 1 P4 3; round 3 P4 2 (fixed in f5eb3c75);
+  round 4 (after the merge of origin/main 4b3a3d25 in b8b29a49) P1 0 P2 0 P3 0 P4 1 (this plan section, fixed here).
+- Merge 9c533c17 (origin/main ee06f990, quiet turns): conflicts in index.js (guess-word code kept; main's AUTO_DENIED
+  regex and its .test() call kept), docs/features.json (assistant llms: main's sentences and the branch's clause (4)
+  together), llms.txt (regenerated), this file (both sections). `npm test` exit 0 after the merge.
+- Round 5 (review-guard-5, head 751da998, 2026-11-27 09:4x, after Furkan's new approval): P1 0, P2 0, P3 0, P4 1. The
+  merge 9c533c17 lost nothing from either side. Fixed: a fenced code block in a list item (4 or more spaces: `10. `,
+  nested `- `) counted as text; guessText now finds a fence with any indent (ANY_FENCE; blankFences of selfQuotes keeps
+  0-3 spaces). Test rows in assistant-guards item 5 (red on 751da998: 3 of 3). A 4-space code block without a fence
+  still counts (ponytail comment).
+- Round 6 (review-guard-6, head 9be6e6e2): P1 0, P2 0, P3 0, P4 3, all from ANY_FENCE. Fixed: the closing fence has at
+  most 3 more spaces than the opening one (an indented ``` line inside a block is text); a backtick fence has no backtick
+  after it ("```kod``` tamam" is inline code); the ponytail comment names the limit (a ``` line with 4+ spaces opens a
+  block also outside a list item). Test rows red on 9be6e6e2 (4 of 4); selfQuotes: 0 differences on 20,000 random texts.
+- Round 7 (review-guard-7, head 31e76018): P1 0, P2 0, P3 0, P4 1. Fixed: the fence indent counts a tab as the next tab
+  stop of 4 columns (CommonMark §2.2, `indentOf`). Test rows red on 31e76018 (2 of 2); selfQuotes 0 differences.
+  review-guard-7 left its scratch folder ~/Library/Caches/cp-review7 (Auto review denied its delete: it needs Furkan's
+  written approval that names cp-review7 and the delete).
+- Round 8 (review-guard-8, head 834ea6e1): P1 0, P2 0, P3 0, P4 1. Fixed: a fence or a `>` quote right after list markers
+  on the same line (`- ```bash`, `1. > alıntı`) is code or a quote (LIST_LEAD, ANY_FENCE, LIST_QUOTE). The ponytail
+  comment names the general limit (the check reads lines, not the Markdown tree). Test rows red on 834ea6e1 (5 of 5);
+  selfQuotes 0 differences on 20,000 random texts.
+- Last checkpoint: the round-8 fix commit. Last passing test command: `npm test` (exit 0, 2026-11-27 11:3x).
+- Known limit: the link-target pattern cuts two nested parenthesis levels; a guess word inside a third level counts.
+- Open steps:
+  1. Review-guard round 9 of origin/main...HEAD (separate subagent). Merge only on a clean round.
+  2. When the round is clean: fetch, merge origin/main if it moved, `npm test`, merge into main with --no-ff, push main,
+     check the CI run. Keep the branch and its folder.
+
 # Quiet turns leave no card, and small tasks start quietly (branch fix/hide-quiet-only-turns, 2026-11-27)
 
 Source: Furkan in the Assistant chat, 2026-11-27 (relayed by Damon): "Yalnız `[quiet]` dönen bir turda Composer Damon

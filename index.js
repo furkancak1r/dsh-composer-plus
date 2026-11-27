@@ -3221,9 +3221,10 @@ function installResume(ctx, home) {
  * most one message per chat per outage and OUTAGE.perHour per hour, so no loop can start. A chat that moved on (a new
  * turn) or runs gets nothing. Subagents cannot get a message from the Host: the "failed" notice to their parent gets one
  * line that names the outage. On by default (the owner's choice, 2026-11-11), the switch in `outage-resume.json`.
- * AIProxy's 429 and 503 `upstream_rejected` (the provider refused the request; AIProxy runs, so no health check) wait
- * OUTAGE.retry ms, then the chat gets the same message once, in the same hourly limit. dsh starts the next queued message
- * only after a turn that did not fail, so this message also lets the queued messages of the chat run (2026-11-13). */
+ * AIProxy's 429, 500 and 503 `upstream_rejected` and 504 `upstream_timeout` (the provider refused the request or did not
+ * answer in time; AIProxy runs, so no health check) wait OUTAGE.retry ms, then the chat gets the same message once, in
+ * the same hourly limit. dsh starts the next queued message only after a turn that did not fail, so this message also
+ * lets the queued messages of the chat run (2026-11-13). */
 export const OUTAGE_PATH = '/api/composer-plus.outage-resume';
 // retry: 3 min. AIProxy cools a refused account 60 s (a longer Retry-After wins); the refusals of 2026-11-13 came in
 // bursts of 1-2 min. Two tries per hour (perHour) cover about 6 min of refusals, then the chat stays stopped.
@@ -3247,8 +3248,8 @@ export const OUTAGE_NOTES = {
 };
 export const outageNote = (lang) => [String(lang ?? ''), String(lang ?? '').split('-')[0]].map((id) => (Object.hasOwn(OUTAGE_NOTES, id) ? OUTAGE_NOTES[id] : undefined)).find(Boolean) ?? OUTAGE_NOTES.en;
 /** 'cancelled' (AIProxy's 499 request_cancelled), 'connection' (the transport's "Connection error."), 'rejected' (AIProxy's
- * 429 or 503 upstream_rejected) or undefined for every other turn end: a user stop (`aborted`), a denied approval, any
- * other error. */
+ * 429, 500 or 503 upstream_rejected, or 504 upstream_timeout) or undefined for every other turn end: a user stop
+ * (`aborted`), a denied approval, any other error. */
 export function outageError(reason) {
   if (reason?.kind !== 'error') return undefined;
   const message = String(reason.error?.message ?? '');
@@ -3256,9 +3257,10 @@ export function outageError(reason) {
   // (openai-completions). While it streams, AIProxy writes the error into the stream: `request_cancelled: İstek iptal
   // edildi.` (responses, `response.failed`) or its bare message (completions).
   if (/(^|\()499\)?: \{.*"code"\s*:\s*"request_cancelled"/.test(message) || /^request_cancelled: /.test(message) || message.trim() === 'İstek iptal edildi.') return 'cancelled';
-  // ponytail: only the form before the answer starts (all 60 refusals in the logs of 2026-11-13). A refusal after the
-  // first streamed byte ends the answer and is not tried again here.
-  if (/(^|\()(429|503)\)?: \{.*"code"\s*:\s*"upstream_rejected"/.test(message)) return 'rejected';
+  // ponytail: only the form before the answer starts (all 60 refusals in the logs of 2026-11-13; the 500 and 504 of
+  // 2026-11-26 have the same form). A refusal after the first streamed byte ends the answer and is not tried again here.
+  // Only these code and status pairs: no 400, no other code.
+  if (/(^|\()((429|500|503)\)?: \{.*"code"\s*:\s*"upstream_rejected"|504\)?: \{.*"code"\s*:\s*"upstream_timeout")/.test(message)) return 'rejected';
   return message.trim() === 'Connection error.' ? 'connection' : undefined;
 }
 /** The line that a parent agent gets after dsh's notice of a subagent that failed in an outage. */
@@ -3276,8 +3278,8 @@ export function outageWatch({ health, resume, log = () => {}, now = Date.now, ti
   const sent = new Map(); // chat id → times of its automatic messages in the last hour
   const recent = (id) => (sent.get(id) ?? []).filter((at) => now() - at < timing.hour);
   const leave = (ids, why) => { for (const id of ids) try { left(id, why); } catch (error) { log(`outage left ${id}: ${error?.message ?? error}`); } };
-  // 429/503 upstream_rejected: chat id → the token of its newest refusal. A newer failure of the chat replaces or removes
-  // the token, so the older timer does nothing.
+  // 429/500/503 upstream_rejected and 504 upstream_timeout: chat id → the token of its newest refusal. A newer failure
+  // of the chat replaces or removes the token, so the older timer does nothing.
   const waiting = new Map();
   const timers = new Set(); // the pending tries (for settled())
   /** One automatic message, in the hourly limit (outages and refusals together): resume's answer or 'limit'. A chat that
@@ -3328,14 +3330,15 @@ export function outageWatch({ health, resume, log = () => {}, now = Date.now, ti
       if (closed) return;
       // The newest failure of a chat wins: a refusal takes it out of the outage, an outage out of the wait.
       if (kind === 'rejected') {
-        // 429/503 upstream_rejected: AIProxy runs, so no health check: one try timing.retry ms after the newest refusal.
+        // 429/500/503 upstream_rejected and 504 upstream_timeout: AIProxy runs, so no health check: one try timing.retry
+        // ms after the newest refusal.
         current?.chats.delete(id);
         const token = { seq }; waiting.set(id, token);
         const timer = sleep(timing.retry).then(async () => {
           if (closed || waiting.get(id) !== token) return;
           waiting.delete(id);
           if (!active()) { leave([id], 'off'); return; }
-          log(`AIProxy refused (429/503), tried again: ${id} ${await tryOne(id, seq)}`);
+          log(`AIProxy refused (429/500/503/504), tried again: ${id} ${await tryOne(id, seq)}`);
         }).catch((error) => log(`outage retry failed: ${error?.message ?? error}`)).finally(() => timers.delete(timer));
         timers.add(timer);
         return;
@@ -11645,7 +11648,10 @@ export function quietTurn(events, reply) {
 export const quietReply = (text) => /^\[quiet\]$/i.test(String(text ?? '').trim());
 /** The texts of a run (its events from index `from`: running → idle, one or more turns), oldest first, trimmed, not empty.
  * Every text counts, also one sent with a tool call: dsh's default (foldedReplies: all) shows it in the chat (measured on
- * dsh 0.2.2-rc.5). A text that a rollback withdrew does not count. */
+ * dsh 0.2.2-rc.5). A text that a rollback withdrew does not count.
+ * ponytail: in a turn that ends with only `[quiet]`, the Assistant chat view and the reply cards hide such a text that asks
+ * nothing (client.js hushedRowKeys, replyCardsOf), but it still counts here (green dot, desktop notification). Upgrade:
+ * the hushed rule (test/fixtures/quiet-replies.json `hushed`) here and in Tether, when the owner wants that run quiet. */
 const runTexts = (events, from) => {
   const own = events.slice(from); const gone = withdrawn(own);
   return own.filter((e) => e.type === 'assistant/message' && !gone(e.seq)).map((e) => textBlocks(e.data?.message?.content).trim()).filter((t) => t !== '');
@@ -12134,12 +12140,14 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
 }
 
 /* Assistant reply guards (part of Assistant, error review of 2026-11-24): hidden notes in a later step of the assistant
- * chat, on the Approve button's note path (installApproveButton), for three mistakes that a prompt rule did not stop:
+ * chat, on the Approve button's note path (installApproveButton), for four mistakes that a prompt rule did not stop:
  * - a self-quote ("Önceki yanıtımda "…" yazdım") that no earlier answer of the chat has (2026-11-23 16:44, 2026-11-24 10:35);
  * - a call of the open turn that Auto review denied (2026-11-24 11:06: the next step replied only `[quiet]`);
  * - a to-do "Onay: …" of owner user in a turn without an `onay` block after the user's newest message (2026-11-24 13:51:
- *   the panel showed an Onay card without a button; since 2026-11-25 it shows nothing, so the user cannot approve).
- * The quote and to-do notes join the next step that already has a message with text (they never start a step or a turn);
+ *   the panel showed an Onay card without a button; since 2026-11-25 it shows nothing, so the user cannot approve);
+ * - a guess word ("muhtemelen", "büyük olasılıkla", "tahminen" …) in an answer, outside code blocks and quoted text
+ *   (error review of 2026-11-26: Damon's rules say "Damon tahmin yazmaz", but a cause and a speed were guessed).
+ * The quote, to-do and guess notes join the next step that already has a message with text (they never start a step or a turn);
  * the denial note joins the next step of the same turn (dsh runs it after a tool call). Each note goes once. */
 const GUARD_SOURCE = 'composer-plus-assistant-guard';
 const guardMessage = (text) => Object.freeze({ id: randomUUID(), role: 'user', content: Object.freeze([Object.freeze({ type: 'text', text })]),
@@ -12161,14 +12169,17 @@ const SELF_QUOTE = [
 const quoteFold = (s) => String(s ?? '').normalize('NFC').replace(/[*_`]/g, '').replace(/[‘’]/g, "'").replace(/\s+/g, ' ').trim()
   .replace(/[.,;:!?]+$/, '').trimEnd().toLocaleLowerCase('tr');
 /** `text` with each line of a fenced code block (``` or ~~~, its fence lines too) as spaces: the same length, so a match
- * keeps its place. An open fence runs to the end. */
-const blankFences = (text) => {
-  let fence = null;
+ * keeps its place. An open fence runs to the end. `fenceAt`: the opening fence line (CommonMark: 0-3 spaces). The closing
+ * fence has at most 3 more spaces than the opening one (CommonMark §4.5), so an indented ``` line in the block is text.
+ * A tab goes to the next tab stop of 4 columns (CommonMark §2.2). */
+const indentOf = (lead) => { let c = 0; for (const ch of lead) c = ch === '\t' ? c + 4 - (c % 4) : c + 1; return c; };
+const blankFences = (text, fenceAt = /^ {0,3}(`{3,}|~{3,})/) => {
+  let fence = null; let indent = 0;
   return text.split('\n').map((line) => {
-    const mark = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    const found = fenceAt.exec(line); const mark = found?.[1]; const at = found ? indentOf(found[0].slice(0, -mark.length)) : 0;
     if (fence === null && mark === undefined) return line;
-    if (fence === null) fence = mark;
-    else if (mark !== undefined && mark[0] === fence[0] && mark.length >= fence.length && line.trim() === mark) fence = null;
+    if (fence === null) { fence = mark; indent = at; }
+    else if (mark !== undefined && mark[0] === fence[0] && mark.length >= fence.length && line.trim() === mark && at <= indent + 3) fence = null;
     return ' '.repeat(line.length);
   }).join('\n');
 };
@@ -12197,6 +12208,71 @@ const withoutSelfQuotes = (text) => {
   for (const { index, end } of selfQuoteMatches(text).sort((a, b) => a.index - b.index)) { if (index > at) out += text.slice(at, index); at = Math.max(at, end); }
   return out + text.slice(at);
 };
+// The Turkish guess words (Damon's rules). Whole words only: "olasılıklar", "tahminler" and "ihtimalleri" are other words,
+// and "bir olasılıkla" holds the whole word "olasılıkla". The longest form first, so "büyük olasılıkla" is one word.
+const GUESS_LIST = String.raw`(büyük\s+olasılıkla|büyük\s+ihtimalle|bir\s+olasılık|olasılıkla|ihtimalle|muhtemelen|tahminen|sanırım|galiba)`;
+const GUESS_LOOSE = new RegExp(String.raw`(?<![\p{L}\p{N}])${GUESS_LIST}(?![\p{L}\p{N}])`, 'u'); // the cheap test
+// The same, not joined by . _ / - to another token (a file name, a slug, a path: "muhtemelen.md", "büyük-olasılıkla-x").
+const GUESS_WORDS = new RegExp(String.raw`(?<![\p{L}\p{N}])(?<![\p{L}\p{N}_][._/-])${GUESS_LIST}(?![\p{L}\p{N}])(?![._/-][\p{L}\p{N}_])`, 'gu');
+// The quoted text of guessWords: like QUOTED, but the text cannot hold its own opening mark, so an unclosed mark never
+// rescans the text behind it (a text of 300k opening marks stays linear). QUOTED stays as it is: selfQuotes uses it.
+const GUESS_QUOTED = new RegExp(String.raw`"[^"\n]{1,2000}"|“[^“”\n]{1,2000}”|(?<![\p{L}\p{N}])'(?:[^'\n]|(?<=[\p{L}\p{N}])'(?=\p{L})){1,2000}?'(?![\p{L}\p{N}])|‘(?:[^‘’\n]|’(?=\p{L})){1,2000}?’(?![\p{L}\p{N}])`, 'gu');
+const blankOut = (m) => ' '.repeat(m.length);
+/** The text of `raw` that guessWords reads. A plain `>` quote line, a nested `> >` line and a fenced code block (also one
+ * inside a callout box) become spaces, the same length (a nested line becomes an empty line in the box). A callout box
+ * (`> [!DETAILS] …` and its `>` lines) is Damon's own text: each of its lines loses its `> ` prefix (so the line is
+ * shorter, and an indented fence is found), and the body goes through blankFences on its own. A fence with any indent
+ * counts (ANY_FENCE), so a code block in a list item (`10. ` or a nested `- `) is code too (review 5). A backtick fence has
+ * no backtick after it (CommonMark §4.5), so "```kod``` tamam" is inline code, not a fence (review 6). A fence or a `>`
+ * quote can follow list markers on the same line (`- ```bash`, `1. > alıntı`: LIST_LEAD, review 8); such a quote line
+ * becomes spaces and ends a callout box. */
+const LIST_LEAD = String.raw`^[ \t]*(?:(?:[-*+]|\d{1,9}[.)])[ \t]+)*`;
+const ANY_FENCE = new RegExp(String.raw`${LIST_LEAD}(\`{3,}(?=[^\`]*$)|~{3,})`);
+const LIST_QUOTE = new RegExp(`${LIST_LEAD}>`);
+const guessText = (raw) => {
+  const lines = blankFences(raw, ANY_FENCE).split('\n'); const out = []; let box = []; let quote = false; // quote: the line before is a `>` line
+  // A for loop, not push(...rows): a callout of 150k lines would overflow the call stack.
+  const close = () => { if (box.length > 0) for (const row of blankFences(box.join('\n'), ANY_FENCE).split('\n')) out.push(row); box = []; };
+  let callout = false;
+  for (const line of lines) {
+    if (!/^ {0,3}>/.test(line)) { close(); callout = false; quote = false; out.push(LIST_QUOTE.test(line) ? ' '.repeat(line.length) : line); continue; }
+    // The client marks a quote as a callout only when its first line is the marker (client.js CALLOUT_MARK and calloutOf).
+    if (!quote && /^ {0,3}>\s*\[![A-Za-z]+\]/.test(line)) { close(); callout = true; }
+    quote = true;
+    const body = line.replace(/^ {0,3}> ?/, ''); // the box body without its prefix, so an indented fence is found
+    if (callout && !/^\s*>/.test(body)) box.push(body); else if (callout) box.push(''); else out.push(' '.repeat(line.length));
+  }
+  close();
+  return out.join('\n');
+};
+/** The guess words of `text` in order of their first place, each once (lower case, one space; at most 4), and the text
+ * around the first one: `{words, context}`. These do not count: fenced code blocks, inline `code`, Markdown link targets
+ * `](…)`, URLs, words joined to a token by . _ / - (file names, slugs), quoted text ("…", “…”, '…', ‘…’), plain `>`
+ * quote lines and the nested `> >` lines and code blocks of a callout box. A callout box `> [!DETAILS]` is Damon's own text
+ * and counts. A text without a guess word returns at once (one pattern test); only a line that has one is cleaned.
+ * ponytail: Turkish words with their Turkish letters only ("Sanirim", "Buyuk olasılikla" are not found), and only these
+ * words; a guess in another form ("olabilir", "gibi görünüyor") is not found. A 4-space indented code block without a
+ * fence counts as text. A ``` line with 4 or more spaces opens a code block also outside a list item (no list context).
+ * The check reads lines, not the Markdown tree: a rare form (a lazy continuation line, a fence or a quote inside a
+ * quote of a list item) can count wrong; the note is only advice. Upgrade: a model check of the answer. */
+export function guessWords(text) {
+  const raw = String(text ?? '').normalize('NFC');
+  if (!GUESS_LOOSE.test(raw.toLocaleLowerCase('tr'))) return { words: [], context: undefined };
+  const words = []; let context;
+  for (const line of guessText(raw).split('\n')) {
+    if (!GUESS_LOOSE.test(line.toLocaleLowerCase('tr'))) continue;
+    const clean = line.replace(/`[^`\n]*`/g, blankOut).replace(/\]\((?:\\.|[^()\n\\]|\((?:\\.|[^()\n\\]|\((?:\\.|[^()\n\\])*\))*\))*\)/g, blankOut).replace(/https?:\/\/[^\s<>)\]]*/gi, blankOut).replace(GUESS_QUOTED, blankOut);
+    // toLocaleLowerCase('tr') keeps the length (İ → i, I → ı), so a place in the lower case text is a place in `clean`.
+    for (const m of clean.toLocaleLowerCase('tr').matchAll(GUESS_WORDS)) {
+      context ??= clean.slice(m.index, m.index + 40).replace(/\s+/g, ' ').trim();
+      const word = m[1].replace(/\s+/g, ' ');
+      if (!words.includes(word)) words.push(word);
+      if (words.length >= 4) return { words, context };
+    }
+  }
+  return { words, context };
+}
+export const guessNote = ({ words, context }) => `Composer Plus → Assistant: your last answer uses the guess word(s) ${words.slice(0, 4).map((w) => JSON.stringify(w)).join(', ')} (${JSON.stringify(context)}). Damon's rules forbid guesses: verify the claim with evidence, or write 'doğrulanmadı' and the missing evidence. Correct the sentence in your next answer only when it gave a cause, a number or a state as a guess.`;
 // dsh's own denial (dsh-experimental-auto-review `denied()`, dsh-tools `Error: ${reason}`) or the auto-review-agent-first
 // plugin's text; the same rule as client.js AUTO_DENIED and Tether's autoDenied (test/fixtures/quiet-replies.json `hushed`).
 const AUTO_DENIED = /^Error: Auto review (?:denied this tool call|rejected tool ")/;
@@ -12217,6 +12293,7 @@ export function installAssistantGuards(ctx, assistant) {
   const denials = new Map(); // chat id → [{ name, reason? }] of the open turn's denials that no step was told yet
   const eventsOf = (session) => { try { return session?.snapshotEvents?.() ?? []; } catch { return []; } };
   const fromOf = (session) => (Number.isSafeInteger(session?.inheritedEventCount) && session.inheritedEventCount > 0 ? session.inheritedEventCount : 0);
+  // ponytail: the newest 5 notes; a guess note can push out an older note when five answers come before one step.
   const hold = (id, seq, text, quotes) => { notes.set(id, [...(notes.get(id) ?? []), { seq, text, ...(quotes === undefined ? {} : { quotes }) }].slice(-5)); };
   /** The quotes of answer `event` that no earlier answer of the chat has (a withdrawn answer does not count, rule 9), and
    * that did not get a note before (review 1: the line that withdraws the correction quotes the wrong sentence again).
@@ -12281,6 +12358,8 @@ export function installAssistantGuards(ctx, assistant) {
     } else if (event.type === 'assistant/message') {
       const missing = missingQuotes(id, session, event);
       if (missing.length > 0) hold(id, event.seq, quoteNote(missing.map((q) => q.quote)), missing.map((q) => q.fold));
+      const guess = guessWords(textBlocks(d?.message?.content));
+      if (guess.words.length > 0) hold(id, event.seq, guessNote(guess));
     } else if (event.type === 'turn/end') {
       calls.delete(id); denials.delete(id);
       const items = approvalItems(session);
@@ -12818,8 +12897,8 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
       if (busy !== undefined) { tasks.unshift({ ...row, started: turnOf(log, row.started), state: busy }); continue; }
       // Issue #5: the bot keeps a task whose turn dsh's quit or an AIProxy outage stopped (and one whose chat is gone), so
       // the chat's next turn end is still news. The chat does not run: failed when its last turn ended with an error (an
-      // AIProxy outage, 429 or 503), else stopped, with the time of its last turn (its live log; else its saved log, read
-      // once until its next turn; else dsh's list time, its last prompt), and gone the next day.
+      // AIProxy outage, 429, 500, 503 or 504), else stopped, with the time of its last turn (its live log; else its saved
+      // log, read once until its next turn; else dsh's list time, its last prompt), and gone the next day.
       const item = listed.find((s) => s?.sessionId === id);
       const timesOf = (events) => ({ last: events.at(-1)?.time, turn: events.findLast((e) => e?.type === 'turn/start')?.time,
         failed: events.findLast((e) => e?.type === 'turn/end')?.data?.reason?.kind === 'error' });

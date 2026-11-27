@@ -211,7 +211,33 @@ assert.ok(!css().includes('"15'), 'a node without data gets no rule');
 for (const turn of ['12', '16']) assert.ok(!tails.includes(`"${turn}"`), `turn ${turn} ends with a reply that says more: it keeps its row`);
 assert.ok(!tails.includes('"19"'), 'a running turn (no tail yet) gets no tail rule');
 assert.match(tails, /display: none !important;/);
+// 2026-11-27 (Furkan: "sessiz turda Damon sohbetindeki 'alt ajana verdim' gibi ara satırlar da gizlensin"): dsh's default
+// foldedReplies: all draws each text sent with a tool call; in a hushed turn the ones that are no card go too.
+const hiddenKeys = (chat) => new Set([...(css().split('}').find((b) => b.includes('height: 0 !important')) ?? '').matchAll(new RegExp(`\\[data-conversation-session="${chat}"\\] \\[data-chat-node-key="([^"]+)"\\]`, 'g'))].map((m) => m[1]));
+for (const key of ['17:0', '20:1']) assert.ok(hiddenKeys('s-quiet').has(key), `${key}: a "gave it to a subagent" line in a hushed turn is hidden`);
+for (const key of ['17:1', '19:1', '12:1', '13:1', '16:2']) assert.ok(!hiddenKeys('s-quiet').has(key), `${key}: the denial line, a running turn's line and other turns' replies stay`);
 quietView.unmount();
+
+// The shared table (test/fixtures/quiet-replies.json `hushed`, also read by test/reply-cards.test.mjs and Tether's
+// botLines): in the chat, each text of a hushed turn shows exactly when it is in `shown`, as its card. The same turns
+// still running (no tail) hide only their [quiet] texts.
+const table = JSON.parse(readFileSync(new URL('fixtures/quiet-replies.json', import.meta.url), 'utf8')).hushed;
+const tableNodes = (ended_) => table.turns.flatMap((t, ti) => {
+  const turn = 30 + ti; const steps = t.steps.map(([text, res], i) => step(`${turn}:${i}`, turn, i, text, ...(res === null ? [] : ['tool'])));
+  const results = t.steps.flatMap(([, res], i) => (res === null ? [] : [[`${turn}:r${i}`, { key: `${turn}:r${i}`, kind: 'tool-call', location: { kind: 'step', turn: { turn } },
+    data: { root: { kind: 'tool-result', seq: turn * 100 + i + 0.5, content: [{ type: 'text', text: typeof res === 'number' ? table.denials[res] : '{"ok":true}' }] } } }]]));
+  return [...(ended_ ? ended(turn, ...steps) : steps.map(([key, n]) => [key, { ...n, data: { ...n.data, finalNode: { seq: turn * 100 + Number(key.split(':')[1]) } } }])), ...results];
+});
+for (const [chat, done] of [['s-table', true], ['s-table-running', false]]) {
+  stores.set(chat, storeOf(tableNodes(done))); open = chat; id = chat;
+  const tableView = mount(() => ({ status, chatOf, t: (k) => k })); out = tableView.render();
+  const hidden = hiddenKeys(chat);
+  table.turns.forEach((t, ti) => t.steps.forEach(([text], i) => {
+    const want = done ? !t.shown.includes(text) : /^\[quiet\]$/i.test(text.trim());
+    assert.equal(hidden.has(`${30 + ti}:${i}`), want, `${done ? 'ended' : 'running'} hushed table: ${JSON.stringify(text)} in ${JSON.stringify(t.steps)}`);
+  }));
+  tableView.unmount();
+}
 
 // The Host's news note (dsh 0.2.2 draws it as a context row, by its location's turn) goes with its turn's quiet reply; the
 // note of a news turn with a real reply, and another context row of the quiet turn, stay.
@@ -229,12 +255,15 @@ stores.set('s-news', storeOf([
   news('25:note', 25), step('25:1', 25, 1, 'Checking.', 'tool'), step('25:2', 25, 2, '[quiet]'),
   // A [quiet] text sent with a tool call, then [quiet]: every text is quiet, so the note goes (quietRun says quiet too).
   news('26:note', 26), step('26:1', 26, 1, '[quiet]', 'tool'), step('26:2', 26, 2, '[quiet]'),
+  // Review 3: the same text in an ended turn whose closing answer is only [quiet] is hidden (hushedRowKeys), so the turn
+  // shows nothing and its note goes too (dsh's Verbose work details draw the note outside the hidden process).
+  news('27:note', 27), ...ended(27, step('27:1', 27, 1, 'Gave it to a subagent.', 'tool'), step('27:2', 27, 2, '[quiet]')),
 ]));
 open = 's-news'; id = 's-news';
 const newsView = mount(() => ({ status, chatOf, t: (k) => k }));
 out = newsView.render();
 const newsRule = (key) => rule(key, 's-news');
-for (const key of ['20:note', '22:trig', '20:1', '22:1', '23:2', '24:note', '25:2', '26:note', '26:1', '26:2']) assert.ok(css().includes(`${newsRule(key)},`) || css().includes(`${newsRule(key)} {`), `${key} goes with the quiet turn`);
+for (const key of ['20:note', '22:trig', '20:1', '22:1', '23:2', '24:note', '25:2', '26:note', '26:1', '26:2', '27:note', '27:1', '27:2']) assert.ok(css().includes(`${newsRule(key)},`) || css().includes(`${newsRule(key)} {`), `${key} goes with the quiet turn`);
 for (const key of ['21:note', '21:1', '20:time', '23:note', '23:1', '25:note']) assert.ok(!css().includes(`${newsRule(key)},`) && !css().includes(`${newsRule(key)} {`), `${key} stays`);
 newsView.unmount();
 console.log('assistant subagent rows: ok');

@@ -1,7 +1,7 @@
 // Resume after an AIProxy outage (Host half), with fakes only (no real AIProxy, no real dsh):
-// - outageError: AIProxy's 499 request_cancelled and "Connection error." trigger; AIProxy's 429 and 503 upstream_rejected
-//   (the provider refused the request) are 'rejected'; a user stop, a denied approval and other errors (409, 500, a 499
-//   or 429 with another code) do not.
+// - outageError: AIProxy's 499 request_cancelled and "Connection error." trigger; AIProxy's 429, 500 and 503 upstream_rejected
+//   and 504 upstream_timeout (the provider refused the request or did not answer in time) are 'rejected'; a user stop, a
+//   denied approval and other errors (409, a 500 or 504 with another code, a 499 or 429 with another code) do not.
 // - outageWatch: failures within the window are one outage; it waits for a failed health check (or a Connection error)
 //   and then for the settle time of good checks; a 499 while AIProxy stays up continues nothing;
 //   one message per chat per outage, at most perHour per hour; a chat that moved on gets nothing; `left(id, why)` gets
@@ -33,6 +33,13 @@ const C503 = 'aiproxy API error (503): {"code":"upstream_rejected","message":"Sa
 assert.equal(outageError({ kind: 'error', error: { message: C429, code: 'RATE_LIMIT' } }), 'rejected', '429');
 assert.equal(outageError({ kind: 'error', error: { message: C503, code: 'SERVER' } }), 'rejected', '503');
 assert.equal(outageError(err('429: {"code":"upstream_rejected","message":"x"}')), 'rejected', 'the openai-completions form');
+// Live logs of 2026-11-26: 500 upstream_rejected and 504 upstream_timeout ended four branch chats and one root chat.
+const C500 = 'aiproxy API error (500): {"code":"upstream_rejected","message":"Sağlayıcı isteği reddetti (HTTP 500)."}';
+const C504 = 'aiproxy API error (504): {"code":"upstream_timeout","message":"Sağlayıcı yanıt zaman aşımı."}';
+assert.equal(outageError({ kind: 'error', error: { message: C500, code: 'SERVER' } }), 'rejected', '500');
+assert.equal(outageError({ kind: 'error', error: { message: C504, code: 'SERVER' } }), 'rejected', '504');
+assert.equal(outageError(err('500: {"code":"upstream_rejected","message":"x"}')), 'rejected', '500, the openai-completions form');
+assert.equal(outageError(err('504: {"code":"upstream_timeout","message":"x"}')), 'rejected', '504, the openai-completions form');
 for (const [reason, why] of [
   [{ kind: 'aborted', reason: { kind: 'user' } }, 'a user stop'],
   [{ kind: 'aborted', reason: { kind: 'disposed' } }, 'dsh quit'],
@@ -40,7 +47,12 @@ for (const [reason, why] of [
   [{ kind: 'completed' }, 'a finished turn'],
   [err('aiproxy API error (429): {"code":"rate_limited","message":"x"}'), 'a 429 with another code'],
   [err('aiproxy API error (503): {"code":"all_failed","message":"x"}'), 'a 503 with another code'],
-  [err('aiproxy API error (500): {"code":"upstream_rejected","message":"x"}'), 'upstream_rejected with another status'],
+  [err('aiproxy API error (500): {"code":"internal_error","message":"x"}'), 'a 500 with another code'],
+  [err('aiproxy API error (504): {"code":"internal_error","message":"x"}'), 'a 504 with another code'],
+  [err('aiproxy API error (504): {"code":"upstream_rejected","message":"x"}'), 'upstream_rejected with 504'],
+  [err('aiproxy API error (500): {"code":"upstream_timeout","message":"x"}'), 'upstream_timeout with 500'],
+  [err('aiproxy API error (502): {"code":"upstream_rejected","message":"x"}'), 'upstream_rejected with 502'],
+  [err('aiproxy API error (400): {"code":"upstream_rejected","message":"x"}'), 'upstream_rejected with 400'],
   [err('aiproxy API error (502): {"code":"internal_error","message":"upstream_rejected 429"}'), 'the words in another error'],
   [err('aiproxy API error (409): {"code":"session_mismatch","message":"x"}'), '409'],
   [err('aiproxy API error (499): {"code":"client_gone","message":"x"}'), 'a 499 with another code'],
@@ -62,7 +74,7 @@ for (const [id, text] of Object.entries(OUTAGE_NOTES)) assert.ok(text.length > 2
 
 // --- outageWatch with a fake clock ---
 const T = { ...OUTAGE, window: 60, poll: 1, settle: 10, giveUp: 1000, hour: 3600, retry: 100 };
-assert.ok(OUTAGE.retry >= 120000 && OUTAGE.retry <= 300000, 'the wait after a 429/503 is 2 to 5 minutes');
+assert.ok(OUTAGE.retry >= 120000 && OUTAGE.retry <= 300000, 'the wait after a 429/500/503/504 is 2 to 5 minutes');
 function rig({ healthy = () => true, resume, timing = T } = {}) {
   let clock = 0; const checks = []; const resumed = []; const left = [];
   const w = outageWatch({ now: () => clock, timing, sleep: async (ms) => { clock += ms; await null; },
@@ -137,7 +149,8 @@ function rig({ healthy = () => true, resume, timing = T } = {}) {
   assert.deepEqual(r.left, [['moved', 'moved'], ['boom', 'failed']], 'each chat that is not continued is left, with why');
 }
 {
-  // 429/503 upstream_rejected: AIProxy runs, the provider refused the request. No health check: one try after `retry`.
+  // 429/500/503 upstream_rejected or 504 upstream_timeout: AIProxy runs, the provider refused the request or timed out.
+  // No health check: one try after `retry`.
   const r = rig();
   r.w.fail('a', 5, 'rejected'); r.w.fail('b', 7, 'rejected');
   await r.w.settled();
@@ -324,17 +337,19 @@ try {
   assert.deepEqual(prompts, [], 'moved on, running or archived: no message');
   b.status = 'idle'; archived.length = 0;
 
-  // The provider refused the request (429 or 503 upstream_rejected) while AIProxy runs: no health check (it would say
-  // no here), each chat gets one message after the fixed wait, so dsh starts its queued messages too. A chat that you
-  // stopped gets nothing.
+  // The provider refused the request (429/500/503 upstream_rejected or 504 upstream_timeout) while AIProxy runs: no
+  // health check (it would say no here), each chat gets one message after the fixed wait, so dsh starts its queued
+  // messages too. A chat that you stopped gets nothing.
   clock += T.hour; downUntil = Infinity;
-  const h1 = chat('h1'); const h2 = chat('h2'); const h3 = chat('h3'); const t0 = clock;
+  const h1 = chat('h1'); const h2 = chat('h2'); const h3 = chat('h3'); const h4 = chat('h4'); const h5 = chat('h5'); const t0 = clock;
   end(h1, { kind: 'error', error: { message: C429, code: 'RATE_LIMIT' } });
   end(h2, { kind: 'error', error: { message: C503, code: 'SERVER' } });
   end(h3, { kind: 'aborted', reason: { kind: 'user' } });
+  end(h4, { kind: 'error', error: { message: C500, code: 'SERVER' } });
+  end(h5, { kind: 'error', error: { message: C504, code: 'SERVER' } });
   assert.deepEqual(prompts, [], 'nothing at once');
   await handle.watch.settled();
-  assert.deepEqual(prompts.map((p) => [p.sessionId, p.mode, p.content[0].text]), [['h1', 'queue', OUTAGE_NOTES.tr], ['h2', 'queue', OUTAGE_NOTES.tr]],
+  assert.deepEqual(prompts.map((p) => [p.sessionId, p.mode, p.content[0].text]), [['h1', 'queue', OUTAGE_NOTES.tr], ['h2', 'queue', OUTAGE_NOTES.tr], ['h4', 'queue', OUTAGE_NOTES.tr], ['h5', 'queue', OUTAGE_NOTES.tr]],
     'each refused chat gets one message; the chat that you stopped gets none');
   assert.ok(clock - t0 >= T.retry, 'after the wait');
   assert.equal(handle.takes(h1.session, { kind: 'error', error: { message: C429 } }), true, 'the Assistant keeps such a task until the try');
@@ -343,6 +358,9 @@ try {
   end(chat('child3', { sub: true }), { kind: 'error', error: { message: C429, code: 'RATE_LIMIT' } });
   const notice3 = { ...notice, source: { ...notice.source, senderSessionId: 'child3' } };
   assert.equal((await preStep({}, async () => ({ kind: 'enter', messages: [notice3] }))).messages[0], notice3, 'a refused subagent: no outage line');
+  end(chat('child4', { sub: true }), { kind: 'error', error: { message: C504, code: 'SERVER' } });
+  const notice4 = { ...notice, source: { ...notice.source, senderSessionId: 'child4' } };
+  assert.equal((await preStep({}, async () => ({ kind: 'enter', messages: [notice4] }))).messages[0], notice4, 'a subagent with a 504: no outage line');
   prompts.length = 0; downUntil = -1;
 
   // Switched off: nothing continues, and no outage line.
