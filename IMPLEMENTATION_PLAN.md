@@ -21,7 +21,13 @@ approval: merge into main after a clean review. Not in scope: live copy, release
   130 tests, 2 skipped, 0 failures; `TMPDIR=~/Library/Caches/cp-quiet-rows-tests PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-assistant-answers.mjs <0.2.0-rc.2> <0.2.1-rc.2> <0.2.2-rc.5>`
   PASS x3 and FOLDED_REPLIES=all PASS on 0.2.2-rc.5.
 
-## Open: requirement 4 (hold while a turn runs) needs a choice (stopped by the task's rule)
+## Requirement 4: decided 2026-11-27 (option B, no code change)
+- Furkan, Assistant chat, 2026-11-27: "Karar ver: sessiz turda ara satır, tur sürerken nasıl görünsün? → Tur sürerken
+  görünsün, sessiz bitince gizlensin". This is option B below: 5e3a269e stays as it is.
+- origin/main is still ee06f990 (fetched 2026-11-27 10:4x): no merge needed. Diff 21 files, +120/-40: review loop until a
+  round has no P1/P2, then fix the P3/P4 of the last round.
+
+## Requirement 4 options (before the decision)
 - Facts (dsh 0.2.2-rc.5 source): a step streams its text block before its tool-call block (dsh-client-ui-chat
   conversation-nodes/assistant.ts updateChunk); a turn's closing answer is known only at turn/end (turn-tail.ts). The
   card hold (replyCardsOf) gives no card to such a text until the turn ends. Tether's botLines holds it the same way
