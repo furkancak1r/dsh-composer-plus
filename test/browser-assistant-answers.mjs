@@ -27,11 +27,14 @@ const REPLIES = ['Promes is fine.', 'GIB has no code.', 'Second result.'];
 const HIDDEN = ['RELAY-ONE from the subagent', 'RELAY-TWO from the subagent', 'chats_list'];
 const QUIET = '[quiet]'; // turn 3: a news turn whose reply is only [quiet] (the assistant has nothing to say): hidden
 // Turn 3's news note goes with its quiet reply; turn 4 is a news turn with a real reply: its note and reply stay as dsh draws them.
-const NEWS = ['[Composer Plus → Assistant news] QUIET-NEWS acme finished.', '[Composer Plus → Assistant news] LOUD-NEWS deploy failed.', '[Composer Plus → Assistant news] DENY-NEWS a copy ended.'];
+const NEWS = ['[Composer Plus → Assistant news] QUIET-NEWS acme finished.', '[Composer Plus → Assistant news] LOUD-NEWS deploy failed.', '[Composer Plus → Assistant news] DENY-NEWS a copy ended.', '[Composer Plus → Assistant news] LOOK-NEWS a check ended.'];
 const NEWS_ANSWER = 'The acme deploy failed: the login test is red.';
-// Turn 5 (2026-11-27): a text sent with a tool call, then [quiet]: the text (an Auto review denial) is for you and shows,
-// in the chat and as a card.
+// Turn 5 (2026-11-27): a text sent with a tool call that Auto review denied, then [quiet]: the text (the denial) is for
+// you and shows, in the chat and as a card. Turn 6 (review 3): the same without a denial (a "gave it to a subagent"
+// line): it stays hidden and makes no card.
 const DENY = 'Auto review denied bash: it writes to the live server.';
+const LOOK = 'LOOK-LINE gave the check to a subagent.';
+const AUTO_DENIED = 'Error: Auto review denied this tool call and it did not run.\nReviewer reason: it writes to the live server.';
 const SHOTS = process.env.SHOTS; const TAG = process.env.TAG ? `-${process.env.TAG}` : ''; const BEFORE = process.env.BEFORE === '1';
 /** SHOTS=<folder>: the page as `<name><TAG>.png` (damon-sohbet: the chat shown; damon-kartlar: the cards); never replaces a
  * file. BEFORE=1: only the two shots, no checks (for a client.js before the 2026-11-27 fix). */
@@ -72,8 +75,9 @@ function chatLog(sid, cwd) {
     ev('step/start', { turn: 2, step: 1 }), ev('user/message', two, { surfaceOp: 'append' }),
     reply(2, 1, [{ type: 'text', text: REPLIES[2] }]), ev('step/end', { turn: 2, step: 1 }), ev('turn/end', { turn: 2, reason: { kind: 'completed' } }));
   // A news turn as the Host writes it (wakeWithContinue: empty markers in both queues; the note itself has its own id).
-  // `work`: a first step whose text comes with a tool call (dsh 0.2.2's default foldedReplies: all shows that text).
-  const newsTurn = (turn, text, answer, work) => {
+  // `work`: a first step whose text comes with a tool call (dsh 0.2.2's default foldedReplies: all shows that text);
+  // `out`: that call's result text.
+  const newsTurn = (turn, text, answer, work, out = '{"chats":[]}') => {
     const marker = () => ({ id: randomUUID(), role: 'user', content: [], source: { kind: 'composer-plus-assistant-news' } });
     lines.push(ev('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [marker()] }), ev('agent/inbox/spliced', { target: 'next-step', start: 0, inserted: [marker()] }),
       ev('turn/start', { turn }), ev('agent/inbox/spliced', { target: 'next-step', start: 0, removedCount: 1, inserted: [] }),
@@ -83,7 +87,7 @@ function chatLog(sid, cwd) {
     if (work !== undefined) {
       const callId = `call_${turn}`;
       lines.push(reply(turn, 1, [{ type: 'text', text: work }, { type: 'tool-call', id: callId, name: 'chats_list', arguments: '{}' }]), ev('tool/call', { turn, step: 1, callId, name: 'chats_list', arguments: '{}' }));
-      lines.push(ev('tool/result', { turn, step: 1, message: { role: 'tool', source: { kind: 'tool', callId }, toolCallId: callId, content: [{ type: 'text', text: '{"chats":[]}' }], isError: false, id: randomUUID() } }, { sourceEventSeqs: [seq - 1], surfaceOp: 'append' }),
+      lines.push(ev('tool/result', { turn, step: 1, message: { role: 'tool', source: { kind: 'tool', callId }, toolCallId: callId, content: [{ type: 'text', text: out }], isError: out === AUTO_DENIED, id: randomUUID() } }, { sourceEventSeqs: [seq - 1], surfaceOp: 'append' }),
         ev('step/end', { turn, step: 1 }), ev('step/start', { turn, step: 2 }));
       step = 2;
     }
@@ -91,7 +95,8 @@ function chatLog(sid, cwd) {
   };
   newsTurn(3, NEWS[0], QUIET, QUIET); // [quiet] with a tool call, then [quiet]: the whole turn is quiet
   newsTurn(4, NEWS[1], NEWS_ANSWER);
-  newsTurn(5, NEWS[2], ` ${QUIET}\n`, DENY);
+  newsTurn(5, NEWS[2], ` ${QUIET}\n`, DENY, AUTO_DENIED);
+  newsTurn(6, NEWS[3], QUIET, LOOK);
   // dsh wants the header line alone in the first zstd frame.
   return Buffer.concat([zlib.zstdCompressSync(Buffer.from(`${lines[0]}\n`)), zlib.zstdCompressSync(Buffer.from(`${lines.slice(1).join('\n')}\n`))]);
 }
@@ -143,7 +148,10 @@ try {
       if (BEFORE) { await page.evaluate(() => { sessionStorage.setItem('cards', '1'); localStorage.removeItem('dsh-composer-plus.assistant-chat-shown'); });
         await page.reload(); await page.locator('button[aria-label="Damon"]').click(); await page.locator('[data-composer-plus-reply-feed] article.cp-rc').filter({ hasText: NEWS_ANSWER }).first().waitFor({ timeout: 30000 }); await pause(1000);
         await shot(page, 'damon-kartlar'); passed = true; console.log(`BEFORE dsh ${version}: shots only`); continue; }
-      assert.equal((await shown(DENY)).length, 1, 'a text with a tool call before [quiet] (an Auto review denial) shows');
+      assert.equal((await shown(DENY)).length, 1, 'a text with a denied tool call before [quiet] (an Auto review denial) shows');
+      // dsh 0.2.2 with foldedReplies: all shows each text sent with a tool call itself (as on main); folded, it stays hidden.
+      const unfolded = !/^0\.2\.[01]-/.test(version) && process.env.FOLDED_REPLIES === 'all';
+      assert.equal((await shown(LOOK)).length, unfolded ? 1 : 0, 'a text with a tool call before [quiet], without a denial: as dsh draws it');
       const tops = [];
       for (const text of REPLIES) { const at = await shown(text); assert.equal(at.length, 1, `the reply "${text}" shows`); tops.push(at[0]); }
       assert.ok(tops[0] < tops[1] && tops[1] < tops[2], `the replies are in time order (${tops.join(' < ')})`);
@@ -182,7 +190,7 @@ try {
       await cards.filter({ hasText: NEWS_ANSWER }).first().waitFor({ timeout: 30000 }); await pause(1000);
       await shot(page, 'damon-kartlar');
       const texts = await cards.evaluateAll((els) => els.map((el) => el.querySelector('h3')?.textContent.trim()));
-      assert.deepEqual(texts, [...REPLIES, NEWS_ANSWER, DENY], 'one card per reply in time order, the denial too, none for [quiet]');
+      assert.deepEqual(texts, [...REPLIES, NEWS_ANSWER, DENY], 'one card per reply in time order, the denial too, none for [quiet] or the looking line');
       assert.equal(await page.locator('[data-composer-plus-reply-feed]').getByText(QUIET).count(), 0, 'no card shows [quiet]');
       assert.deepEqual(errors, [], 'no page errors');
       passed = true; console.log(`PASS dsh ${version}`);

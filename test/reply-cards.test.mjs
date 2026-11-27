@@ -72,17 +72,23 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
     step(1, 4, 14, [txt('Bitti.')]), tail(1, 14),
   ]);
   assert.deepEqual(replyCardsOf(ask).map((c) => c.seq), [11, 12, 13, 14], 'an approval, options or a Senden line next to a tool call is a card');
-  // 2026-11-27: a turn that ends with only [quiet] has no closing card, so each other text in it is a card, also next to a
-  // tool call (an Auto review denial, a live error: Damon writes no other text in a [quiet] turn). Spaces and a newline
-  // around [quiet] count as [quiet].
+  // 2026-11-27: in a turn that ends with only [quiet] and has a call that Auto review denied, a text next to a tool call
+  // is a card (the denial: the closing answer says nothing). Without a denial (review 3), a "looking at it" or "I gave it
+  // to a subagent" line next to a tool call stays out, as in every turn. Spaces and a newline around [quiet] count as
+  // [quiet]. dsh's tool-call node: the result as `root` (kind tool-result, content) and the turn in its location.
+  const result = (turn, seq, text) => ({ key: `r${seq}`, kind: 'tool-call', location: { kind: 'step', turn: { turn } }, data: { root: { kind: 'tool-result', seq, callId: 'c', content: [{ type: 'text', text }], isError: true } } });
+  const DENIED = 'Error: Auto review denied this tool call and it did not run.\nReviewer reason: X.';
   const hushed = chatOf([
-    step(1, 0, 10, [txt('Auto review denied bash: the reason is X.'), tool]), step(1, 1, 11, [txt(' [quiet]\n')]), tail(1, 11),
-    step(2, 0, 20, [txt('[QUIET]'), tool]), step(2, 1, 21, [txt('\n[quiet] ')]), tail(2, 21), // a quiet turn with a tool call
+    step(1, 0, 10, [txt('Auto review denied bash: the reason is X.'), tool]), result(1, 10.5, DENIED), step(1, 1, 11, [txt(' [quiet]\n')]), tail(1, 11),
+    step(2, 0, 20, [txt('[QUIET]'), tool]), result(2, 20.5, DENIED), step(2, 1, 21, [txt('\n[quiet] ')]), tail(2, 21), // a quiet turn with a tool call
     step(3, 0, 30, [txt('Bakıyorum.'), tool]), step(3, 1, 31, [txt('Bitti.')]), tail(3, 31), // a real closing answer: the looking line stays out
+    step(4, 0, 40, [txt('Alt ajana verdim.'), tool]), result(4, 40.5, '{"ok":true}'), step(4, 1, 41, [txt('[quiet]')]), tail(4, 41), // no denial: no card
   ]);
-  assert.deepEqual(replyCardsOf(hushed).map((c) => c.seq), [10, 31], 'the denial before [quiet] is a card; a quiet turn and a looking line are not');
+  assert.deepEqual(replyCardsOf(hushed).map((c) => c.seq), [10, 31], 'the denial before [quiet] is a card; a quiet turn and looking lines are not');
+  // A denial in another turn does not open a hushed turn without one.
+  assert.deepEqual(replyCardsOf(chatOf([...hushed.nodes.values(), result(3, 30.5, DENIED)])).map((c) => c.seq), [10, 31], 'a denial counts only in its own hushed turn');
   // A running turn (no tail yet) whose newest settled text is [quiet]: its real answer can still come, so no card yet.
-  const running = chatOf([step(1, 0, 10, [txt('Checking.'), tool]), step(1, 1, 11, [txt('[quiet]'), tool])]);
+  const running = chatOf([step(1, 0, 10, [txt('Checking.'), tool]), result(1, 10.5, DENIED), step(1, 1, 11, [txt('[quiet]'), tool])]);
   assert.deepEqual(replyCardsOf(running).map((c) => c.seq), [], 'a running turn: no card for its looking line');
   assert.deepEqual(replyCardsOf(chatOf([...running.nodes.values(), tail(1, 11)])).map((c) => c.seq), [10], 'after the turn ends with [quiet]: a card');
 }
@@ -490,7 +496,8 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   // Mark all as read while a turn runs (review 2): the floor is the newest card, not the chat's newest seq, so the text
   // that becomes a card when the turn ends with [quiet] (an Auto review denial) is still New.
   const at = (n, seq) => { n.anchorSeq = seq; return n; };
-  const runningTurn = [at(step(1, 0, 10, [txt('**Eski.**')]), 10), at(tail(1, 10), 10.1), at(step(2, 0, 20, [txt('Auto review denied bash.'), tool]), 20)];
+  const denial = { key: 'r20', kind: 'tool-call', location: { kind: 'step', turn: { turn: 2 } }, anchorSeq: 20.5, data: { root: { kind: 'tool-result', content: [{ type: 'text', text: 'Error: Auto review denied this tool call and it did not run.' }] } } };
+  const runningTurn = [at(step(1, 0, 10, [txt('**Eski.**')]), 10), at(tail(1, 10), 10.1), at(step(2, 0, 20, [txt('Auto review denied bash.'), tool]), 20), denial];
   snap = chatOf([...runningTurn, at(step(2, 1, 21, [txt('[quiet]'), tool], 'running'), 21)]);
   store.start('run', 5); props.sessionId = 'run'; hooks = []; out = render();
   assert.deepEqual(cardsOf(out).map((c) => [c.seq, c.unread]), [[10, true]], 'a running turn: its looking line is no card yet');

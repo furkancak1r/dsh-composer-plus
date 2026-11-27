@@ -40,8 +40,27 @@ restart, iPhone install.
      or risk still gets one line (in the turn's last reply)"; `npm run build:readme`.
   5. tether/FEATURES.md assistantFree row (~79): a small task shows no reply until its result comes; the exception line.
   6. This plan: done here.
+- Merge of origin/main 7593f3f8 (8667f59f): conflicts in docs/features.json, llms.txt (assistantReplyCards llms: both
+  insertions applied to the base line, no overlap), tether/FEATURES.md (assistantReplyCards row: both changes), this plan
+  (both sections). `npm run build:readme`: "docs are up to date"; the hand-merged llms.txt equals the generated one.
+- Last passing (8667f59f): `npm test` exit 0; iOS 129 tests, 2 skipped, 0 failures (simulator 787CAECE);
+  browser-assistant-answers PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5 and FOLDED_REPLIES=all on 0.2.2-rc.5.
+- Round 3 (review-guard-3, head 8667f59f, whole `git diff origin/main...HEAD`): P1 0, P2 1, P3 0, P4 2. Fixed:
+  1. P2: in a hushed turn every text next to a tool call became a card and an unfolded row, also "I gave it to a
+     subagent" (the line that Furkan wants gone). Now only a hushed turn with a denied call (`deniedQuietTurns`: dsh's
+     tool-call node, `data.root` kind tool-result, content text starts with index.js AUTO_DENIED, turn from
+     `location.turn.turn`, same in dsh 0.2.0-0.2.2) shows such a text; `hushedTurns` stays for the Copy/time row.
+     Tests: reply-cards (turn 4 without a denial: no card; a denial in another turn does not count) and
+     assistant-subagent-rows (20:1) are red with the hushed rule; browser-assistant-answers has news turn 6 (LOOK line,
+     no denial: no card, folded; with FOLDED_REPLIES=all dsh draws it itself, as on main).
+  2. P4: the assistantFree llms put the exception in the deny reason; it is in the system-prompt section (FREE_REASON has
+     none). 3. P4: this checkpoint (below: the old one is now "previous chat").
+- Last passing (round-3 fixes): `npm test` exit 0; browser-assistant-answers PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5
+  and FOLDED_REPLIES=all on 0.2.2-rc.5. iOS not run again (no Swift change after 8667f59f: 129 tests, 0 failures).
+- Open steps: review round 4 on the whole diff; fix; when clean: fetch, merge origin/main if it moved, tests, merge into
+  main (--no-ff), push; screenshots of the merge commit. No live copy, release, npm publish, restart.
 
-## Last checkpoint (2026-11-27 03:5x, about 150 tool calls: the chat stops here)
+## Checkpoint (2026-11-27 03:5x, about 150 tool calls: the previous chat stopped here)
 - Head 950b0430 (+ this plan commit). origin/main moved to 7593f3f8 (feat/sync-tether-damon-features merge). `git
   merge-tree origin/main HEAD`: conflicts in IMPLEMENTATION_PLAN.md, docs/features.json, llms.txt, tether/FEATURES.md
   (keep both sides; regenerate llms/READMEs with `npm run build:readme` after docs/features.json).
