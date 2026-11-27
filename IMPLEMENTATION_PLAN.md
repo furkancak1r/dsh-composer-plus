@@ -5005,3 +5005,28 @@ review. Not in scope: live copy (after Furkan's "tamam" on the screenshots), rel
   /api/file, which dsh's chat does not do. Fixed in the next commit (dsh 0.2.0's scheme rule; unit cases red on 046fa2c9).
   Open: review round 11 (separate subagent) until clean; then (c) update from origin/main and tests, (d) merge into main
   --no-ff and push. No live copy, no release, Tether unchanged.
+- Checkpoint (2026-11-27 03:5x, about 147 tool calls in this chat: handover). Branch head 5b784134 (review 10 fix) + this
+  plan commit. Review rounds of this chat: 3 (P3 2, P4 2) -> 13dd627d; 4 (P3 1, P4 1) -> 2f003580; 5 (P3 1, P4 1) ->
+  96789752; 6 (P3 1, P4 1) -> 11320071; 7 (P3 1, P4 1) -> 4910c350; 8 (P3 1, P4 1) -> 88240a11; 9 (P4 1) -> 046fa2c9;
+  10 (P4 1) -> 5b784134. No round had a P1 or P2. No clean round yet: the next round reviews 5b784134 + the merge below.
+  - Last passing (5b784134): `npm test` exit 0; `TMPDIR=$PWD/build/t PLAYWRIGHT=$HOME/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright
+    node test/browser-<t>.mjs <0.2.0-rc.2 bin> <0.2.1-rc.2 bin> <0.2.2-rc.5 bin>` PASS x3 for t = reply-images, reply-pages,
+    reply-order, status-canvas (bins: see the 20:55 checkpoint above). Do not set TMPDIR inside the repo for npm test.
+  - origin/main MOVED: 7593f3f8 (merge of feat/sync-tether-damon-features: Tether = Damon chat parity, read marks, Load
+    earlier, option list, liveApproval; 28 files). `git merge-tree --write-tree --name-only HEAD origin/main` lists 16
+    conflicting files: the 13 READMEs, docs/features.json, llms.txt, tether/FEATURES.md (and IMPLEMENTATION_PLAN.md merges
+    by itself). main's own plan (top section, "Last checkpoint") says how: keep main's Tether text (read marks per Mac,
+    Load earlier done) and add only this branch's new sentences; keep ONE Images row in tether/FEATURES.md (the Mac text
+    from this branch, the State text from main); edit docs/features.json by hand, then `npm run build:readme` (no hand
+    merge of generated blocks), then `npm test`. test/reply-cards.test.mjs also changed on main (auto-merges: check it).
+  - Open steps, in order:
+    1. `git fetch`; `git merge origin/main` into this branch; resolve the 16 files as above, keep the content of both
+       sides; `npm run build:readme`; `npm test`; the four browser tests on the three dsh versions.
+    2. review-guard (separate subagent) on the final `git diff origin/main...HEAD`; fix every finding (P1-P4), tests
+       after each fix; repeat until a round has no finding.
+    3. In the main worktree: fast-forward local main to origin/main, `git merge --no-ff fix/reply-card-markdown-images`,
+       `npm test`, `git push origin main`. No live copy (Furkan's "tamam" on kart-resim-20261126 screenshots first), no
+       release, no npm publish, Tether app unchanged, no DSH restart.
+  - Not verified: whether Tether's mdInline shows exactly the alt text (Apple's parser gives the alt text as a run with
+    an imageURL; checked with a Swift script, not in the app UI); the screenshots in kart-resim-20261126/ are of the
+    20:4x code (before reviews 3-10; the card look did not change, the fixes are parse rules and the canvas redraw).
