@@ -1762,20 +1762,24 @@ func assistantMark(_ id: String?, sessions: [Sess], busy: Set<String>, waiting: 
 /// A reply that is only `[quiet]` (the assistant's "nothing to say", `quietTurn`) shows nothing, as on the Mac (client.js
 /// quietStep). In an ended turn whose last text is only `[quiet]` (the Mac's hushedTurns), a text sent with a tool call
 /// that asks you nothing shows only after the turn's first Auto review denial (the denial line; client.js afterDenial):
-/// "I gave it to a subagent" before it goes (one table: test/fixtures/quiet-replies.json `hushed`, 2026-11-27).
+/// "I gave it to a subagent" before it goes (one table: test/fixtures/quiet-replies.json `hushed`, 2026-11-27). In the
+/// running turn (after the last `.turn` line) such a text waits for the turn's end, as on the Mac (review 5: its closing
+/// answer is not known yet; client.js replyCardsOf skips it until dsh's turn tail comes).
 func botLines(_ t: [Line]) -> [Line] {
     var drop = Set<Int>(), start = 0
+    let talks = { (i: Int, end: Int) in t[i].kind == .assistant && i + 1 < end && t[i + 1].kind == .tool && !asksYou(t[i].text) }
     for (end, l) in t.enumerated() where l.kind == .turn {
         let texts = (start..<end).filter { t[$0].kind == .assistant && !t[$0].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         if let last = texts.last, quietReply(t[last].text) {
             var denied = false
             for i in start..<end {
                 if t[i].kind == .tool, autoDenied(t[i].output) { denied = true }
-                else if !denied, t[i].kind == .assistant, i + 1 < end, t[i + 1].kind == .tool, !asksYou(t[i].text) { drop.insert(i) }
+                else if !denied, talks(i, end) { drop.insert(i) }
             }
         }
         start = end + 1
     }
+    for i in start..<t.count where talks(i, t.count) { drop.insert(i) }
     return t.enumerated().filter { !drop.contains($0.offset) && ($0.element.kind == .user || $0.element.kind == .error || ($0.element.kind == .assistant && !quietReply($0.element.text))) }.map(\.element)
 }
 /// A tool result that Auto review denied: dsh's own text or the auto-review-agent-first plugin's (client.js and index.js AUTO_DENIED).

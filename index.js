@@ -12202,14 +12202,19 @@ const withoutSelfQuotes = (text) => {
 const AUTO_DENIED = /^Error: Auto review (?:denied this tool call|rejected tool ")/;
 const APPROVAL_ITEM = /^(?:onay|approval)\s*:\s*\S/iu; // the client's CARD_MARKS 'onay' (client.js cardMark)
 export const quoteNote = (quotes) => `Composer Plus → Assistant: your last answer quotes ${quotes.map((q) => JSON.stringify(cutEnd(q, 200))).join(', ')} as your own earlier words, but the quoted text is not in an earlier answer of this chat. Write one short line to the user that withdraws this correction. Never quote a sentence that the log does not have.`;
-export const deniedNote = (names) => `Composer Plus → Assistant: Auto review denied a call of this turn (${[...new Set(names)].join(', ')}). Write one short line for the user with the denied action and the reason, in the turn's last reply (not next to a tool call). Do not reply only [quiet].`;
+/** `denials`: [{ name, reason? }]. dsh's own denial tells the model only a fixed text; the reviewer's reason is in the
+ * tool/result event's `data.error.reason` (dsh-tools: `error: result.error.info`, dsh 0.2.0-0.2.2), so the note carries it. */
+export const deniedNote = (denials) => {
+  const reasons = [...new Set(denials.map((d) => d.reason).filter((r) => typeof r === 'string' && r.trim() !== ''))];
+  return `Composer Plus → Assistant: Auto review denied a call of this turn (${[...new Set(denials.map((d) => d.name))].join(', ')}).${reasons.length === 0 ? '' : ` Reviewer reason: ${reasons.map((r) => JSON.stringify(cutEnd(r, 300))).join('; ')}.`} Write one short line for the user with the denied action and the reason that the result or this note gives (do not guess a reason), in the turn's last reply (not next to a tool call). Do not reply only [quiet].`;
+};
 export const approvalItemNote = (texts) => `Composer Plus → Assistant: you added an approval item for the user (${texts.map((t) => JSON.stringify(t)).join(', ')}) without an \`onay\` block. Write the \`onay\` block now, or remove the item with todo_list_remove.`;
 /** `assistant`: installAssistant's handle (isOn, id, isAssistant). */
 export function installAssistantGuards(ctx, assistant) {
   const notes = new Map(); // chat id → [{seq, text, quotes?}] for the next step that has a message with text
   const noted = new Map(); // chat id → Map(folded quote → seq of its answer): the quotes whose note went to a step
   const calls = new Map(); // chat id → callId → tool name, of the open turn
-  const denials = new Map(); // chat id → tool names of the open turn's denials that no step was told yet
+  const denials = new Map(); // chat id → [{ name, reason? }] of the open turn's denials that no step was told yet
   const eventsOf = (session) => { try { return session?.snapshotEvents?.() ?? []; } catch { return []; } };
   const fromOf = (session) => (Number.isSafeInteger(session?.inheritedEventCount) && session.inheritedEventCount > 0 ? session.inheritedEventCount : 0);
   const hold = (id, seq, text, quotes) => { notes.set(id, [...(notes.get(id) ?? []), { seq, text, ...(quotes === undefined ? {} : { quotes }) }].slice(-5)); };
@@ -12272,7 +12277,7 @@ export function installAssistantGuards(ctx, assistant) {
       if (!calls.has(id)) calls.set(id, new Map());
       calls.get(id).set(d?.callId, String(d?.name ?? 'a tool'));
     } else if (event.type === 'tool/result' && AUTO_DENIED.test(textBlocks(d?.message?.content))) {
-      denials.set(id, [...(denials.get(id) ?? []), calls.get(id)?.get(d?.message?.source?.callId ?? d?.message?.toolCallId) ?? 'a tool']);
+      denials.set(id, [...(denials.get(id) ?? []), { name: calls.get(id)?.get(d?.message?.source?.callId ?? d?.message?.toolCallId) ?? 'a tool', reason: d?.error?.reason }]);
     } else if (event.type === 'assistant/message') {
       const missing = missingQuotes(id, session, event);
       if (missing.length > 0) hold(id, event.seq, quoteNote(missing.map((q) => q.quote)), missing.map((q) => q.fold));

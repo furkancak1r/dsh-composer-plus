@@ -80,7 +80,20 @@ restart, iPhone install.
   one-text AUTO_DENIED; the iOS table test failed once on a wrong fixture row (fixed the row, not the code).
 - Last passing (round-4 fixes, uncommitted at the time of the run): `npm test` exit 0; iOS 130 tests, 2 skipped,
   0 failures; browser-assistant-answers PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5 and FOLDED_REPLIES=all on 0.2.2-rc.5.
-- Open steps (next chat): 1. review round 5 in a separate subagent on `git diff origin/main...HEAD` (round 4 had P2, so
+- Round 5 (review-guard-5, head 8080cc4b, whole `git diff origin/main...HEAD`): P1 0, P2 0, P3 2, P4 2. Fixed:
+  1. P3: dsh's own denial tells the model only `Auto review rejected tool "<name>"; its body was not executed`; the
+     reviewer's reason is only in the tool/result event's `data.error.reason` (dsh-experimental-auto-review `denied()`
+     info; dsh-tools pipeline.js:205 on 0.2.2-rc.5, dsh-agent-loop appendToolResult on 0.2.0-rc.2 and 0.2.1-rc.2). index.js
+     keeps `{ name, reason }` per denial and deniedNote quotes "Reviewer reason: …" (no guessed reason). Test:
+     assistant-guards (red with `reason: undefined`). docs/features.json assistant llms (2), build:readme.
+  2. P3: Tether botLines showed a text next to a tool call in the running turn (no `.turn` line yet); the Mac waits for
+     the turn tail. Now the last segment drops such a text that asks nothing until the turn ends. Test:
+     testHushedTurnsMatchTheMac running case (red on the old botLines). tether/FEATURES.md says it.
+  3. P4: tether/FEATURES.md assistantReplyCards: the Assistant-messages-only-off clause moved back to the phone-only part;
+     "The same on both while Assistant messages only is on". 4. P4: client.js replyCardsOf comment on one line.
+- Last passing (round-5 fixes): `npm test` exit 0; iOS 130 tests, 2 skipped, 0 failures; browser-assistant-answers PASS
+  on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5 and FOLDED_REPLIES=all on 0.2.2-rc.5.
+- Open steps (next chat): 1. review round 6 (final diff after the round-5 fixes; merge only on a clean round). Earlier: review round 5 in a separate subagent on `git diff origin/main...HEAD` (round 4 had P2, so
   one more round; repeat until a round has no P1/P2, fix P3/P4 of the last round). 2. `git fetch`; if origin/main moved
   past 4b3a3d25, merge it, tests again (and a review round if client.js or Swift changed). 3. merge into main --no-ff,
   npm test on main, push main, check CI. 4. screenshots of the merge commit (TAG=<short sha>, SHOTS=<folder>, same three

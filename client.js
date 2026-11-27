@@ -4509,8 +4509,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
     /** The cards of a chat snapshot (dsh's chat nodes): `{ kind: 'reply', seq, turn, time, text }` for each settled reply
      * that the chat shows (a step with text and no tool call, its turn's closing answer, or any text in an ended turn whose
      * closing answer is only `[quiet]`, after a result that Auto review denied: afterDenial), not only `[quiet]` and not in
-     * a quiet turn; `{ kind: 'error', seq,
-     * turn, time, message }` for each failed turn. In seq order. */
+     * a quiet turn; `{ kind: 'error', seq, turn, time, message }` for each failed turn. In seq order. */
     const NO_SPANS = Object.freeze([]);
     /** The failure codes that dsh's chat shows with its own text (dsh-client-ui-chat MessageItem `failureMessage`, namespace
      * `chat`); the node's message is English or empty for them (review 8). */

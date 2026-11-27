@@ -2915,6 +2915,13 @@ final class QuietReplyTests: XCTestCase {
             lines.append(Line(kind: .turn, text: "Completed"))
             XCTAssertEqual(botLines(lines).map(\.text), t["shown"] as? [String], "\(t["steps"] ?? "")")
         }
+        // Review 5: in the running turn (no `.turn` line yet) a text sent with a tool call that asks nothing waits for the
+        // turn's end, as on the Mac (client.js replyCardsOf, "a running turn: no card for its denial line yet"); a text that
+        // asks you (Senden) and a text without a tool call show at once; an ended turn before it keeps its lines.
+        let done = [Line(kind: .user, text: "news"), Line(kind: .assistant, text: "Bitti."), Line(kind: .turn, text: "Completed")]
+        let running = done + [Line(kind: .user, text: "copy it"), Line(kind: .assistant, text: "Kopyalıyorum, alt ajana verdim."), Line(kind: .tool, text: "bash", output: denials[1], failed: true),
+                              Line(kind: .assistant, text: "Senden: portu aç."), Line(kind: .tool, text: "bash"), Line(kind: .assistant, text: "Bakıyorum.")]
+        XCTAssertEqual(botLines(running).map(\.text), ["news", "Bitti.", "copy it", "Senden: portu aç.", "Bakıyorum."])
     }
     /// The push rule keeps its empty-reply case; a failed turn is never quiet.
     func testQuietTurn() {
