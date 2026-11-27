@@ -149,7 +149,12 @@ IMPLEMENTATION_PLAN.md. Screenshots only to the folder above.
   suggest request is missed); a long project tag wraps; suggestFold not exported. Open, for Furkan: Tether parity (the
   2026-11-26 rule "every Damon feature also goes to Tether" vs the earlier "Kararlar desktop only"), written in
   tether/FEATURES.md. Last passing: `npm test` exit 0 (2026-11-27 14:5x).
-- Open: a clean review-guard round (round 3); merge into main only after `gh release view v1.33.0` shows the release.
+- Review 3 (P1 0, P2 0, P3 3), fixed: suggestFold maps Cyrillic and Greek look-alike letters to Latin before the match
+  ("Каrаr:", "Οnαy verdim", "І approve" blocked again; µs, kΩ, Δt still pass); the tool result keeps a reply to the
+  user ("when this turn has no other reply, reply with only [quiet]"); the docs say that the Gizli rule is an instruction
+  to the model, not a guard (13 `how`, llms, a README Limits sentence that names Protected files). Last passing:
+  `npm test` exit 0 (2026-11-27 15:3x).
+- Open: a clean review-guard round (round 4); merge into main only after `gh release view v1.33.0` shows the release.
 
 # Quiet turns leave no card, and small tasks start quietly (branch fix/hide-quiet-only-turns, 2026-11-27)
 

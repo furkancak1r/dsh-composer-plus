@@ -12598,7 +12598,7 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
           : `suggestions is 1 to ${SUGGEST_LIMITS.items} items, each with title (1 to ${SUGGEST_LIMITS.title} characters), text (1 to ${SUGGEST_LIMITS.text}), why (1 to ${SUGGEST_LIMITS.why}) and source (1 to ${SUGGEST_LIMITS.source}); project at most ${SUGGEST_LIMITS.project}.`, 400);
         suggestions.set(id, { at: now(), items });
         suggestAsks.delete(id); // the request got its suggestions
-        return `The Kararlar dialog shows ${items.length} suggestion cards${blocked > 0 ? ` (${blocked} left out: an approval word, "Karar:", "Decision:", "CANLI DEPLOY", or a word that mixes Latin with Greek or Cyrillic letters; write it again in other words if it is a suggestion)` : ''}. Reply with only \`[quiet]\`.`;
+        return `The Kararlar dialog shows ${items.length} suggestion cards${blocked > 0 ? ` (${blocked} left out: an approval word, "Karar:", "Decision:", "CANLI DEPLOY", or a word that mixes Latin with Greek or Cyrillic letters; write it again in other words if it is a suggestion)` : ''}. Write nothing in the chat about the suggestions: when this turn has no other reply, reply with only \`[quiet]\`.`;
       },
     },
   ];
@@ -13085,7 +13085,9 @@ const suggestMessage = () => Object.freeze({ id: randomUUID(), role: 'user', con
  * like "o"; a unit such as "µs" or "kΩ" passes).
  * The text is folded first (marks and format characters out, Turkish lower case, ı → i). The same rule is in client.js
  * (suggestBlocked; test/assistant-suggest.test.mjs compares them). */
-const suggestFold = (s) => String(s ?? '').normalize('NFKD').replace(/[\p{M}\p{Cf}]/gu, '').toLocaleLowerCase('tr').replace(/ı/g, 'i');
+// Cyrillic and Greek letters that look like Latin ones become Latin, so "Каrаr:" or "Οnαy verdim" still match (review 3).
+const LOOK_ALIKE = { а: 'a', е: 'e', о: 'o', р: 'p', с: 'c', у: 'y', х: 'x', і: 'i', ј: 'j', к: 'k', ѕ: 's', м: 'm', т: 't', н: 'h', в: 'b', ο: 'o', α: 'a', ι: 'i', κ: 'k', ν: 'v', ρ: 'p', υ: 'u', τ: 't', ε: 'e' };
+const suggestFold = (s) => String(s ?? '').normalize('NFKD').replace(/[\p{M}\p{Cf}]/gu, '').toLocaleLowerCase('tr').replace(/ı/g, 'i').replace(/[аеорсухіјкѕмтнвοαικνρυτε]/gu, (c) => LOOK_ALIKE[c]);
 const SUGGEST_BLOCKED = /(?<![\p{L}\p{N}])(?:onayl(?:i|idir|iyorum|iyoruz|adim)|onay\s+ver(?:iyorum|dim)|izin\s+ver(?:iyorum|dim)|i\s+approve|approved\s*:|karar\s*:|decision\s*:)(?![\p{L}\p{N}])|canli\s+deploy\s+\S+\s+[0-9a-f]{7,40}(?![\p{L}\p{N}])/u;
 const SUGGEST_LIVE = /^\s*CANLI\s+DEPLOY(?![\p{L}\p{N}])/mu;
 const SUGGEST_MIXED = /(?<!\p{L})(?=(?:\p{L}*?\p{Script=Latin}){3})(?=\p{L}*[\p{Script=Cyrillic}\p{Script=Greek}])\p{L}+/u;
