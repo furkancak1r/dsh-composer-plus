@@ -1,3 +1,219 @@
+# Kararlar: "third eye" suggestion cards (branch feat/decisions-window-suggestion-cards, 2026-11-27)
+
+Source: Furkan, relayed by Damon (2026-11-27): one clickable row under the last decision card of the Kararlar dialog; a
+click makes Damon read the chat history, the memory and the vault project notes and suggest things for all projects, as
+cards like the decision cards; one click on a card sends it to the chat as Furkan's message. Viewpoint: a senior developer
+from outside ("Why did you do it this way? It should be like this."), bottlenecks, optimizations, better ways, a new
+project when it helps, each with its reason, plain Turkish, UX first, "doğrulanmadı" on each unverified claim, no guesses.
+Base: main ee06f990. Not in release 1.33.0 (branch chore/release-1-33-0, untouched). No live copy, no DSH or AIProxy restart.
+
+## Phase 0 result (gate, passed)
+
+1. The existing feature suggestion system: one candidate, **Feature ideas** (`featureIdeas`): index.js:15-16 (header),
+   1459 (`IDEAS_SYSTEM`), 1554 (`suggestIdeas`), 3063 (`installIdeas`, route `/api/composer-plus.ideas`); client.js:10202
+   (`suggestIdeas`), 10426 (Suggest features button); docs/features.json `featureIdeas` (line 93); Tether UI.swift:3589
+   (`IdeasSheet`). Searched with no other match: prompts (`~/ai-maintenance/*/prompts`: audits and maintainers, no
+   suggestion feature), the Damon AGENTS.md, the vault memory (only the 2026-11-27 "üçüncü göz" entries of this task),
+   the active schedules (no suggestion automation; "Asistanı iyileştir" is no longer in schedule_list). Not a feature
+   suggestion system: Suggest for memory (`memorySuggest`, memory notes), Typing completion, Next message prediction.
+2. The Kararlar dialog is complete on main: merge e1343314 is an ancestor of origin/main ee06f990.
+   - Panel button: client.js:5316-5324 (`cp-dc-open`, badge, `decide.button`).
+   - Pop-up: client.js:4209-4424 `DecisionDialog`, native modal `<dialog>`, blurred backdrop client.js:4170; portal
+     client.js:5325-5327.
+   - Decision cards: client.js:4378-4393 (one card, options, Başka bir cevap, Atla/Sonra/Sil, ‹ ›).
+   - Click sends "Karar: …": client.js:4310-4325 `answer` → `picks.say` (client.js:8827) with `decide.message`
+     ("Karar: {item} → {answer}", locales/tr.json).
+   - Tests: test/decision-dialog.test.mjs (line 131: the exact "Karar: …" message once), test/assistant-todos-client.test.mjs
+     (lines 208-218, 456-551: button, portal, focus), test/browser-card-stack.mjs step 10-11 (real dsh), test/browser-
+     status-canvas.mjs 5b, test/status-contrast.test.mjs. Run now: decision-dialog ok, assistant-todos-client ok.
+
+## Design (decisions with evidence; smallest change)
+
+- Start: the Get summary path. index.js:12581 `askSummary` puts a marker (steer, or `wakeWithContinue` for an idle chat)
+  and the pre-step hook (index.js:12600) turns it into a hidden note (logged, not a chat bubble). New: POST
+  `{sessionId, action: "suggest"}` on `/api/composer-plus.assistant-todos` (the same route as `action: "summary"`,
+  index.js:12888), marker kind `composer-plus-status-suggest`, the note `STATUS_SUGGEST_NOTE`. The logged note keeps the
+  summary note's source kind (`composer-plus-status-summary`), so DAMON_PROMPTS (index.js:11726) and Tether's
+  `damonPrompts` (Core.swift:1369) treat it as a hidden note with no change (ponytail).
+- Result: a new tool `status_suggestions_set({suggestions: [{project?, title, text, why, source, unverified?}]})` in the
+  same tool list (index.js:12505), so it is in TODO_TOOLS: only the assistant chat, its subagents get it denied
+  (test/assistant-todos.test.mjs:183), on the Assistant always free list (index.js:11523). Why not an existing path:
+  `status_summary_set` replaces the panel's project summary and has no reason, source or unverified field; a to-do decision
+  item would go into the Kararlar queue and its click sends "Karar: …", which the safety invariant forbids.
+  The Host keeps the newest set per chat in memory (ponytail: gone after a dsh restart; upgrade: a file like
+  summaryStore). GET adds `suggest {at, items}`, `suggestAsked`, `suggestMissed`.
+- Inputs: Damon itself may call only chats_list, chat_read, memory_*, subagent… (index.js:11529; other tools are refused,
+  index.js:11824), so it cannot read vault files. The note asks Damon to collect this chat and memory_recall, then start one
+  background subagent (file read tools; subagent gets the to-do tools denied) to read the project notes in its folder: only
+  in subfolders, never the folder root, never a folder named Gizli, read only, memory files never by hand. Damon's
+  AGENTS.md:112 names the subfolders (Belgeler/, Günlük/, Hafıza/ to read) and asks to pass them to the subagent.
+  When the result comes, Damon calls status_suggestions_set and replies only `[quiet]`.
+- Quiet: both turns reply `[quiet]` (no card, no row: main ee06f990). The turn with the note gets no to-do nudge (no
+  "Sürüyor" item for this work). The subagent's task card still shows in Sürüyor while it runs (true and useful).
+- Wait: open request per chat for 15 min (`SUGGEST_ASK_MS`); `missed` when the turn that took the note ended without a
+  subagent and without the tool. The dialog shows "hazırlanıyor" until the cards come, else "gelmedi, tekrar dene".
+- Reach: the Kararlar button also shows when nothing waits (its text "Bekleyen karar ya da not yok", `data-decide-none`
+  kept), so the row is always reachable. Choice (not asked: the global rule says pick the recommended option and report).
+- Cards (Turkish UI texts in locales/tr.json): project tag, title, 1-3 sentences, "Neden: …", "Kaynak: …", tag
+  "doğrulanmadı". One click on a card sends "Öneri: <title> — <text>" on `picks.say` (the Kararlar send path and guard),
+  then the card shows "✓ Gönderildi" and cannot send again.
+- Safety invariant: the Host drops a suggestion whose title or text (any line) starts with "Onaylıyorum", "CANLI DEPLOY"
+  or "Karar:" (case and Turkish İ/ı folded) or has "onaylıyorum" anywhere; all dropped → the tool refuses. The client
+  checks the same rule again before a send (`suggestionMessage` returns null). Tests for both.
+- Tether: no Kararlar dialog (tether/FEATURES.md:117, desktop only by Damon's decision), so nothing is built there; the
+  difference goes to tether/FEATURES.md. GET's new fields reach Tether through the gateway; Tether ignores unknown fields.
+- Feature switch: part of `assistantTodos` (Assistant status panel), like Get summary and Kararlar: no new FEATURES id,
+  no new screenshot; docs/features.json `assistantTodos` (`how` 13 languages, `llms`) and its route entry change.
+
+## Invariants
+
+- A card never sends an approval or a decision; the sent text always starts with "Öneri:".
+- No model turn without a click. One open request per chat. Switch off (assistantTodos) removes the tool, the note path
+  and the state (existing `apply(false)`).
+- Gizli is never read; no file is written by the suggestion work; no live copy, release or DSH restart.
+
+## Acceptance
+
+1. Row under the card area of the Kararlar dialog (also at "Hepsi bitti"); one click starts one request (a second click
+   while it waits does nothing).
+2. Loading state while it waits; cards when status_suggestions_set ran; an error or late line with Tekrar dene.
+3. A card click sends "Öneri: <title> — <text>" once as Furkan's message; blocked texts never show and never send.
+4. Chat stays quiet (no reply card for the two turns).
+5. npm test exit 0; headless screenshots (row, loading, cards, chat after click) in
+   /Users/furkancakir/Damon/Belgeler/Composer Plus/oneri-karti-20261127/.
+
+## Phases
+
+1. Host (index.js) + client (client.js) + texts (en, zh, 11 locales) + docs (features.json, build:readme) + unit tests
+   (new test/assistant-suggest.test.mjs in test:all; updates to the panel tests) + full npm test. Checkpoint, commit.
+2. Demo model and browser check (scripts/demo-card-stack.mjs, test/browser-card-stack.mjs step 12, DECIDE_SHOTS) on
+   real dsh, headless, chromiumSandbox true; the four screenshots. Checkpoint, commit.
+3. Review (review-guard loop until no P1/P2; the diff is larger than 100 lines and 3 files), fixes, tests; merge into main
+   only after `gh release view v1.33.0` shows the release.
+
+## Allowed paths
+
+client.js, index.js, locales/*.json, docs/features.json, generated docs (README*.md feature region, llms.txt,
+docs/ROUTES.md), scripts/demo-card-stack.mjs, test/*.mjs, package.json (test:all only), tether/FEATURES.md,
+IMPLEMENTATION_PLAN.md. Screenshots only to the folder above.
+
+## Checks
+
+- `npm test` (all), `node test/assistant-suggest.test.mjs`, `node test/decision-dialog.test.mjs`,
+  `node test/assistant-todos-client.test.mjs`, `node test/assistant-status.test.mjs`.
+- Browser: `PLAYWRIGHT=… DECIDE_SHOTS=<folder> node test/browser-card-stack.mjs <dsh bin>` on the installed test dsh
+  versions under ~/ai-maintenance/dsh-composer-plus/dsh/.
+
+## Risks
+
+- The subagent can take minutes; 15 min wait covers it, else "gelmedi". Not verified: real run time on Furkan's vault.
+- The model can ignore the note (no subagent, no tool): `missed` ends the wait at the turn end.
+- Auto review approval detection reads user messages: "Öneri:" prefix and the block rule keep approval words out. Not
+  verified against the Auto review plugin code (only its tests were read).
+
+## Not verified
+
+- Whether Damon's subagents have memory tools (not needed: Damon passes the memory points in the task).
+- Real model quality of the suggestions (depends on the model; the note sets the viewpoint).
+
+## Last checkpoint
+
+- 2026-11-27 Phase 0 done; design written.
+- 2026-11-27 12:4x Phase 1 done: index.js (askNote for summary and suggest, SUGGEST_SOURCE, STATUS_SUGGEST_NOTE,
+  status_suggestions_set, cleanSuggestions, suggestBlocked, GET suggest/suggestAsked/suggestMissed, no nudge for the
+  suggest turn), client.js (store.askSuggest, sgAsk, suggestionMessage, DecisionDialog row + cards, Kararlar button
+  always shown), 13 languages, docs (features.json, build:readme), tether/FEATURES.md, tests (new
+  test/assistant-suggest.test.mjs in test:all; decision-dialog step 5; assistant-todos-client "nothing waits").
+  Last passing test: `npm test` exit 0.
+- 2026-11-27 12:5x Phase 2 done: scripts/demo-card-stack.mjs (SUGGESTIONS, the suggest note branch, `hold`, the Öneri
+  reply), test/browser-card-stack.mjs step 12 (SUGGEST_SHOTS). PASS on dsh 0.2.2-rc.5:
+  `TMPDIR=~/Library/Caches/cp-suggest-tests PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright SUGGEST_SHOTS=<folder> node test/browser-card-stack.mjs <0.2.2-rc.5 bin.js>`.
+  Screenshots: Damon/Belgeler/Composer Plus/oneri-karti-20261127/oneri-{1-satir,2-yukleniyor,3-kartlar,4-sohbette}.png.
+  The first run (before SUGGEST_SHOTS) also wrote 1-…9-*.png there (the Kararlar step 10-11 pictures and two early
+  suggestion pictures); not deleted (rule: agents delete no file under Damon/Belgeler).
+  Demo text change: a card title that starts with "Canlı deploy" is refused (the CANLI DEPLOY rule at the start of a
+  line); the note now names the exact rule, and the tool result says how many were left out and why.
+- 0.2.0-rc.2 and 0.2.1-rc.2 (~/Documents/testdeepseekharness/work/dsh-0.2.{0,1}-rc.2/node_modules/@deepseek-ai/dsh/lib/bin.js):
+  browser-card-stack PASS on both (steps 1-12), 2026-11-27 13:0x.
+- Review 1 (P1 0, P2 2, P3 6, P4 3), fixed: safety rule takes Auto review's approval forms (onaylı, onaylıdır,
+  onaylıyoruz, onayladım, onay verdim, izin verdim, I approve, approved:), "karar:"/"decision:" anywhere, a Latin word with
+  Cyrillic or Greek letters, "CANLI DEPLOY" only in capitals at a line start (a real "Canlı deploy öncesi…" suggestion
+  passes); raw fields checked before todoText joins the lines; only the first subagent call counts as started and other
+  work keeps the to-do nudge; late → done when cards come later; dead askSummary removed; comments; README Limits
+  sentence (13 files); store wait tests in assistant-todos-client; dialog order test. P2 "older dsh not run" answered
+  by the PASS above. Last passing: `npm test` exit 0 (2026-11-27 13:5x).
+- Review 2 (P1 0, P2 0, P3 4, P4 2), fixed: the mixed-script check needs 3 Latin letters (µs, kΩ, Δt pass; a Cyrillic
+  or Greek letter in "onaylıyorum" is still refused) and the refusal texts name it; the note keeps a reply to the user's
+  own message ("Write nothing in the chat about this note … A reply to the user's own message in this turn stays");
+  agent/status test with mixed summary and suggest markers (completed: one wake; Stop: both markers go, only the
+  suggest request is missed); a long project tag wraps; suggestFold not exported. Open, for Furkan: Tether parity (the
+  2026-11-26 rule "every Damon feature also goes to Tether" vs the earlier "Kararlar desktop only"), written in
+  tether/FEATURES.md. Last passing: `npm test` exit 0 (2026-11-27 14:5x).
+- Review 3 (P1 0, P2 0, P3 3), fixed: suggestFold maps Cyrillic and Greek look-alike letters to Latin before the match
+  ("Каrаr:", "Οnαy verdim", "І approve" blocked again; µs, kΩ, Δt still pass); the tool result keeps a reply to the
+  user ("when this turn has no other reply, reply with only [quiet]"); the docs say that the Gizli rule is an instruction
+  to the model, not a guard (13 `how`, llms, a README Limits sentence that names Protected files). Last passing:
+  `npm test` exit 0 (2026-11-27 15:3x).
+- 2026-11-27 16:0x `gh release view v1.33.0` shows the release (tagName v1.33.0): the merge gate on the release is open.
+- Review 4 (P1 0, P2 0, P3 3), NOT fixed yet (checkpoint at about 150 tool calls; the next chat continues here):
+  1. suggestFold (index.js and client.js, same code): map capital look-alikes before toLocaleLowerCase('tr') (Greek
+     Α Β Ε Ζ Η Ι Κ Μ Ν Ο Ρ Τ Υ Χ, Cyrillic А В Е К М Н О Р С Т У Х І Ј Ѕ Ӏ) and add η/Η → n/H, Ӏ/ӏ → I/l. Blocked-list
+     tests: "ΟΝAY VERDİM", "ΟNAΥ verdim", "ΙΖΙΝ VERDİM", "Ӏ approve", "οηay verdim" (test/assistant-suggest.test.mjs).
+  2. SUGGEST_MIXED (both files): use [\p{Script=Latin}\p{Script=Cyrillic}\p{Script=Greek}] in place of \p{L} for the
+     word and the lookbehind, so Japanese/Chinese text next to "β版" passes. Pass-list tests: "APIのβ版",
+     "TetherのSwiftUI版をβ版としてTestFlightで配布する", "把SDK的β版本发布到TestFlight".
+  3. Docs: "for a hard rule, use Protected files" is wrong (README.md:308: Protected files is a guard rail, not a
+     sandbox; glob, grep over a folder and a subagent's shell can still reach a file). Change the README Limits sentence
+     (13 files) and llms: Protected files narrows dsh's own file tools only (see its limit), so keep that folder outside
+     the assistant folder or use dsh's sandbox modes. Then `npm run build:readme`.
+- 2026-11-27 17:0x (new chat) Review 4 fixed in f53cfa23:
+  1. suggestBlocked (index.js ~13088-13110, client.js ~4200-4215, same code): NFKD, \p{M}, \p{Cf} and
+     \p{Default_Ignorable_Code_Point} out; LOOK_FROM/LOOK_TO (114 pairs: Unicode confusables.txt 18.0.0, each Greek or
+     Cyrillic letter whose prototype is one ASCII letter after NFKD, Ι І Ӏ ӏ as I, plus the old к м т н в κ τ ε) map
+     before toLocaleLowerCase('tr'), so both cases are caught. The hand list is no longer the only source.
+  2. Word = run of [\p{sc=Latn}\p{sc=Grek}\p{sc=Cyrl}] (SUGGEST_MIXED) and \p{sc=Latn} lookarounds (SUGGEST_BLOCKED,
+     SUGGEST_LIVE): "APIのβ版", "把SDK的β版本发布到TestFlight" pass; "APIのβ版をOnaylıyorum", "Onaylıyorumです" are refused.
+     "Karar:x" (no space) is refused too. ponytail: "SDKβ版" (Latin glued to β) is still a mixed word.
+  3. Docs: Protected files is no hard rule (index.js protectedHit 5166-5190 checks only the path argument of read,
+     read_image, grep, write, edit, str_replace_editor: PROTECT_READS/WRITES 5085-5086; probe: `grep {path: "."}`, glob
+     and bash with a Gizli path pass). README Limits sentence in 13 files, features.json llms, build:readme, --check ok.
+  Red check: the new test rows fail on the old code ("ΟΝAY VERDİM"). UI texts did not change (no locales change).
+- Merge of origin/main cd1ff110 (0f4bf39a): conflicts IMPLEMENTATION_PLAN.md (both sections), docs/features.json
+  (this branch's assistantTodos llms + main's "429, 500, 503 or 504"), client.js LANGUAGE_PACKS (build:locales; keys of
+  both sides present) and llms.txt (build:readme). npm test exit 0; browser-card-stack PASS on 0.2.2-rc.5, 0.2.0-rc.2,
+  0.2.1-rc.2.
+- Review 5 (review-guard-5, head 0f4bf39a): P1 0, P2 0, P3 3, P4 3. Fixed: P3-1 Ι І Ӏ ӏ / I for "l" (the folded text
+  reads l and ı as i, so "οηауӏіуогυм", "ONAYIIYORUM" match; CANLI DEPLOY reads l, ı, İ as I); P3-2 ϲ/Ϲ (the pairs run
+  before and after NFKD); P3-3 control characters, NEL and U+2800 (unhide); P4-1 and P4-2 by the wider pair list
+  (confusables.txt latest 2026-08-06: Latin small capitals and IPA, Greek, Cyrillic, Armenian, Cherokee, Lisu, Coptic,
+  colon look-alikes; 406 pairs). P4-3 (a Greek letter glued to a Latin word, "µops") stays: the documented ponytail
+  limit, and the tool result names the rule. Tests red on the old code ("οηауӏіуогυм"). npm test exit 0.
+- Review 6 (review-guard-6, head 8a5759cc): P1 0, P2 0, P3 2, P4 2. Fixed: P3-1 an invisible character between CANLI
+  and DEPLOY (SUGGEST_LIVE `\s*`); P3-2 look-alikes that NFKD or the pairs made lower case (`lookLatin(s, cased)` keeps a
+  capital or small capital as a capital; the live line reads I i l L as one letter: /^\s*CANII\s*DEPIOY/; a scan of each
+  look-alike at each position of "CANLI DEPLOY": 0 misses); P4-1 the colon marks ः ઃ (408 pairs); P4-2 comment and llms
+  say accents go ("Decisión:" counts). Tests red on 8a5759cc ("CANLI⠀DEPLOY"). False-positive scans: /usr/share/dict/words
+  (235976 words) only "decision" (+":"); locales and READMEs (81191 texts) only Karar/Decisión forms. npm test exit 0.
+- Review 7 (review-guard-7, head ce959281): P1 0, P2 1, P3 1, P4 1. Fixed: P2 look-alikes that are lower case by nature
+  (ɑ ո ɣ ⲥ ø ꓒ ɇ þ) in the CANLI DEPLOY line: lookLatin(s, upper) makes every look-alike a capital there (scan of every
+  pair at every position: 0 misses); P3 the line start of SUGGEST_LIVE is [^\S\r\n\u2028\u2029]* (100000 blank lines:
+  4505 ms on the old code, about 2 ms now; test with a 500 ms bound); P4 the ponytail comment and llms name the limit
+  (another script, an astral letter, 1, 0 or |). npm test exit 0. Round 7 had a P2: the loop needs one more round.
+- a596cfcc: test that index.js and client.js have the same rule code lines (red when one copy changes). npm test exit 0;
+  browser-card-stack PASS on 0.2.2-rc.5, 0.2.0-rc.2, 0.2.1-rc.2.
+- Review 8 (review-guard-8, head a596cfcc, with a written threat model: the deny list is best effort, a new look-alike
+  inside the documented limits is P4): P1 0, P2 0, P3 0, P4 1 ("ΔCPU" is a mixed word: the documented limit; no change).
+  CLEAN. Performance: 1M-character inputs linear (max 135 ms), 16 items x 5 fields x 2M characters 593 ms.
+- Open steps: `git fetch`; merge origin/main if it moved (tests again); merge into main (--no-ff), npm test on main, push,
+  CI. No live copy, no release, no npm, no DSH or AIProxy restart. Earlier wording: fix 1-3; `npm test`; review round 5 on `git diff ee06f990..HEAD`; when
+  clean: `git fetch`, merge origin/main into the branch if it moved (the release branch chore/release-1-33-0 is not
+  touched), `npm test`, merge into main, push main. No live copy, no new release, no DSH or AIProxy restart.
+- Tether parity: decided by Damon (2026-11-27): nothing in Tether (no decisions window there); tether/FEATURES.md stays.
+- Last passing: `npm test` exit 0 at 466b8218; browser `TMPDIR=~/Library/Caches/cp-suggest-tests PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-card-stack.mjs <bin.js>`
+  PASS on 0.2.0-rc.2, 0.2.1-rc.2 (~/Documents/testdeepseekharness/work/dsh-0.2.{0,1}-rc.2/node_modules/@deepseek-ai/dsh/lib/bin.js)
+  and 0.2.2-rc.5 (~/ai-maintenance/dsh-composer-plus/dsh/0.2.2-rc.5/node_modules/@deepseek-ai/dsh/lib/bin.js) at f1405ca2
+  (mkdir the TMPDIR folder first; macOS has no `timeout` command).
+
 # Quiet turns: hide the in-between chat rows too (branch fix/hide-quiet-turn-chat-rows, 2026-11-27)
 
 Source: Furkan, Assistant chat, 2026-11-27: "sessiz turda Damon sohbetindeki 'alt ajana verdim' gibi ara satırlar da

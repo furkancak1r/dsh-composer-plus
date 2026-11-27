@@ -2888,7 +2888,21 @@
     "decide.allDone": "Alles erledigt",
     "decide.skipped": "Zurück zu den übersprungenen ({count})",
     "decide.close": "Schließen",
-    "decide.remove": "Löschen"
+    "decide.remove": "Löschen",
+    "suggest.row": "Vorschläge holen",
+    "suggest.rowHint": "{name} liest den Chat, das Gedächtnis und die Projektnotizen und schreibt Vorschläge für alle Projekte aus einer Sicht von außen.",
+    "suggest.again": "Neue Vorschläge holen",
+    "suggest.loading": "{name} bereitet Vorschläge vor: Der Chat, das Gedächtnis und die Projektnotizen werden gelesen. Das kann einige Minuten dauern.",
+    "suggest.late": "Es kamen keine Vorschläge. Versuche es noch einmal.",
+    "suggest.failed": "Vorschläge konnten nicht angefordert werden: {error}",
+    "suggest.title": "Vorschläge",
+    "suggest.when": "Geschrieben: {when}",
+    "suggest.why": "Warum: {why}",
+    "suggest.source": "Quelle: {source}",
+    "suggest.unverified": "nicht geprüft",
+    "suggest.send": "In den Chat senden: {title}",
+    "suggest.sent": "✓ Gesendet",
+    "suggest.message": "Vorschlag: {title} — {text}"
   },
   "common": {
     "ok": "OK",

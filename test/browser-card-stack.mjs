@@ -397,6 +397,61 @@ try {
       assert.match(await peek.locator('[data-decision]').innerText(), /yeni rapor bugün mü gitsin|toplantı yarın mı olsun/);
       await page.keyboard.press('Escape'); await until(async () => (await peek.count()) === 0, 'Esc closes it');
       note('11: a new decision opened the dialog by itself (no backdrop, the focus stayed in the message box, the typed text stayed there); Esc closed it; not again for the same decision; not with a draft, then with an empty box');
+      // 12. Get suggestions (Furkan, 2026-11-27): the row under the cards; a click asks Damon with a hidden note (no chat
+      // message), the row waits with a loading line, Damon's subagent runs, then the cards (the demo's SUGGESTIONS, the
+      // approval one left out); one click sends "Öneri: <title> — <text>" once as the user's message; the chat stays quiet
+      // (no reply card or chat row for the two turns).
+      // SUGGEST_SHOTS=<folder> writes the four pictures of this step.
+      const sgShot = async (name) => {
+        if (!process.env.SUGGEST_SHOTS || index !== 0) return;
+        const path = join(process.env.SUGGEST_SHOTS, `${name}.png`); await page.screenshot({ path }); console.log(`  ${path}`);
+      };
+      await decide.click(); await dlg.waitFor({ timeout: 10000 });
+      const sgRow = dlg.locator('[data-dc="suggest"]');
+      await sgRow.waitFor({ timeout: 5000 });
+      assert.match(await sgRow.innerText(), /Öneri getir/, 'the row');
+      assert.equal(await dlg.evaluate((d) => { const row = d.querySelector('[data-dc="suggest"]'); const cardEl = d.querySelector('[data-decision]'); return cardEl === null || (cardEl.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0; }), true, 'under the decision card');
+      await sgRow.scrollIntoViewIfNeeded(); await page.mouse.move(5, 5); await pause(400); await sgShot('oneri-1-satir');
+      const before12 = calls.length;
+      // The loading line shows while Damon works (the demo's subagent ends at once, so hold the first model call a moment).
+      model.hold = 2500;
+      await sgRow.click();
+      await until(async () => (await dlg.locator('[data-dc-suggest-state="loading"]').count()) === 1, 'the loading line', 5000);
+      assert.match(await dlg.locator('[data-dc-suggest-state="loading"]').innerText(), /Damon öneri hazırlıyor/);
+      assert.equal(await sgRow.getAttribute('aria-disabled'), 'true', 'the row waits');
+      await page.mouse.move(5, 5); await pause(300); await sgShot('oneri-2-yukleniyor');
+      model.hold = 0;
+      const sgCards = dlg.locator('button[data-suggestion]');
+      await until(async () => (await sgCards.count()) === 3, 'the suggestion cards (the approval card left out)', 60000);
+      assert.equal(await dlg.locator('[data-dc-suggest-state="loading"]').count(), 0, 'the loading line goes');
+      assert.match(await sgCards.nth(0).innerText(), /acme-web[\s\S]*Deploy öncesi duman testi[\s\S]*Neden: [\s\S]*Kaynak: Hafıza: acme-web deploy notları/);
+      assert.match(await sgCards.nth(2).innerText(), /doğrulanmadı/, 'the not verified tag');
+      assert.equal(await dlg.getByText('Onaylıyorum: acme-web canlıya alınsın').count(), 0, 'an approval never shows as a card');
+      assert.equal(calls.slice(before12).some((c) => c.mine && /^Öneri getir|Get suggestions/.test(c.newest)), false, 'the click sent no chat message');
+      await sgCards.nth(0).scrollIntoViewIfNeeded(); await page.mouse.move(5, 5); await pause(400); await sgShot('oneri-3-kartlar');
+      const before12b = calls.length;
+      await pause(500); await sgCards.nth(0).click(); await sgCards.nth(0).click({ timeout: 300 }).catch(() => {});
+      const want12 = 'Öneri: Deploy öncesi duman testi — Deploy betiği canlıya geçmeden önce giriş sayfasını ve ödeme adımını açsın. Biri açılmazsa deploy dursun.';
+      await until(() => calls.slice(before12b).some((c) => c.newest === want12), 'the model got the suggestion as the user\'s message');
+      await pause(1200);
+      assert.equal(calls.slice(before12b).filter((c) => c.newest === want12 && c.step === 0).length, 1, 'one message for one card');
+      await until(async () => /✓ Gönderildi/.test(await sgCards.nth(0).innerText()), 'the card says sent');
+      assert.equal(await sgCards.nth(0).getAttribute('aria-disabled'), 'true');
+      await page.keyboard.press('Escape'); await until(async () => (await dlg.count()) === 0, 'Esc closes it');
+      // The chat: the suggestion is the user's message; the two quiet turns of the request left no row.
+      const chat = page.locator(`[data-conversation-session="${sessionId}"]`);
+      await until(async () => (await chat.getByText(want12).count()) >= 1, 'the chat shows the suggestion as the user\'s message', 15000);
+      await until(async () => (await chat.getByText('Bu öneriyi planlıyorum.').count()) >= 1, 'and the reply', 15000);
+      // The request turns (the note, the subagent, the cards, [quiet]) left no visible row: between the message before the
+      // click and the suggestion, nothing shows.
+      const between = await page.evaluate(([id, before, after]) => {
+        const rows = [...document.querySelectorAll(`[data-conversation-session="${id}"] [data-chat-node-key]`)].filter((r) => r.getBoundingClientRect().height > 0);
+        const a = rows.findLastIndex((r) => r.textContent.includes(before)); const b = rows.findIndex((r) => r.textContent.includes(after));
+        return a < 0 || b < 0 ? `not found (${a}, ${b})` : rows.slice(a + 1, b).map((r) => r.textContent.trim().slice(0, 80));
+      }, [sessionId, `DEMO-DECISION-NEW ${NEW2}`, want12]);
+      assert.deepEqual(between, [], 'the request turns left no visible chat row');
+      await chat.getByText(want12).last().scrollIntoViewIfNeeded(); await page.mouse.move(5, 5); await pause(500); await sgShot('oneri-4-sohbette');
+      note('12: Get suggestions: the row under the cards, a loading line while Damon works, the cards (the approval one left out, "doğrulanmadı" tag); one click sent "Öneri: … — …" once as the user\'s message; the request turns stayed quiet');
       assert.deepEqual(errors, [], 'no page errors');
       passed = true; console.log(`PASS dsh ${version}`);
     } finally {

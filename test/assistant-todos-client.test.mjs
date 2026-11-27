@@ -31,6 +31,8 @@ const posts = []; const gets = []; let gate = null; let failNext = null; let dis
 // Refresh's summary request: the Host's open request time (`asked`), a refused request, a read that fails.
 let askedAt = null; let askFail = null; let missed = false; let readFail = null; let askGate = null;
 let outage; // the Host's `outage` (Resume after an AIProxy outage): {at, chats: [{id, title}]}
+// Get suggestions (Kararlar): the Host's cards, its open request (`suggestAsked`, `suggestMissed`) and a refused request.
+let suggestCards; let sgAskedAt = null; let sgMissed = false; let sgFail = null;
 globalThis.fetch = async (url, init) => {
   const u = String(url);
   if (u === '/api/composer-plus.assistant-status') return Response.json({ sessionId: 's-assistant' });
@@ -38,6 +40,10 @@ globalThis.fetch = async (url, init) => {
     if (init?.method === 'POST') {
       const body = JSON.parse(init.body); posts.push(body);
       if ('on' in body) { switchOn = body.on; return Response.json({ on: switchOn }); }
+      if (body.action === 'suggest') {
+        if (sgFail) return Response.json({ error: sgFail }, { status: 502 });
+        sgAskedAt ??= Date.now(); return Response.json({ asked: sgAskedAt });
+      }
       if (body.action === 'summary') {
         if (askGate) await askGate;
         if (askFail) return Response.json({ error: askFail }, { status: 502 });
@@ -56,7 +62,8 @@ globalThis.fetch = async (url, init) => {
     if (q.get('project') !== null) return Response.json({ project: q.get('project'), branch: 'feature/x', commits: [{ hash: 'abc1234', at: NOW - 3600000, subject: 'Fix login' }] });
     if (readFail) return Response.json({ error: readFail }, { status: 500 });
     return Response.json(q.get('sessionId') === null ? { on: switchOn } : { on: switchOn, items: switchOn ? items : [], tasks, projects, summary, outage, at: NOW,
-      ...(askedAt === null ? {} : { asked: askedAt, ...(missed ? { missed: true } : {}) }) });
+      ...(askedAt === null ? {} : { asked: askedAt, ...(missed ? { missed: true } : {}) }),
+      ...(suggestCards === undefined ? {} : { suggest: suggestCards }), ...(sgAskedAt === null ? {} : { suggestAsked: sgAskedAt, ...(sgMissed ? { suggestMissed: true } : {}) }) });
   }
   return new Response('{}', { status: 404 });
 };
@@ -542,11 +549,15 @@ const groupBtn = (tr, g) => find(tr, (n) => n.t === 'button' && n.p['data-group'
   assert.equal(text(find(tr, (n) => n.p?.['data-decide-error'] !== undefined)[0]), 'decide.failed', 'the reason shows in the panel');
   rt.clear(); tr = panel();
   assert.equal(text(find(tr, (n) => n.p?.['data-decide-error'] !== undefined)[0]), 'decide.failed', 'a new panel of the chat still shows it (kept per chat)');
-  // Nothing waits: one line says so. The dialog that was open closes: the button is gone, so the focus goes to the
-  // panel's title (not to the page).
+  // Nothing waits: the button stays and says so (Furkan, 2026-11-27: its dialog has the Get suggestions row). When the
+  // button is not in the page (another place drew the panel), a closed dialog gives the focus to the panel's title.
   decideBtn(tr).p.onClick(); tr = panel(); dialogOf(tr).p.setDecide((d) => ({ ...d, error: null })); tr = panel();
   items = items.filter((i) => i.owner !== 'user' || /^(Senden|Sorun):/.test(i.text)); await panelProps.store.load('s-assistant'); tr = panel();
-  assert.equal(decideBtn(tr), undefined); assert.equal(text(find(tr, (n) => n.p?.['data-decide-none'] !== undefined)[0]), 'decide.none');
+  {
+    const b = decideBtn(tr); assert.ok(b, 'the Kararlar button stays when nothing waits');
+    assert.equal(b.p['data-decide-none'], '', 'marked: nothing waits'); assert.equal(b.p['aria-label'], 'decide.title: decide.none');
+    assert.match(text(b), /decide\.title\s+decide\.none/); assert.equal(find(b, (n) => n.p?.['data-decide-count'] !== undefined).length, 0, 'no badge');
+  }
   const byId = globalThis.document.getElementById;
   globalThis.document.getElementById = (id) => (id === 'cp-td-s-assistant-decide' ? null : byId(id));
   dialogOf(tr).p.onClose(); await new Promise((r) => setTimeout(r, 5)); globalThis.document.getElementById = byId;
@@ -1203,6 +1214,51 @@ assert.equal(gets.length - reads, 1, 'a burst is merged into one read');
   assert.match(css, /prefers-reduced-motion:reduce[^@]*\.cp-st-spin\{display:none\}/);
   assert.match(css, /\.cp-st-time\[data-refreshing="true"\]\{[^}]*color:var\(--dsw-alias-state-business-primary\)/);
   summary = { at: NOW, projects: [{ project: 'acme-web', text: 'Login page done.' }] }; items = []; await store.load('s-assistant');
+}
+// Get suggestions (the Kararlar dialog, 2026-11-27): askSuggest waits like Get summary: one request at a time, the cards
+// end it (also after it went late), a missed turn or a forgotten request ends it late, a refused request says why.
+{
+  const sg = () => store.of('s-assistant').sgAsk;
+  const p0 = posts.length;
+  assert.equal(await store.askSuggest('s-assistant'), true);
+  assert.deepEqual(posts.slice(p0), [{ sessionId: 's-assistant', action: 'suggest' }], 'one POST with action suggest');
+  assert.equal(sg().state, 'waiting'); assert.equal(sg().asked, sgAskedAt);
+  assert.equal(await store.askSuggest('s-assistant'), false, 'a second ask while it waits does nothing'); assert.equal(posts.length, p0 + 1);
+  await store.load('s-assistant'); assert.equal(sg().state, 'waiting', 'the Host still has the request: it waits');
+  // The cards come: done, and the store keeps them.
+  suggestCards = { at: sgAskedAt + 1, items: [{ title: 'A', text: 'B', why: 'C', source: 'D' }] }; sgAskedAt = null;
+  await store.load('s-assistant'); assert.equal(sg().state, 'done'); assert.deepEqual(store.of('s-assistant').suggest, suggestCards);
+  // A missed turn: late at once; cards that come later end it (done), as Get summary's late summary does.
+  await new Promise((r) => setTimeout(r, 5)); await store.askSuggest('s-assistant'); sgMissed = true; await store.load('s-assistant'); sgMissed = false;
+  assert.equal(sg().state, 'late', 'a turn without the cards ends the wait');
+  suggestCards = { at: sgAskedAt + 1, items: [{ title: 'A2', text: 'B', why: 'C', source: 'D' }] }; sgAskedAt = null;
+  await store.load('s-assistant'); assert.equal(sg().state, 'done', 'late cards still end it');
+  // The Host forgets the request (its time limit, a dsh restart): late.
+  await new Promise((r) => setTimeout(r, 5)); await store.askSuggest('s-assistant'); sgAskedAt = null; await store.load('s-assistant');
+  assert.equal(sg().state, 'late', 'no open request on the Host: late');
+  // A read that started before the request does not end it (its answer has no request yet).
+  {
+    await new Promise((r) => setTimeout(r, 5)); let hold; const realFetch = globalThis.fetch;
+    globalThis.fetch = async (url, init) => { if (init === undefined) await new Promise((r) => { hold = r; }); return realFetch(url, init); };
+    const early = store.load('s-assistant'); await tick(); globalThis.fetch = realFetch;
+    await store.askSuggest('s-assistant'); const keep = sgAskedAt; sgAskedAt = null; hold(); await early;
+    assert.equal(sg().state, 'waiting', 'an older read does not end the wait'); sgAskedAt = keep;
+  }
+  // The 15-minute timer: late.
+  {
+    sgAskedAt = null; const realTimeout = globalThis.setTimeout;
+    await new Promise((r) => setTimeout(r, 5)); await store.load('s-assistant'); // the open request above ends (no request on the Host now)
+    globalThis.setTimeout = (fn, ms, ...rest) => realTimeout(fn, ms === 15 * 60000 ? 30 : ms, ...rest);
+    try { await store.askSuggest('s-assistant'); } finally { globalThis.setTimeout = realTimeout; }
+    await new Promise((r) => setTimeout(r, 60)); assert.equal(sg().state, 'late', 'no cards in 15 minutes: late');
+    sgAskedAt = null;
+  }
+  // A refused request: error with the reason.
+  sgFail = 'the assistant chat is not available'; await store.askSuggest('s-assistant'); sgFail = null;
+  assert.deepEqual({ ...sg() }, { state: 'error', error: 'the assistant chat is not available' });
+  // stop() ends an open request (switched on again, the dialog does not wait).
+  await store.askSuggest('s-assistant'); assert.equal(sg().state, 'waiting'); store.stop(); assert.equal(sg(), null, 'stop ends it'); sgAskedAt = null;
+  suggestCards = undefined; await store.load('s-assistant'); assert.equal(store.of('s-assistant').suggest, null);
 }
 // Collapse: the chat gives its room back.
 tree = panel(); find(tree, (n) => n.t === 'button' && n.p['aria-expanded'] === true && n.p.className === 'cp-td-head')[0].p.onClick();

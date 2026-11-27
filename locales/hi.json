@@ -2888,7 +2888,21 @@
     "decide.allDone": "सब पूरा",
     "decide.skipped": "छोड़े गए पर वापस जाएँ ({count})",
     "decide.close": "बंद करें",
-    "decide.remove": "हटाएं"
+    "decide.remove": "हटाएं",
+    "suggest.row": "सुझाव लाएं",
+    "suggest.rowHint": "{name} चैट, मेमोरी और प्रोजेक्ट नोट्स पढ़ता है और बाहर की नज़र से सभी प्रोजेक्ट के लिए सुझाव लिखता है।",
+    "suggest.again": "नए सुझाव लाएं",
+    "suggest.loading": "{name} सुझाव तैयार कर रहा है: चैट, मेमोरी और प्रोजेक्ट नोट्स पढ़ रहा है। इसमें कुछ मिनट लग सकते हैं।",
+    "suggest.late": "सुझाव नहीं आए। फिर से कोशिश करें।",
+    "suggest.failed": "सुझाव माँगे नहीं जा सके: {error}",
+    "suggest.title": "सुझाव",
+    "suggest.when": "लिखा गया: {when}",
+    "suggest.why": "कारण: {why}",
+    "suggest.source": "स्रोत: {source}",
+    "suggest.unverified": "सत्यापित नहीं",
+    "suggest.send": "चैट में भेजें: {title}",
+    "suggest.sent": "✓ भेज दिया",
+    "suggest.message": "सुझाव: {title} — {text}"
   },
   "common": {
     "ok": "ठीक है",

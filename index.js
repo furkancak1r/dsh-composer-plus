@@ -10248,7 +10248,7 @@ export const ASSISTANT_FREE_PATH = '/api/composer-plus.assistant-free';
 export const ASSISTANT_NOTIFY_PATH = '/api/composer-plus.assistant-notify';
 export const ASSISTANT_TOOLS = ['chats_list', 'chat_read', 'chat_send', 'chat_new', 'chat_stop', 'chat_archive'];
 /** The tools of Assistant to-do list (installAssistantTodos): also only in the assistant chat. */
-export const TODO_TOOLS = ['todo_list_add', 'todo_list_remove', 'status_summary_set'];
+export const TODO_TOOLS = ['todo_list_add', 'todo_list_remove', 'status_summary_set', 'status_suggestions_set'];
 /** The tools that change a chat: each call asks the user first (in the Auto permission mode, Auto review decides). */
 export const ASSISTANT_ASK = ['chat_send', 'chat_new', 'chat_stop', 'chat_archive'];
 /** The narrowest permission preset that does the work: files only inside ~/Assistant, approval asks. */
@@ -11529,7 +11529,7 @@ export const ASSISTANT_FREE_TOOLS = [...ASSISTANT_TOOLS, ...TODO_TOOLS, 'subagen
  * by its own name. */
 export const assistantFreeTool = (name) => ASSISTANT_FREE_TOOLS.includes(name) || /^(schedule|job|memory)_/.test(String(name));
 export const ASSISTANT_FREE_SECTION = `# Assistant always free (Composer Plus)
-In this chat you call only these tools yourself: chats_list, chat_read, chat_send, chat_new, chat_stop, chat_archive, todo_list_add, todo_list_remove, status_summary_set, the schedule_*, job_* and memory_* tools, subagent, subagent_fork, send_message, list_agents, interrupt_agent (when this chat has it), list_subagent_models and ask_user_question. Any other call is refused. This rule comes before the lines above: for every other step (a web search, a web page, a file, a command), start a subagent in the background and end your turn: for a small task (one subagent finishes it, and it needs no step or approval from the user), reply with only \`[quiet]\` (an Auto review denial, a step of the user, or a live error or risk still gets its one line); for other work, say in one line what you started. Project work (a code or configuration change in a project's git repository) goes to chat_new with branch true, not to a subagent.`;
+In this chat you call only these tools yourself: chats_list, chat_read, chat_send, chat_new, chat_stop, chat_archive, todo_list_add, todo_list_remove, status_summary_set, status_suggestions_set, the schedule_*, job_* and memory_* tools, subagent, subagent_fork, send_message, list_agents, interrupt_agent (when this chat has it), list_subagent_models and ask_user_question. Any other call is refused. This rule comes before the lines above: for every other step (a web search, a web page, a file, a command), start a subagent in the background and end your turn: for a small task (one subagent finishes it, and it needs no step or approval from the user), reply with only \`[quiet]\` (an Auto review denial, a step of the user, or a live error or risk still gets its one line); for other work, say in one line what you started. Project work (a code or configuration change in a project's git repository) goes to chat_new with branch true, not to a subagent.`;
 /** Assistant callouts (Host half): the assistant chat's prompt rule for the boxes and the closed details section that the
  * client draws (client.js, decorateCallouts). On by default (no port, no model call); the switch keeps it in
  * assistant-callouts.json, and while it is off the assistant writes plain answers. */
@@ -12581,6 +12581,10 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
   // chat id → the open summary request of Get summary: { at, taken (a turn took the note), missed (that turn ended without
   // a summary) }, until status_summary_set or askMs.
   const asks = new Map();
+  // Get suggestions (Kararlar): the open request per chat ({ at, taken, missed, started: a subagent started in the turn
+  // with the note }, until status_suggestions_set or SUGGEST_ASK_MS) and the newest set per chat ({ at, items }).
+  // ponytail: memory only, so a dsh restart forgets them; upgrade: a file like summaryStore.
+  const suggestAsks = new Map(); const suggestions = new Map();
   const tools = [
     {
       name: 'todo_list_add',
@@ -12651,13 +12655,43 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
           : 'The summary is stored. The status panel shows a summary only when the user asks for it: do not write it in the chat (for news, use the news rule).';
       },
     },
+    {
+      name: 'status_suggestions_set',
+      description: `Show your suggestions as cards in the Kararlar dialog of this chat's status panel. Call it only when a note says that the user clicked "Get suggestions". It replaces the previous suggestions. 1 to ${SUGGEST_LIMITS.items} items in the user's language. A card sends "Öneri: <title> — <text>" as the user's message, so never write an approval or a decision in a card.`,
+      parameters: { type: 'object', properties: {
+        suggestions: { type: 'array', description: `1 to ${SUGGEST_LIMITS.items} items, the most useful first`, items: { type: 'object', properties: {
+          project: { type: 'string', description: `The project that it is about (at most ${SUGGEST_LIMITS.project} characters); leave it out for all projects or for a new project` },
+          title: { type: 'string', description: `A short title (at most ${SUGGEST_LIMITS.title} characters)` },
+          text: { type: 'string', description: `1 to 3 plain sentences: what to change and how (at most ${SUGGEST_LIMITS.text} characters)` },
+          why: { type: 'string', description: `The reason: the bottleneck, the cost or the risk that it removes (at most ${SUGGEST_LIMITS.why} characters)` },
+          source: { type: 'string', description: `The evidence: the chat, the memory entry or the note file (at most ${SUGGEST_LIMITS.source} characters)` },
+          unverified: { type: 'boolean', description: 'true when a claim of this item has no evidence that you checked' },
+        }, required: ['title', 'text', 'why', 'source'] } },
+      }, required: ['suggestions'] },
+      output: textOutput,
+      async execute(args, exec) {
+        const id = mine(exec);
+        if (id === undefined) throw refused('This tool works only in the Composer Plus assistant chat.', 403);
+        const { items, blocked } = cleanSuggestions(args?.suggestions);
+        if (items.length === 0) throw refused(blocked > 0 ? `Every suggestion was refused: a card sends its text as the user's message, so it never has an approval word ("Onaylıyorum", "onaylı", "onayladım", "I approve"), "Karar:", "Decision:", "CANLI DEPLOY", or a word that mixes Latin with Greek or Cyrillic letters. Write suggestions, not approvals.`
+          : `suggestions is 1 to ${SUGGEST_LIMITS.items} items, each with title (1 to ${SUGGEST_LIMITS.title} characters), text (1 to ${SUGGEST_LIMITS.text}), why (1 to ${SUGGEST_LIMITS.why}) and source (1 to ${SUGGEST_LIMITS.source}); project at most ${SUGGEST_LIMITS.project}.`, 400);
+        suggestions.set(id, { at: now(), items });
+        suggestAsks.delete(id); // the request got its suggestions
+        return `The Kararlar dialog shows ${items.length} suggestion cards${blocked > 0 ? ` (${blocked} left out: an approval word, "Karar:", "Decision:", "CANLI DEPLOY", or a word that mixes Latin with Greek or Cyrillic letters; write it again in other words if it is a suggestion)` : ''}. Write nothing in the chat about the suggestions: when this turn has no other reply, reply with only \`[quiet]\`.`;
+      },
+    },
   ];
   const mount = assistant.addTools(() => (on ? tools : []));
   /** Get summary asks the assistant for a new summary: a hidden note at its next step (a running turn takes it at once, an
    * idle chat gets a turn of its own; the user's queued messages wait, wakeWithContinue). One open request per chat: a
    * second click (another window) in the next askMs gets the same request time. The panel waits for a summary that is not
    * older than that time. */
-  const askSummary = async (sessionId) => {
+  // Get summary and Get suggestions: the same hidden-note path, each with its open requests, its time limit and its note.
+  const NOTES = { [SUMMARY_SOURCE]: { asks, ms: STATUS_LIMITS.askMs, note: summaryMessage }, [SUGGEST_SOURCE]: { asks: suggestAsks, ms: SUGGEST_ASK_MS, note: suggestMessage } };
+  // A marker or a note that a step already made (the suggestions note keeps the summary note's kind: its text tells them apart).
+  const noteKind = (m) => (m?.source?.kind === SUGGEST_SOURCE || (m?.source?.kind === SUMMARY_SOURCE && m.content?.[0]?.text === STATUS_SUGGEST_NOTE) ? SUGGEST_SOURCE
+    : m?.source?.kind === SUMMARY_SOURCE ? SUMMARY_SOURCE : undefined);
+  const askNote = async (sessionId, kind) => {
     let agent = get('agents')?.get?.(sessionId);
     if (agent === undefined) {
       const found = await ctx.sessionController.resolveAgent(sessionId);
@@ -12665,39 +12699,42 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
       agent = found.agent;
     }
     if (!assistant.isAssistant(agent)) return undefined;
-    const open = asks.get(sessionId);
-    if (open !== undefined && !open.missed && now() - open.at < STATUS_LIMITS.askMs) return open.at;
-    const at = now(); asks.set(sessionId, { at, taken: false, missed: false });
+    const { asks: open, ms } = NOTES[kind];
+    const was = open.get(sessionId);
+    if (was !== undefined && !was.missed && now() - was.at < ms) return was.at;
+    const at = now(); open.set(sessionId, { at, taken: false, missed: false, started: false });
     try {
-      if (agent.status === 'running') agent.steer({ id: randomUUID(), role: 'user', content: [], source: { kind: SUMMARY_SOURCE } });
-      else wakeWithContinue(agent, SUMMARY_SOURCE);
-    } catch (error) { asks.delete(sessionId); throw error; }
+      if (agent.status === 'running') agent.steer({ id: randomUUID(), role: 'user', content: [], source: { kind } });
+      else wakeWithContinue(agent, kind);
+    } catch (error) { open.delete(sessionId); throw error; }
     return at;
   };
-  // The wake markers become one summary note (dsh logs it as a hidden message, not as a chat bubble). Switched off, they go
-  // without a note (the tool is gone).
+  // The wake markers become one note of each kind (dsh logs it as a hidden message, not as a chat bubble). Switched off,
+  // they go without a note (the tools are gone).
   ctx.on('agent/pre-step', async (payload, next) => {
     const decision = await next();
-    if (decision?.kind !== 'enter' || !Array.isArray(decision.messages) || !decision.messages.some((m) => m?.source?.kind === SUMMARY_SOURCE)) return decision;
-    const first = on ? decision.messages.findIndex((m) => m?.source?.kind === SUMMARY_SOURCE) : -1;
-    const ask = asks.get(payload?.agent?.id); if (ask !== undefined && on) ask.taken = true;
-    return { ...decision, messages: decision.messages.flatMap((m, i) => (m?.source?.kind !== SUMMARY_SOURCE ? [m] : i === first ? [summaryMessage()] : [])) };
+    if (decision?.kind !== 'enter' || !Array.isArray(decision.messages) || !decision.messages.some(noteKind)) return decision;
+    const first = new Map();
+    if (on) decision.messages.forEach((m, i) => { const k = noteKind(m); if (k !== undefined && !first.has(k)) first.set(k, i); });
+    for (const k of first.keys()) { const ask = NOTES[k].asks.get(payload?.agent?.id); if (ask !== undefined) ask.taken = true; }
+    return { ...decision, messages: decision.messages.flatMap((m, i) => { const k = noteKind(m); return k === undefined ? [m] : first.get(k) === i ? [NOTES[k].note()] : []; }) };
   }, true);
   // A steer that came after the running turn's last inbox check waits with no turn: wake the chat for it when the turn
-  // completed. After your Stop or an error, the note goes and the request is missed (no new turn that you did not ask for).
+  // completed (one turn takes every waiting marker). After your Stop or an error, the note goes and the request is missed
+  // (no new turn that you did not ask for).
   const lastEnd = new Map(); // chat id → reason kind of its last turn end
   ctx.on('agent/status', ({ agent, status } = {}) => {
-    if (status === 'running' || !asks.has(agent?.id)) return;
+    if (status === 'running' || !Object.values(NOTES).some((n) => n.asks.has(agent?.id))) return;
     queueMicrotask(() => {
-      const markers = agent.status === 'idle' ? (agent.inbox?.nextStep ?? []).filter?.((m) => m?.source?.kind === SUMMARY_SOURCE) ?? [] : [];
+      const markers = agent.status === 'idle' ? (agent.inbox?.nextStep ?? []).filter?.(noteKind) ?? [] : [];
       if (markers.length === 0) return;
       const end = lastEnd.get(agent.id);
       if (on && (end === 'completed' || end === 'max-tokens')) {
-        try { wakeWithContinue(agent, SUMMARY_SOURCE); } catch (error) { ctx.logger?.warn?.(`dsh-composer-plus: the summary request waits: ${String(error?.message ?? error).slice(0, 300)}`); }
+        try { wakeWithContinue(agent, noteKind(markers[0])); } catch (error) { ctx.logger?.warn?.(`dsh-composer-plus: the panel's request waits: ${String(error?.message ?? error).slice(0, 300)}`); }
         return;
       }
       for (const m of markers) { try { agent.inbox.remove(m.id); } catch { /* it went meanwhile */ } }
-      const ask = asks.get(agent.id); if (ask !== undefined) ask.missed = true;
+      for (const m of markers) { const ask = NOTES[noteKind(m)].asks.get(agent.id); if (ask !== undefined) ask.missed = true; }
     });
   });
   // The to-do nudge: a turn of the assistant that started work without a list change (TODO_WORK_TOOLS).
@@ -12717,12 +12754,19 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
     if (event?.type === 'turn/start') turns.set(id, { work: false, changed: false });
     else if (event?.type === 'tool/call' && turns.has(id)) {
       const turn = turns.get(id);
-      if (TODO_WORK_TOOLS.has(event.data?.name)) turn.work = true;
+      // The turn with the Get suggestions note starts one subagent that reads the notes: the request waits for its result,
+      // and that subagent gets no to-do item (the note asks for none). Other work in the same turn still counts.
+      const sg = suggestAsks.get(id);
+      if (event.data?.name === 'subagent' && sg?.taken && !sg.started) sg.started = true;
+      else if (TODO_WORK_TOOLS.has(event.data?.name)) turn.work = true;
       // A task dismiss (todo_list_remove with task) changes no item.
       if (TODO_CHANGE_TOOLS.has(event.data?.name) && todoText(argsOf(event.data?.arguments)?.task) === '') { turn.changed = true; nudged.delete(id); }
     } else if (event?.type === 'turn/end') {
       const turn = turns.get(id); turns.delete(id); lastEnd.set(id, event.data?.reason?.kind);
       const ask = asks.get(id); if (ask?.taken) ask.missed = true; // the turn with the note ended without a summary
+      // The Get suggestions note: a turn that started the subagent waits for its result (a later turn sets the cards);
+      // a turn without the subagent and without the cards missed it.
+      const sg = suggestAsks.get(id); if (sg?.taken) { if (sg.started) sg.taken = false; else sg.missed = true; }
       // Once: the next turn end takes it away (or sets it again for that turn).
       if (on && turn?.work && !turn.changed) nudged.add(id); else nudged.delete(id);
     }
@@ -12738,7 +12782,7 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
         sub.systemPrompt.context?.({ name: 'composer-plus:assistant-todos', order: 650, interpolate: false,
           text: (context) => (on && assistant.isAssistant(context?.agent) ? [todoContext(todoShown(context.agent.id)), nudged.has(context.agent.id) ? TODO_NUDGE : ''].filter(Boolean).join('\n\n') : '') });
       });
-    } else if (!on) { fiber?.dispose?.(); fiber = undefined; asks.clear(); shown.clear(); }
+    } else if (!on) { fiber?.dispose?.(); fiber = undefined; asks.clear(); suggestAsks.clear(); suggestions.clear(); shown.clear(); }
     mount.remount();
   };
   const ready = Promise.all([store.ready, summaries.ready, sw.read(), dismissed.ready]).then(([, , value]) => apply(value), () => apply(true));
@@ -12896,8 +12940,14 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
     const ask = asks.get(sessionId);
     if (ask !== undefined && now() - ask.at >= STATUS_LIMITS.askMs) asks.delete(sessionId);
     const asked = asks.get(sessionId);
+    // Get suggestions: the newest cards, and an open request (`suggestAsked`, `suggestMissed`) as for Get summary.
+    const suggest = suggestions.get(sessionId);
+    const sg = suggestAsks.get(sessionId);
+    if (sg !== undefined && now() - sg.at >= SUGGEST_ASK_MS) suggestAsks.delete(sessionId);
+    const suggestAsked = suggestAsks.get(sessionId);
     return { tasks, projects, ...(summary === undefined ? {} : { summary }), ...(resumed !== undefined && resumed.at >= today.getTime() ? { outage: resumed } : {}),
-      ...(asked === undefined ? {} : { asked: asked.at, ...(asked.missed ? { missed: true } : {}) }), at: now() };
+      ...(asked === undefined ? {} : { asked: asked.at, ...(asked.missed ? { missed: true } : {}) }),
+      ...(suggest === undefined ? {} : { suggest }), ...(suggestAsked === undefined ? {} : { suggestAsked: suggestAsked.at, ...(suggestAsked.missed ? { suggestMissed: true } : {}) }), at: now() };
   };
   /** The subagent tasks' result lines in the UI language `lang` (the subagents write English; the user reads the panel).
    * The lines that are not in the cache go to one model call (dsh's default model, no tools) in the background, so the
@@ -12963,11 +13013,12 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
         return json(view());
       }
       const { sessionId, id, action } = plainObject(body) ? body : {};
-      // Get summary: ask the assistant for a new summary; `{asked}` is the request time (the panel waits for a newer summary).
-      if (plainObject(body) && Object.keys(body).sort().join() === 'action,sessionId' && action === 'summary' && isText(sessionId, 128)) {
+      // Get summary (`summary`) and Get suggestions (`suggest`): ask the assistant with a hidden note; `{asked}` is the
+      // request time (the panel waits for a newer summary or newer suggestions).
+      if (plainObject(body) && Object.keys(body).sort().join() === 'action,sessionId' && (action === 'summary' || action === 'suggest') && isText(sessionId, 128)) {
         if (!on) return json({ error: 'The to-do list is off' }, 409);
         let asked;
-        try { asked = await askSummary(sessionId); } catch (error) { return json({ error: String(error?.message ?? error) }, 502); }
+        try { asked = await askNote(sessionId, action === 'summary' ? SUMMARY_SOURCE : SUGGEST_SOURCE); } catch (error) { return json({ error: String(error?.message ?? error) }, 502); }
         return asked === undefined ? json({ error: 'not found' }, 404) : json({ asked });
       }
       // × of a task card: `task` is the card's key "<task id>|<end time>"; every reader of this chat leaves the card out.
@@ -13092,6 +13143,76 @@ const SUMMARY_SOURCE = 'composer-plus-status-summary';
 export const STATUS_SUMMARY_NOTE = '[Composer Plus → Status panel] The user clicked "Get summary" in the status panel. Call status_summary_set now with a new summary of the projects (1 or 2 sentences each: what changed and what is next). Use what you know and chats_list. Do not start new work for this note. When a task runs in this turn, continue it after the call. In the chat, write nothing about this note, or at most one short sentence.';
 const summaryMessage = () => Object.freeze({ id: randomUUID(), role: 'user', content: Object.freeze([Object.freeze({ type: 'text', text: STATUS_SUMMARY_NOTE })]),
   source: Object.freeze({ kind: SUMMARY_SOURCE, form: 'snapshot' }) });
+/** "Get suggestions" in the Kararlar dialog (Furkan, 2026-11-27: a "third eye" that looks from outside): the same hidden
+ * note path as Get summary. Its marker has its own kind; the note keeps the summary note's kind, so the readers of hidden
+ * notes (DAMON_PROMPTS, Tether's damonPrompts) need no change. The answer is status_suggestions_set (cards in the dialog). */
+const SUGGEST_SOURCE = 'composer-plus-status-suggest';
+export const SUGGEST_ASK_MS = 15 * 60000; // the subagent reads the notes: minutes, not seconds
+export const SUGGEST_LIMITS = { items: 8, project: 120, title: 120, text: 600, why: 300, source: 200 };
+export const STATUS_SUGGEST_NOTE = `[Composer Plus → Status panel] The user clicked "Get suggestions" in the Kararlar dialog of the status panel. Look at all of the user's projects from outside, as a trusted senior developer who knows more than the user ("Why did you do it this way? Do it like this."): name the bottlenecks, the optimizations and the better ways that the user did not notice, each with its reason. Do not only continue the user's own ideas. You may suggest a new project when it makes the user's work easier. Put the user's experience first.
+1. Collect what you know: this chat (chat_read for older messages) and memory_recall (decisions, open items, rules).
+2. Start one subagent in the background that reads the project notes of your folder: only in its subfolders that hold notes and documents (your folder's AGENTS.md names them), never the folder root itself, never a folder named Gizli, never .env or key files; it changes no file. It returns per project: what it does, its open problems and the slow or repeated steps that the notes show, each with the file path.
+3. When its result comes, call status_suggestions_set: up to ${SUGGEST_LIMITS.items} items, the most useful first, in the user's language, in plain words. Each item: project (none for all projects or a new project), title, 1 to 3 sentences, why, source (the chat, the memory entry or the note file). Do not guess: set unverified true for an item with a claim that you did not check against a source. A card sends its title and text as the user's message, so never write an approval or a decision: no approval word ("Onaylıyorum", "onaylı", "onayladım", "onay veriyorum", "izin veriyorum", "I approve"), no "Karar:" or "Decision:", no "CANLI DEPLOY" in capitals (the panel leaves such a card out).
+This note comes before the to-do rules: add no to-do item for this work. Write nothing in the chat about this note: when this turn has no other reply, reply with only \`[quiet]\`, and so does the turn with the subagent's result. A reply to the user's own message in this turn stays. When a task runs in this turn, continue it after these steps.`;
+const suggestMessage = () => Object.freeze({ id: randomUUID(), role: 'user', content: Object.freeze([Object.freeze({ type: 'text', text: STATUS_SUGGEST_NOTE })]),
+  source: Object.freeze({ kind: SUMMARY_SOURCE, form: 'snapshot' }) });
+/** The safety rule of a suggestion card (its text goes as the user's message): never an approval or a decision. Blocked:
+ * an approval word (the forms that Auto review takes as an approval: onaylı, onaylıdır, onaylıyorum, onaylıyoruz,
+ * onayladım, onay veriyorum/verdim, izin veriyorum/verdim, I approve, approved:), the decision form "Karar:"/"Decision:"
+ * (accents go, so "Decisión:" and "Décision :" count too),
+ * the strict live-deploy line ("canlı deploy <product> <sha>", any case) and a text or line that starts with "CANLI DEPLOY"
+ * in capitals (Furkan, 2026-11-27); a word with 3 or more Latin letters and a Cyrillic or Greek letter (an "о" that looks
+ * like "o"; a unit such as "µs" or "kΩ" passes).
+ * The text is folded first: look-alike letters to Latin (before and after NFKD), NFKD (full-width letters and ligatures
+ * become plain ones), marks, format, invisible and control characters out, then Turkish lower case, ı and l → i (review 5:
+ * "l" and "I" look alike, so the rule reads them as one letter). A word is a run of Latin, Greek and
+ * Cyrillic letters, not of any letter: Japanese and Chinese text has no spaces ("APIのβ版" passes, "APIのβ版をonaylıyorum"
+ * does not; review 4). ponytail: a Latin word glued to a Greek letter ("SDKβ版") is still a mixed word; "SDK β版" or
+ * "SDKのβ版" passes, and the tool result names the rule. The same rule is in client.js (suggestBlocked;
+ * test/assistant-suggest.test.mjs compares them). */
+// Letters that look like a Latin letter become it before the lower case, so "Каrаr:", "ΟΝAY VERDİM", "Ӏ approve" and
+// "ᴏɴᴀʏʟɪʏᴏʀᴜᴍ" still match (reviews 3 to 5). The pairs: Unicode confusables.txt (UTS #39, latest of 2026-08-06), each
+// letter of the Latin, Greek, Cyrillic, Armenian, Cherokee, Lisu or Coptic script (BMP, not ASCII) whose prototype is one
+// ASCII letter after NFKD, and each colon look-alike as ":"; plus the small capitals ᴀ…ᴛ ꜰ ᴋ ᴍ ꞯ and в н т к κ м ε τ
+// (prototype: a small capital or another non-ASCII letter). ponytail: only SUGGEST_MIXED (Latin with Greek or Cyrillic)
+// catches a pair that is not in the list (another script such as Canadian syllabics or Runic, an astral letter that NFKD
+// does not make ASCII, a digit or sign such as 1, 0 or |); a new look-alike needs its pair here and in client.js.
+const LOOK_FROM = 'ःઃ։܃܄࠱፡᛬︰᠃᠉⁚׃˸᎓꞉∶ːꓽɑꭤαаΑАᎪꓮƄЬᏏꞴΒⲂВᏴꓐꚝɓƃƂБƀҍҌѣѢᴄϲⲥсᲃꮯϹⲤСᏟꓚȼҫҪԁᏧꓒᎠꓓɗɖƌƋđĐÐƉꬲеҽΕЕᎬꓰɇɆҿꬵꞙƒʄẝքꞘϜꓝƑᵮɡᶃƍցԌᏀᏳꓖᶢɠǥǤһҺհᏂΗⲎНᎻꓧᵸɦꚕᏲⱧҢħћĦӉӇıɪɩιⲓіꙇւꭵᎥɨᵻᵼȷϳјյꞲͿЈᎫꓙɉɟɈΚⲔКᏦꓗƙⱩҚꝀҞꞮꟾƖꞁǀΙⲒІӏӀꓲⳐᏞꓡłŁɭƗƚɫΜϺⲘМᎷꓟӍոռΝⲚꓠɳƞŋηղɲƝᵰᴏᴑꬽοσⲟϭоᲂօΟⲞОՕꓳøꬾØɵꝋⲑөѳꮎꮻƟꝊθϑΘϴⲐӨѲᎾᏫꭴᎤþƿρϱϸⲣⳏрΡⲢⳎРᏢꓑƥᵽԛգզԚʠꭇꭈᴦⲅгꮁƦɌᎡᏒꓣɽɼɍғᵲꜱƽѕꮪЅՏᏕᏚꓢʂꟅᵴΤⲦТᎢꓔƭȾƮꚌҬŧŦƫᎿᵵꞟᴜꭎꭒʋυսՍꓴџᵾꮜɄᏌᴠνѵꮩѴᏙꓦɯꟺᴡⲽѡшԝաꮃꮤԜᎳᏔꓪѽꝡхꞳΧⲬХꓫҲɣᶌʏỿꭚγⲩуүΥϒⲨУҮᎩᎽꓬƴɏұɎҰᴢⱬⲍꮓⱫΖⲌᏃꓜʐƶƵȥȤᵶᴀʙᴅᴇɢʜᴊʟɴᴘʀᴛꜰᴋᴍꞯвнткκмετ';
+const LOOK_TO = ':::::::::::::::::::aaaaAAAAbbbBBBBBBbbbbbbbbbbccccccCCCCCccCdddDDdddddDDDeeeEEEEeEeffffffFFFFfggggGGGGgggGhhhhHHHHHHhhhHHhhHHHiiiiiiiiiiiiijjjjJJJJJjjJKKKKKkKKKKlllllllllllLLLlLllllMMMMMMMnnNNNnnnnnnNnooooooooooOOOOOooOoooooooOOOOOOOOOOOoOppppppppPPPPPPppqqqQqrrrrrrRRRRRrrrrrssssSSSSSsSsTTTTTtTTTTtTtttuuuuuuuUUuuuUUvvvvVVVwwwwwwwwwwWWWWwwxXXXXXXyyyyyyyyyYYYYYYYYyyyYYzzzzZZZZZzzZzZzabdeghjlnprtfkmqbhtkkmet';
+const LOOK_ALIKE = new RegExp(`[${LOOK_FROM}]`, 'gu');
+// upper: every look-alike gives a capital (for the CANLI DEPLOY line; an "ɑ" or "ø" there is not a lower-case word).
+const lookLatin = (s, upper = false) => s.replace(LOOK_ALIKE, (c) => (upper ? LOOK_TO[LOOK_FROM.indexOf(c)].toUpperCase() : LOOK_TO[LOOK_FROM.indexOf(c)]));
+// NFKD, then marks, format, invisible and control characters out (NEL is a line break; tab and newline stay).
+const unhide = (s) => s.normalize('NFKD').replace(/\x85/g, '\n').replace(/[\p{M}\p{Cf}\p{Default_Ignorable_Code_Point}\0-\x08\x0E-\x1F\x7F-\x9F\u2800]/gu, '');
+// "l" is written "i": the folded text reads l and i as one letter (Ι І Ӏ ӏ ı I l look alike; "ONAYIIYORUM" matches,
+// review 5). CANLI DEPLOY: each look-alike is a capital (lookLatin upper), I i l L read as one letter (written I:
+// "CANII DEPIOY"; ı and İ are i and I by then), and the words may touch (an invisible character between them is
+// removed; review 6). Only spaces and tabs before CANLI: \s* there would cross lines and cost n² on many blank lines.
+const SUGGEST_BLOCKED = /(?<![\p{sc=Latn}\p{N}])(?:(?:onayi(?:i|idir|iyorum|iyoruz|adim)|onay\s*ver(?:iyorum|dim)|izin\s*ver(?:iyorum|dim)|i\s*approve)(?![\p{sc=Latn}\p{N}])|(?:approved|karar|decision)\s*:)|canii\s*depioy\s+\S+\s+[0-9a-f]{7,40}(?![\p{sc=Latn}\p{N}])/u;
+const SUGGEST_LIVE = /^[^\S\r\n\u2028\u2029]*CANII\s*DEPIOY(?![\p{sc=Latn}\p{N}])/mu;
+const SUGGEST_MIXED = /(?<![\p{sc=Latn}\p{sc=Grek}\p{sc=Cyrl}])(?=(?:[\p{sc=Latn}\p{sc=Grek}\p{sc=Cyrl}]*?\p{sc=Latn}){3})(?=[\p{sc=Latn}\p{sc=Grek}\p{sc=Cyrl}]*[\p{sc=Grek}\p{sc=Cyrl}])/u;
+export const suggestBlocked = (text) => {
+  const raw = String(text ?? '');
+  // The pairs before NFKD too: NFKD turns ϲ into ς, which looks like no Latin letter.
+  const latin = lookLatin(unhide(lookLatin(raw)));
+  return SUGGEST_LIVE.test(lookLatin(unhide(lookLatin(raw, true)), true).replace(/[ilL]/g, 'I')) || SUGGEST_MIXED.test(unhide(raw)) || SUGGEST_BLOCKED.test(latin.toLocaleLowerCase('tr').replace(/[ıl]/g, 'i'));
+};
+/** status_suggestions_set's items, cleaned and bounded: `{items, blocked}` (blocked: the items that the safety rule left
+ * out). An item without title, text, why or source, or with a field over its limit, is left out. */
+export function cleanSuggestions(raw) {
+  const items = []; let blocked = 0;
+  for (const s of (Array.isArray(raw) ? raw : []).slice(0, SUGGEST_LIMITS.items * 2)) {
+    const keys = ['project', 'title', 'text', 'why', 'source'];
+    const item = Object.fromEntries(keys.map((k) => [k, todoText(s?.[k])]));
+    if (!['title', 'text', 'why', 'source'].every((k) => isText(item[k], SUGGEST_LIMITS[k])) || item.project.length > SUGGEST_LIMITS.project) continue;
+    // The raw fields first: todoText joins the lines, and a line that starts with "CANLI DEPLOY" counts.
+    if (keys.some((k) => suggestBlocked(s?.[k]) || suggestBlocked(item[k]))) { blocked += 1; continue; }
+    if (item.project === '') delete item.project;
+    items.push({ ...item, ...(s?.unverified === true ? { unverified: true } : {}) });
+    if (items.length === SUGGEST_LIMITS.items) break;
+  }
+  return { items, blocked };
+}
 export const STATUS_SECTION = `# Assistant status panel (Composer Plus)
 The status panel of this chat is a stack of cards above the chat, one card per topic: Approval (the newest \`onay\` block and the items that start with "Onay:"; its Approve button is in this card, not under your answer; without a block that has its button, the "Onay:" items show nothing), Problem ("Sorun:" items and failed tasks), For you ("Senden:" items, items of owner "agent" that wait for the user, tasks that wait), Running (your tasks and the other items of owner "agent"), Done today (tasks that ended today) and the user's own notes (items of owner "user" without a mark). An item and a task (the subagent description or the chat title) with the same words show as one card: use the same words for both.
 - The panel also has a decision queue: the approval, each "For you" card and a choice, one at a time. When the user must choose between options, end that answer with a bold line "Seçenekler:" (English: "Options:") and a numbered list of 2 to 9 short items right under it: each item becomes a button in the queue and under your answer.
