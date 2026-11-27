@@ -51,6 +51,9 @@ approval: merge into main after a clean review. Not in scope: live copy, release
 - Round 4 (review-guard-4, head d2348f9b, origin/main 189fc00c): P1 0, P2 0, P3 0, P4 1. Merge bcc75978 lost no hunk.
   Fixed in the next commit: the accepted-limit text said "no push"; an answer to a message typed into the running turn
   (quiet-replies.json `steered` row 9) still pushes its hidden words. docs/features.json llms and tether/FEATURES.md.
+- Round 5 (review-guard-5, head 5f0aafc5, origin/main 189fc00c): P1 0, P2 0, P3 0, P4 1. Fixed in the next commit: the
+  push exception holds only for a message typed into a turn that you did not start by typing (index.js damonPushWords
+  `typed: kind === 'user' && turn.opened !== 'user'`). docs/features.json llms and tether/FEATURES.md.
 - Open steps: one more review round on the final diff (merge only on a clean round); fetch, merge origin/main if it moved,
   tests; merge --no-ff into main, push, CI. Screen did not change in the review fixes (cap count and docs only): no new
   screenshots. No live copy, release, npm publish, DSH restart.
