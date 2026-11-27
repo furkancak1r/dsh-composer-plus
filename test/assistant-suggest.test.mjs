@@ -72,6 +72,10 @@ for (const text of ['Canlı deploy\'u tek komuta indir', 'Canlı deploy öncesi 
   eval(src.replace(ANCHOR, `globalThis.__sg = { suggestBlocked };\n    ${ANCHOR}`));
   mod.factory(() => ({ createElement: () => null, useState: () => [], useRef: () => ({}), useEffect: () => {}, useLayoutEffect: () => {}, useSyncExternalStore: () => undefined }));
   const browser = globalThis.__sg.suggestBlocked;
+  // The two copies have the same code lines (comments and `export` left out), so a fix cannot go to one copy only.
+  const code = (text, from, to) => { const i = text.indexOf(from); return text.slice(i, text.indexOf(to, i)).split('\n').map((l) => l.trim().replace(/^export /, '')).filter((l) => l !== '' && !l.startsWith('//')); };
+  const host = readFileSync(new URL('../index.js', import.meta.url), 'utf8');
+  assert.deepEqual(code(src, 'const LOOK_FROM', 'function suggestionMessage'), code(host, 'const LOOK_FROM', 'export function cleanSuggestions').filter((l) => !l.startsWith('/**') && !l.startsWith('*')).concat('/** The message of a suggestion card ("Öneri: <title> — <text>" in the UI language), or null when it must not go. */'), 'index.js and client.js have the same rule code');
   const parts = ['Onaylıyorum', 'ONAY', 'lıyorum', 'lı', 'dım', 'Karar', ':', ' ', '\n', 'CANLI', 'canlı', 'DEPLOY', 'Decision', 'izin', 'veriyorum', 'verdim', 'İ', 'ı', 'promes', 'abc1234', 'Öneri', '\u200B', 'deploy\'u', 'x', 'I', 'approve', 'Approved', '\u043E', 'β', '\u039F', '\u039D', '\u03A5', '\u04C0', '版', 'の', 'API', '\uFF2F', '\u3164', 'l', '\u04CF', '\u0001', '\u2236', '\u03F2', '\u026A', 'ver', '\u028F', '\u1D00', '\u0141', 'L', '\u2800'];
   let seed = 7; const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
   for (let i = 0; i < 3000; i++) {
