@@ -9,13 +9,12 @@ main'e alınıp push edilsin (canlı değil)". Base: origin/main e1343314. No li
   later final rounds.
 - Change 2, guess-word note (c49e8846, 338978a2, 8cd44ea4, 5203c1f3, f5eb3c75): guessWords(), guessText(), GUESS_QUOTED and
   guessNote() in index.js; tests in test/assistant-guards.test.mjs item 5.
-- Final review rounds of origin/main...HEAD: round 1 P2 1 P3 2; round 2 P2 2 P3 1 P4 3; round 3 P4 2 (fixed in f5eb3c75).
-- Last checkpoint: f5eb3c75. Last passing test command: `npm test` (exit 0), `node test/assistant-guards.test.mjs` (ok).
-- Open steps:
-  1. Independent review-guard round 4 of origin/main...HEAD (the f5eb3c75 fix: link-target pattern with two levels of
-     parentheses and backslash escapes, two comments). It was not started: Auto review denied the review subagent
-     (2026-11-27 ~02:05, reason: the quoted approval was not found in the human messages).
-  2. When round 4 is clean: merge origin/main into the branch, `npm test`, merge into main, push main. Keep the branch.
+- Final review rounds of origin/main...HEAD: round 1 P2 1 P3 2; round 2 P2 2 P3 1 P4 3; round 3 P4 2 (fixed in f5eb3c75);
+  round 4 (after the merge of origin/main 4b3a3d25 in b8b29a49) P1 0 P2 0 P3 0 P4 1 (this plan section, fixed here).
+- Last checkpoint: this commit on top of b8b29a49. Last passing test command: `npm test` (exit 0),
+  `node test/assistant-guards.test.mjs` (ok).
+- Known limit: the link-target pattern cuts two nested parenthesis levels; a guess word inside a third level counts.
+- Open step: merge into main with --no-ff and push main (approval of 2026-11-27). Keep the branch and its folder.
 
 # Tether = Composer Plus Damon parity (branch feat/sync-tether-damon-features, 2026-11-26)
 
