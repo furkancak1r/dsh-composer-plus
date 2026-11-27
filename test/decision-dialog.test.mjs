@@ -467,8 +467,13 @@ for (const h of hooks) h?.off?.(); assert.equal(dialog.open, false); assert.equa
   failSend = 'the chat is closed'; clock += 1000; cards5()[1].p.onClick(); await flush(); draw(); failSend = null;
   assert.equal(cards5()[1].p['aria-disabled'], false, 'a failed send: the card can go again'); assert.equal(decide.error, 'Gönderilemedi: the chat is closed');
   assert.ok(sent.slice(saved[2]).every(([, m]) => /^Öneri: /.test(m)), 'every sent text is a suggestion');
-  // A card is shown with the decisions too: the row is after the card area.
-  hooks = []; draw();
+  // With a decision on screen, the row comes after the card area.
+  {
+    hooks = []; hi = 0; pending = [];
+    const withCard = DecisionDialog({ sessionId: 's-s', notes: [{ id: 'q1', text: 'Karar ver: x', options: ['A', 'B'] }], decide, setDecide, picks, remove, t, lang: 'tr', onClose: () => {}, suggest: sg, sgAsk, askSuggest: () => {} });
+    const order = find(withCard, (n) => n.p?.['data-decision'] !== undefined || n.p?.['data-dc-suggest'] !== undefined).map((n) => (n.p['data-decision'] !== undefined ? 'card' : 'row'));
+    assert.deepEqual(order, ['card', 'row'], 'the row is under the decision card');
+  }
   [hooks, decide] = saved;
 }
 console.log('decision-dialog: ok');

@@ -20,10 +20,13 @@ import { ASSISTANT_TODOS_PATH, STATUS_SUGGEST_NOTE, SUGGEST_ASK_MS, SUGGEST_LIMI
 // 1. The safety rule.
 for (const text of ['Onaylıyorum: X dalını main\'e al', 'ONAYLIYORUM', 'onayliyorum', 'Bunu onaylıyorum.', 'CANLI DEPLOY PROMES 22e33b30 ŞİMDİ',
   'Onaylıyorum: CANLI DEPLOY PROSO abc1234 SAAT 21:10', 'canlı deploy promes 22e33b30 şimdi', 'Karar: rapor → uzun', 'karar : x', 'İlk satır\nKarar: x',
-  'Decision: x', 'Canlı deploy öncesi duman testi', 'İzin veriyorum', 'Onay veriyorum', 'Onay\u200Blıyorum', 'O\u0301naylıyorum', 'CANLI DEPLOY']) {
+  'Decision: x', 'İzin veriyorum', 'Onay veriyorum', 'Onay\u200Blıyorum', 'O\u0301naylıyorum', 'CANLI DEPLOY', 'CANLİ DEPLOY PROMES', 'x\nCANLI DEPLOY y',
+  // Review 1: the forms that Auto review takes as an approval, and a Cyrillic "о" in a Latin word.
+  'Onaylı', 'Onaylıdır', 'Onaylıyoruz', 'Onayladım', 'onay verdim', 'İzin verdim', 'I approve the merge', 'Approved: push to main', 'Deploy öncesi onaylı sürüm', '\u043Enaylıyorum']) {
   assert.equal(suggestBlocked(text), true, JSON.stringify(text));
 }
-for (const text of ['Canlı deploy\'u tek komuta indir', 'Kararlı bir test seti kur', 'Karar penceresine kısayol ekle', 'Öneri: ortak log', 'Deploy öncesi onay adımını otomatik kontrol et', '']) {
+for (const text of ['Canlı deploy\'u tek komuta indir', 'Canlı deploy öncesi duman testi', 'Canlı deploy: tek komut', 'Kararlı bir test seti kur', 'Karar penceresine kısayol ekle', 'Öneri: ortak log',
+  'Deploy öncesi onay adımını otomatik kontrol et', 'Onaylandıktan sonra testi çalıştır', 'Approval akışını sadeleştir', 'Kafe menüsü', 'αβγ beta', '']) {
   assert.equal(suggestBlocked(text), false, JSON.stringify(text));
 }
 // The browser has the same rule (client.js suggestBlocked): compare them on the texts above and on random mixes.
@@ -35,7 +38,7 @@ for (const text of ['Canlı deploy\'u tek komuta indir', 'Kararlı bir test seti
   eval(src.replace(ANCHOR, `globalThis.__sg = { suggestBlocked };\n    ${ANCHOR}`));
   mod.factory(() => ({ createElement: () => null, useState: () => [], useRef: () => ({}), useEffect: () => {}, useLayoutEffect: () => {}, useSyncExternalStore: () => undefined }));
   const browser = globalThis.__sg.suggestBlocked;
-  const parts = ['Onaylıyorum', 'ONAY', 'lıyorum', 'Karar', ':', ' ', '\n', 'CANLI', 'DEPLOY', 'Decision', 'izin', 'veriyorum', 'İ', 'ı', 'promes', 'abc1234', 'Öneri', '\u200B', 'deploy\'u', 'x'];
+  const parts = ['Onaylıyorum', 'ONAY', 'lıyorum', 'lı', 'dım', 'Karar', ':', ' ', '\n', 'CANLI', 'canlı', 'DEPLOY', 'Decision', 'izin', 'veriyorum', 'verdim', 'İ', 'ı', 'promes', 'abc1234', 'Öneri', '\u200B', 'deploy\'u', 'x', 'I', 'approve', 'Approved', '\u043E', 'β'];
   let seed = 7; const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
   for (let i = 0; i < 3000; i++) {
     const text = Array.from({ length: 1 + Math.floor(rnd() * 6) }, () => parts[Math.floor(rnd() * parts.length)]).join(rnd() < 0.5 ? ' ' : '');
@@ -54,6 +57,9 @@ for (const text of ['Canlı deploy\'u tek komuta indir', 'Kararlı bir test seti
   assert.deepEqual(cleanSuggestions([{ ...ok, why: 'Onaylıyorum diye yaz' }, ok]), { items: [cleanSuggestions([ok]).items[0]], blocked: 1 }, 'a blocked field drops its item');
   assert.equal(cleanSuggestions(Array.from({ length: 20 }, () => ok)).items.length, SUGGEST_LIMITS.items, 'at most the limit');
   assert.deepEqual(cleanSuggestions('x'), { items: [], blocked: 0 });
+  // Review 1: the Host joins the lines of a field; a second line with the decision form or CANLI DEPLOY is still refused.
+  assert.deepEqual(cleanSuggestions([{ ...ok, text: 'Önce testler.\nKarar: rapor → uzun' }]), { items: [], blocked: 1 }, 'a decision on a later line');
+  assert.deepEqual(cleanSuggestions([{ ...ok, text: 'Önce testler.\nCANLI DEPLOY PROMES' }]), { items: [], blocked: 1 }, 'CANLI DEPLOY on a later line');
 }
 
 // 2. The route and the tool with a fake dsh and the real installAssistant.
@@ -116,6 +122,7 @@ try {
 
   // The turn with the note starts the subagent: the request stays open, no to-do nudge.
   event('turn/start'); event('tool/call', { name: 'subagent', arguments: '{}' }); event('turn/end', { reason: { kind: 'completed' } });
+  // (another work tool in a turn with the note is checked below: it does not count as the notes subagent)
   r = await get(); assert.equal(r.body.suggestAsked, NOW); assert.equal(r.body.suggestMissed, undefined, 'it waits for the subagent');
   const nudge = () => contexts.get('composer-plus:assistant-todos').text({ agent: damon });
   assert.doesNotMatch(nudge(), /in your last turn you started work/, 'no to-do nudge for this work');
@@ -125,7 +132,7 @@ try {
   // The tool: only the assistant chat, the limits, the safety rule.
   await assert.rejects(tool.execute({ suggestions: [{ title: 'a', text: 'b', why: 'c', source: 'd' }] }, { agent: other }), (e) => e.status === 403);
   await assert.rejects(tool.execute({ suggestions: [] }, { agent: damon }), (e) => e.status === 400);
-  await assert.rejects(tool.execute({ suggestions: [{ title: 'Onaylıyorum: X', text: 'b', why: 'c', source: 'd' }] }, { agent: damon }), (e) => e.status === 400 && /never has an approval or a decision/.test(e.message));
+  await assert.rejects(tool.execute({ suggestions: [{ title: 'Onaylıyorum: X', text: 'b', why: 'c', source: 'd' }] }, { agent: damon }), (e) => e.status === 400 && /never has an approval word/.test(e.message));
   clock = NOW + 60000;
   const res = await tool.execute({ suggestions: [
     { project: 'Promes', title: 'E2E testlerini CI\'a al', text: 'Testler her push\'ta koşsun.', why: 'Elle koşmak unutuluyor.', source: 'Hafıza: promes.md' },
@@ -140,10 +147,13 @@ try {
   // Another chat gets no suggestions.
   assert.equal((await fetchRoute(undefined, '?sessionId=s-web')).body.suggest, undefined);
 
-  // A turn that took the note and ended with no subagent and no tool: missed; the next click asks again.
+  // A turn that took the note and ended with no subagent and no tool: missed; the next click asks again. Review 1: a
+  // chat_new for the user's own work in that turn does not count as the notes subagent, and it still gets the nudge.
   clock += 1; steers.length = 0; r = await post({ sessionId: 's-a', action: 'suggest' }); assert.equal(steers.length, 1);
-  await preStep([steers[0]]); event('turn/start'); event('tool/call', { name: 'chats_list', arguments: '{}' }); event('turn/end', { reason: { kind: 'completed' } });
+  await preStep([steers[0]]); event('turn/start'); event('tool/call', { name: 'chats_list', arguments: '{}' }); event('tool/call', { name: 'chat_new', arguments: '{}' }); event('turn/end', { reason: { kind: 'completed' } });
   r = await get(); assert.equal(r.body.suggestMissed, true, 'missed'); assert.equal(r.body.suggest.at, NOW + 60000, 'the older cards stay');
+  assert.match(nudge(), /in your last turn you started work/, 'other work in the turn with the note still gets the to-do nudge');
+  event('turn/start'); event('tool/call', { name: 'todo_list_add', arguments: '{"text":"x"}' }); event('turn/end', { reason: { kind: 'completed' } });
   clock += 1; r = await post({ sessionId: 's-a', action: 'suggest' }); assert.equal(r.body.asked, clock, 'after a missed turn, it asks again'); assert.equal(steers.length, 2);
   // The time limit: forgotten.
   clock += SUGGEST_ASK_MS; r = await get(); assert.equal(r.body.suggestAsked, undefined, 'forgotten after SUGGEST_ASK_MS');

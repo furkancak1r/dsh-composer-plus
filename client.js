@@ -3796,8 +3796,9 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
             // request and finds it missed or forgotten ends it late).
             const suggest = off || !Number.isFinite(data.suggest?.at) || !Array.isArray(data.suggest?.items) ? null : data.suggest;
             const sg = of(id).sgAsk;
-            const nextSg = off ? null : sg?.state !== 'waiting' ? sg : suggest !== null && suggest.at >= sg.asked ? Object.freeze({ ...sg, state: 'done' })
-              : mine >= sg.from && (data.suggestMissed === true || !Number.isFinite(data.suggestAsked)) ? Object.freeze({ ...sg, state: 'late' }) : sg;
+            // Cards that come after the wait ended (late) end it too, as Get summary's late summary does.
+            const nextSg = off ? null : sg?.state !== 'waiting' && sg?.state !== 'late' ? sg : suggest !== null && suggest.at >= sg.asked ? Object.freeze({ ...sg, state: 'done' })
+              : sg.state === 'waiting' && mine >= sg.from && (data.suggestMissed === true || !Number.isFinite(data.suggestAsked)) ? Object.freeze({ ...sg, state: 'late' }) : sg;
             if (nextSg !== sg && nextSg?.state !== 'waiting') { clearTimeout(waits.get(`${id}\0sg`)); waits.delete(`${id}\0sg`); }
             patch(id, { items: off ? [] : items(data) ?? [], tasks: off || !Array.isArray(data.tasks) ? [] : data.tasks, projects: off || !Array.isArray(data.projects) ? [] : data.projects,
               summary, ask: nextAsk, suggest, sgAsk: nextSg, ...(opens ? { shown: true } : {}),
@@ -4197,12 +4198,16 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       return { decisions, notes: open.filter((i) => !isDecision(i)) };
     }
     /** Get suggestions (Furkan, 2026-11-27): a card's text goes as your message, so it is never an approval or a decision.
-     * The same rule as the Host's (index.js suggestBlocked; test/assistant-suggest.test.mjs compares them): the text folded
-     * (marks and format characters out, Turkish lower case, ı → i), then an approval word anywhere or a line that starts
-     * with "CANLI DEPLOY", "Karar:" or "Decision:". */
+     * The same rule as the Host's (index.js suggestBlocked, which lists what it blocks; test/assistant-suggest.test.mjs
+     * compares them). */
     const suggestFold = (s) => String(s ?? '').normalize('NFKD').replace(/[\p{M}\p{Cf}]/gu, '').toLocaleLowerCase('tr').replace(/ı/g, 'i');
-    const SUGGEST_BLOCKED = /onayliyorum|onay veriyorum|izin veriyorum|^\s*(?:canli\s+deploy(?=[\s:]|$)|karar\s*:|decision\s*:)|canli\s+deploy\s+\S+\s+[0-9a-f]{7,40}\b/mu;
-    const suggestBlocked = (text) => SUGGEST_BLOCKED.test(suggestFold(text));
+    const SUGGEST_BLOCKED = /(?<![\p{L}\p{N}])(?:onayl(?:i|idir|iyorum|iyoruz|adim)|onay\s+ver(?:iyorum|dim)|izin\s+ver(?:iyorum|dim)|i\s+approve|approved\s*:|karar\s*:|decision\s*:)(?![\p{L}\p{N}])|canli\s+deploy\s+\S+\s+[0-9a-f]{7,40}(?![\p{L}\p{N}])/u;
+    const SUGGEST_LIVE = /^\s*CANLI\s+DEPLOY(?![\p{L}\p{N}])/mu;
+    const SUGGEST_MIXED = /(?<!\p{L})(?=\p{L}*\p{Script=Latin})(?=\p{L}*[\p{Script=Cyrillic}\p{Script=Greek}])\p{L}+/u;
+    const suggestBlocked = (text) => {
+      const plain = String(text ?? '').normalize('NFKD').replace(/[\p{M}\p{Cf}]/gu, '');
+      return SUGGEST_LIVE.test(plain) || SUGGEST_MIXED.test(plain) || SUGGEST_BLOCKED.test(suggestFold(text));
+    };
     /** The message of a suggestion card ("Öneri: <title> — <text>" in the UI language), or null when it must not go. */
     function suggestionMessage(item, t) {
       const one = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
@@ -5401,9 +5406,9 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
           g === 'suruyor' && groupOpen.suruyor && list.length === 0 ? React.createElement('p', { className: 'cp-td-empty', 'data-composer-plus-run-empty': '' }, t('cards.filterEmpty')) : null);
       };
       // Your own notes (your items without a mark): one Kararlar button (Furkan, 2026-11-24) with the count of the open
-      // decisions and of the other notes; it opens the decision dialog. Nothing open: one line says so.
+      // decisions and of the other notes; it opens the decision dialog. Nothing open: the button says so (2026-11-27).
       const dq = decisionQueue(cards.notes, decide);
-      // The focus goes back to the button; when the button is gone (nothing waits), to the panel's title.
+      // The focus goes back to the button; when the button is not in the page (another place drew the panel), to the panel's title.
       // On the canvas the title is the canvas itself (homeId). dsh's question closed the canvas while the dialog was open:
       // the focus goes into that question (the effect of focusSeat), not to the button.
       // A peek that you did not go into leaves the focus where it is (the message box); from inside it, the focus goes to

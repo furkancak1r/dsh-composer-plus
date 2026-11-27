@@ -12594,11 +12594,11 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
         const id = mine(exec);
         if (id === undefined) throw refused('This tool works only in the Composer Plus assistant chat.', 403);
         const { items, blocked } = cleanSuggestions(args?.suggestions);
-        if (items.length === 0) throw refused(blocked > 0 ? `Every suggestion was refused: a card sends its text as the user's message, so it never has an approval or a decision ("Onaylıyorum", "CANLI DEPLOY", "Karar:"). Write suggestions, not approvals.`
+        if (items.length === 0) throw refused(blocked > 0 ? `Every suggestion was refused: a card sends its text as the user's message, so it never has an approval word ("Onaylıyorum", "onaylı", "onayladım", "I approve"), "Karar:", "Decision:" or "CANLI DEPLOY". Write suggestions, not approvals.`
           : `suggestions is 1 to ${SUGGEST_LIMITS.items} items, each with title (1 to ${SUGGEST_LIMITS.title} characters), text (1 to ${SUGGEST_LIMITS.text}), why (1 to ${SUGGEST_LIMITS.why}) and source (1 to ${SUGGEST_LIMITS.source}); project at most ${SUGGEST_LIMITS.project}.`, 400);
         suggestions.set(id, { at: now(), items });
         suggestAsks.delete(id); // the request got its suggestions
-        return `The Kararlar dialog shows ${items.length} suggestion cards${blocked > 0 ? ` (${blocked} left out: an approval word, or a title or line that starts with "Canlı deploy", "Karar:" or "Decision:"; write it again in other words if it is a suggestion)` : ''}. Reply with only \`[quiet]\`.`;
+        return `The Kararlar dialog shows ${items.length} suggestion cards${blocked > 0 ? ` (${blocked} left out: an approval word, "Karar:", "Decision:" or "CANLI DEPLOY"; write it again in other words if it is a suggestion)` : ''}. Reply with only \`[quiet]\`.`;
       },
     },
   ];
@@ -12630,7 +12630,6 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
     } catch (error) { open.delete(sessionId); throw error; }
     return at;
   };
-  const askSummary = (sessionId) => askNote(sessionId, SUMMARY_SOURCE);
   // The wake markers become one note of each kind (dsh logs it as a hidden message, not as a chat bubble). Switched off,
   // they go without a note (the tools are gone).
   ctx.on('agent/pre-step', async (payload, next) => {
@@ -12676,12 +12675,11 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
     if (event?.type === 'turn/start') turns.set(id, { work: false, changed: false });
     else if (event?.type === 'tool/call' && turns.has(id)) {
       const turn = turns.get(id);
-      if (TODO_WORK_TOOLS.has(event.data?.name)) {
-        turn.work = true;
-        // The turn with the Get suggestions note starts the subagent that reads the notes: the request waits for its
-        // result, and this work gets no to-do item (the note asks for none).
-        const sg = suggestAsks.get(id); if (sg?.taken) { sg.started = true; turn.suggest = true; }
-      }
+      // The turn with the Get suggestions note starts one subagent that reads the notes: the request waits for its result,
+      // and that subagent gets no to-do item (the note asks for none). Other work in the same turn still counts.
+      const sg = suggestAsks.get(id);
+      if (event.data?.name === 'subagent' && sg?.taken && !sg.started) sg.started = true;
+      else if (TODO_WORK_TOOLS.has(event.data?.name)) turn.work = true;
       // A task dismiss (todo_list_remove with task) changes no item.
       if (TODO_CHANGE_TOOLS.has(event.data?.name) && todoText(argsOf(event.data?.arguments)?.task) === '') { turn.changed = true; nudged.delete(id); }
     } else if (event?.type === 'turn/end') {
@@ -12691,7 +12689,7 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
       // a turn without the subagent and without the cards missed it.
       const sg = suggestAsks.get(id); if (sg?.taken) { if (sg.started) sg.taken = false; else sg.missed = true; }
       // Once: the next turn end takes it away (or sets it again for that turn).
-      if (on && turn?.work && !turn.changed && !turn.suggest) nudged.add(id); else nudged.delete(id);
+      if (on && turn?.work && !turn.changed) nudged.add(id); else nudged.delete(id);
     }
   });
   const switched = new Set(); // Morning summary follows this switch
@@ -13075,24 +13073,35 @@ export const SUGGEST_LIMITS = { items: 8, project: 120, title: 120, text: 600, w
 export const STATUS_SUGGEST_NOTE = `[Composer Plus → Status panel] The user clicked "Get suggestions" in the Kararlar dialog of the status panel. Look at all of the user's projects from outside, as a trusted senior developer who knows more than the user ("Why did you do it this way? Do it like this."): name the bottlenecks, the optimizations and the better ways that the user did not notice, each with its reason. Do not only continue the user's own ideas. You may suggest a new project when it makes the user's work easier. Put the user's experience first.
 1. Collect what you know: this chat (chat_read for older messages) and memory_recall (decisions, open items, rules).
 2. Start one subagent in the background that reads the project notes of your folder: only in its subfolders that hold notes and documents (your folder's AGENTS.md names them), never the folder root itself, never a folder named Gizli, never .env or key files; it changes no file. It returns per project: what it does, its open problems and the slow or repeated steps that the notes show, each with the file path.
-3. When its result comes, call status_suggestions_set: up to ${SUGGEST_LIMITS.items} items, the most useful first, in the user's language, in plain words. Each item: project (none for all projects or a new project), title, 1 to 3 sentences, why, source (the chat, the memory entry or the note file). Do not guess: set unverified true for an item with a claim that you did not check against a source. A card sends its title and text as the user's message, so never write an approval or a decision: no "Onaylıyorum", "onay veriyorum" or "izin veriyorum", and no title or line that starts with "Canlı deploy", "Karar:" or "Decision:" (the panel leaves such a card out).
+3. When its result comes, call status_suggestions_set: up to ${SUGGEST_LIMITS.items} items, the most useful first, in the user's language, in plain words. Each item: project (none for all projects or a new project), title, 1 to 3 sentences, why, source (the chat, the memory entry or the note file). Do not guess: set unverified true for an item with a claim that you did not check against a source. A card sends its title and text as the user's message, so never write an approval or a decision: no approval word ("Onaylıyorum", "onaylı", "onayladım", "onay veriyorum", "izin veriyorum", "I approve"), no "Karar:" or "Decision:", no "CANLI DEPLOY" in capitals (the panel leaves such a card out).
 This note comes before the to-do rules: add no to-do item for this work. Write nothing in the chat for it: reply with only \`[quiet]\`, in this turn and in the turn with the subagent's result. When a task runs in this turn, continue it after these steps.`;
 const suggestMessage = () => Object.freeze({ id: randomUUID(), role: 'user', content: Object.freeze([Object.freeze({ type: 'text', text: STATUS_SUGGEST_NOTE })]),
   source: Object.freeze({ kind: SUMMARY_SOURCE, form: 'snapshot' }) });
-/** The safety rule of a suggestion card (its text goes as the user's message): never an approval or a decision. The text
- * is folded first (marks and format characters out, Turkish lower case, ı → i), so "ONAYLIYORUM", "Onaylıyorum" and an
- * "İ" with a dot all match. The same rule is in client.js (suggestBlocked). */
+/** The safety rule of a suggestion card (its text goes as the user's message): never an approval or a decision. Blocked:
+ * an approval word (the forms that Auto review takes as an approval: onaylı, onaylıdır, onaylıyorum, onaylıyoruz,
+ * onayladım, onay veriyorum/verdim, izin veriyorum/verdim, I approve, approved:), the decision form "Karar:"/"Decision:",
+ * the strict live-deploy line ("canlı deploy <product> <sha>", any case) and a text or line that starts with "CANLI DEPLOY"
+ * in capitals (Furkan, 2026-11-27); a word that mixes Latin with Cyrillic or Greek letters (an "о" that looks like "o").
+ * The text is folded first (marks and format characters out, Turkish lower case, ı → i). The same rule is in client.js
+ * (suggestBlocked; test/assistant-suggest.test.mjs compares them). */
 export const suggestFold = (s) => String(s ?? '').normalize('NFKD').replace(/[\p{M}\p{Cf}]/gu, '').toLocaleLowerCase('tr').replace(/ı/g, 'i');
-const SUGGEST_BLOCKED = /onayliyorum|onay veriyorum|izin veriyorum|^\s*(?:canli\s+deploy(?=[\s:]|$)|karar\s*:|decision\s*:)|canli\s+deploy\s+\S+\s+[0-9a-f]{7,40}\b/mu;
-export const suggestBlocked = (text) => SUGGEST_BLOCKED.test(suggestFold(text));
+const SUGGEST_BLOCKED = /(?<![\p{L}\p{N}])(?:onayl(?:i|idir|iyorum|iyoruz|adim)|onay\s+ver(?:iyorum|dim)|izin\s+ver(?:iyorum|dim)|i\s+approve|approved\s*:|karar\s*:|decision\s*:)(?![\p{L}\p{N}])|canli\s+deploy\s+\S+\s+[0-9a-f]{7,40}(?![\p{L}\p{N}])/u;
+const SUGGEST_LIVE = /^\s*CANLI\s+DEPLOY(?![\p{L}\p{N}])/mu;
+const SUGGEST_MIXED = /(?<!\p{L})(?=\p{L}*\p{Script=Latin})(?=\p{L}*[\p{Script=Cyrillic}\p{Script=Greek}])\p{L}+/u;
+export const suggestBlocked = (text) => {
+  const plain = String(text ?? '').normalize('NFKD').replace(/[\p{M}\p{Cf}]/gu, '');
+  return SUGGEST_LIVE.test(plain) || SUGGEST_MIXED.test(plain) || SUGGEST_BLOCKED.test(suggestFold(text));
+};
 /** status_suggestions_set's items, cleaned and bounded: `{items, blocked}` (blocked: the items that the safety rule left
  * out). An item without title, text, why or source, or with a field over its limit, is left out. */
 export function cleanSuggestions(raw) {
   const items = []; let blocked = 0;
   for (const s of (Array.isArray(raw) ? raw : []).slice(0, SUGGEST_LIMITS.items * 2)) {
-    const item = Object.fromEntries(['project', 'title', 'text', 'why', 'source'].map((k) => [k, todoText(s?.[k])]));
+    const keys = ['project', 'title', 'text', 'why', 'source'];
+    const item = Object.fromEntries(keys.map((k) => [k, todoText(s?.[k])]));
     if (!['title', 'text', 'why', 'source'].every((k) => isText(item[k], SUGGEST_LIMITS[k])) || item.project.length > SUGGEST_LIMITS.project) continue;
-    if (Object.values(item).some(suggestBlocked)) { blocked += 1; continue; }
+    // The raw fields first: todoText joins the lines, and a line that starts with "CANLI DEPLOY" counts.
+    if (keys.some((k) => suggestBlocked(s?.[k]) || suggestBlocked(item[k]))) { blocked += 1; continue; }
     if (item.project === '') delete item.project;
     items.push({ ...item, ...(s?.unverified === true ? { unverified: true } : {}) });
     if (items.length === SUGGEST_LIMITS.items) break;

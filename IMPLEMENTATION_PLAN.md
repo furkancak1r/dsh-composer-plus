@@ -133,8 +133,17 @@ IMPLEMENTATION_PLAN.md. Screenshots only to the folder above.
   suggestion pictures); not deleted (rule: agents delete no file under Damon/Belgeler).
   Demo text change: a card title that starts with "Canlı deploy" is refused (the CANLI DEPLOY rule at the start of a
   line); the note now names the exact rule, and the tool result says how many were left out and why.
-- Open: phase 3 (review loop until no P1/P2, then a clean review-guard round; merge into main only after
-  `gh release view v1.33.0` shows the release). 0.2.0-rc.2 and 0.2.1-rc.2 browser run: started.
+- 0.2.0-rc.2 and 0.2.1-rc.2 (~/Documents/testdeepseekharness/work/dsh-0.2.{0,1}-rc.2/node_modules/@deepseek-ai/dsh/lib/bin.js):
+  browser-card-stack PASS on both (steps 1-12), 2026-11-27 13:0x.
+- Review 1 (P1 0, P2 2, P3 6, P4 3), fixed: safety rule takes Auto review's approval forms (onaylı, onaylıdır,
+  onaylıyoruz, onayladım, onay verdim, izin verdim, I approve, approved:), "karar:"/"decision:" anywhere, a Latin word with
+  Cyrillic or Greek letters, "CANLI DEPLOY" only in capitals at a line start (a real "Canlı deploy öncesi…" suggestion
+  passes); raw fields checked before todoText joins the lines; only the first subagent call counts as started and other
+  work keeps the to-do nudge; late → done when cards come later; dead askSummary removed; comments; README Limits
+  sentence (13 files); store wait tests in assistant-todos-client; dialog order test. P2 "older dsh not run" answered
+  by the PASS above. Last passing: `npm test` exit 0 (2026-11-27 13:5x).
+- Open: review round 2 (separate subagent); a clean review-guard round; merge into main only after
+  `gh release view v1.33.0` shows the release (13:15: "release not found").
 
 # Quiet turns leave no card, and small tasks start quietly (branch fix/hide-quiet-only-turns, 2026-11-27)
 
