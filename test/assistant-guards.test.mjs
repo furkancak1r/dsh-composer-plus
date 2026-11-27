@@ -325,6 +325,10 @@ await check('item 5: a guess word in an answer', async () => {
     assert.deepEqual(host.guessWords(big).words, ['galiba'], `the word after 300k characters of ${unit}`);
     assert.ok(performance.now() - t < 300, `300k characters of ${unit} are fast (${Math.round(performance.now() - t)} ms)`);
   }
+  // Final review round 5 (P4): a fenced code block in a list item (4 or more spaces) is code; the text after it counts.
+  for (const text of ['10. Adım:\n    ```\n    muhtemelen log\n    ```\nBitti.', '- a\n  - b\n    ```text\n    galiba\n    ```\nSon.',
+    '> [!DETAILS] Log\n> 1. Adım\n>     ```\n>     muhtemelen log\n>     ```\nBitti.']) assert.deepEqual(host.guessWords(text).words, [], `code in a list item: ${JSON.stringify(text)}`);
+  assert.deepEqual(host.guessWords('10. Adım:\n    ```\n    log\n    ```\n    Sonuç: galiba doğru.').words, ['galiba'], 'the list text after its code block counts');
   // The limit of ponytail: the ASCII spelling is not a word of the list.
   assert.deepEqual(host.guessWords('Sanirim, buyuk olasilikla ve galibA yok.').words, ['galiba'], 'only the Turkish spelling');
   assert.deepEqual(host.guessWords('Sanirim, buyuk olasilikla.').words, [], 'the ASCII spelling is not found');

@@ -14,12 +14,16 @@ main'e alınıp push edilsin (canlı değil)". Base: origin/main e1343314. No li
 - Merge 9c533c17 (origin/main ee06f990, quiet turns): conflicts in index.js (guess-word code kept; main's AUTO_DENIED
   regex and its .test() call kept), docs/features.json (assistant llms: main's sentences and the branch's clause (4)
   together), llms.txt (regenerated), this file (both sections). `npm test` exit 0 after the merge.
-- Last checkpoint: 9c533c17 plus this plan commit. Last passing test command: `npm test` (exit 0).
+- Round 5 (review-guard-5, head 751da998, 2026-11-27 09:4x, after Furkan's new approval): P1 0, P2 0, P3 0, P4 1. The
+  merge 9c533c17 lost nothing from either side. Fixed: a fenced code block in a list item (4 or more spaces: `10. `,
+  nested `- `) counted as text; guessText now finds a fence with any indent (ANY_FENCE; blankFences of selfQuotes keeps
+  0-3 spaces). Test rows in assistant-guards item 5 (red on 751da998: 3 of 3). A 4-space code block without a fence
+  still counts (ponytail comment).
+- Last checkpoint: the round-5 fix commit. Last passing test command: `npm test` (exit 0, 2026-11-27 09:5x).
 - Known limit: the link-target pattern cuts two nested parenthesis levels; a guess word inside a third level counts.
 - Open steps:
-  1. Review-guard round 5 of origin/main...HEAD (the merge 9c533c17 changed index.js). Not started: Auto review denied the
-     review subagent on 2026-11-27 about 09:25. Reason: the quoted approval was not found in the human messages.
-  2. When round 5 is clean: fetch, merge origin/main if it moved, `npm test`, merge into main with --no-ff, push main,
+  1. Review-guard round 6 of origin/main...HEAD (separate subagent). Merge only on a clean round.
+  2. When the round is clean: fetch, merge origin/main if it moved, `npm test`, merge into main with --no-ff, push main,
      check the CI run. Keep the branch and its folder.
 
 # Quiet turns leave no card, and small tasks start quietly (branch fix/hide-quiet-only-turns, 2026-11-27)
