@@ -570,6 +570,9 @@ struct QRScanner: UIViewControllerRepresentable {
 
 // MARK: - Conversation (pushed from Sessions, so the system back button / edge swipe always leads out)
 
+/// The read state of the Damon chat's cards for one draw: this phone's mark, the newest New card, all cards.
+struct CardRead { let mark: ReplyMark?; let newest: String?; let cards: [ReplyCardID] }
+
 struct ConversationView: View {
     @EnvironmentObject var c: Client
     @State private var text = ""
@@ -593,6 +596,14 @@ struct ConversationView: View {
     @State private var goalText = ""
     @State private var confirmClearGoal = false
     @State private var loadingOlder = false
+    /// Damon reply cards, Load earlier: the oldest reply seq that the chat shows (nil: the newest page; `replyPage`).
+    @State private var replyFloor: Int?
+    /// Load earlier and Open message: the row to scroll to (and to focus with VoiceOver) once a new page is in the list.
+    @State private var scrollAfterPage: (id: UUID, anchor: UnitPoint, focus: UUID?)?
+    /// The cards of the shown rows, kept while the rows stay the same (a keystroke draws the chat again).
+    @State private var cardCache = ReplyCardCache()
+    /// VoiceOver: after the last Load earlier, the newest card that it added (the Mac moves the keyboard focus there).
+    @AccessibilityFocusState private var replyFocus: UUID?
     /// Finished turns the user opened. A new chat starts with every finished turn folded, as DSH desktop does.
     @State private var openTurns = Set<UUID>()
     @State private var showUsage = false
@@ -763,8 +774,22 @@ struct ConversationView: View {
         ScrollViewReader { proxy in
                 // One row list and one search per render: the find tint of each row reads `findIndex`.
                 // Assistant messages only: the assistant chat shows no thinking, tool or turn rows.
-                let bot = c.assistantMessagesOnly && c.current != nil && c.current == c.botId
-                let rows = chatRows(bot ? botLines(c.transcript) : c.transcript, open: openTurns, running: c.running)
+                let lines = damonLines
+                let all = chatRows(lines, open: openTurns, running: c.running)
+                // Damon reply cards (Mac assistantReplyCards): this phone's read marks, and Load earlier (`replyPage`): the
+                // cards of the newest 8 replies and every unread card first, 8 older replies per tap. No 40 cap: the chat
+                // and the cards are one list here, so older replies come from dsh's history (Client.loadOlder).
+                // While the find bar is open, every loaded row shows, so each hit can be reached.
+                // The cards of the shown rows only: a folded turn's hidden texts are no cards (no New, no count, no cut).
+                let cards = damon ? cardCache.cards(all) : []
+                let mark = damon ? c.current.flatMap { c.replyMarks[$0] } : nil
+                let page = damon && finding == nil ? replyPage(cards, floor: replyFloor, unread: { replyUnread(mark, $0) }) : nil
+                let rows = page.map { rowsFrom(all, cut: $0.cut) } ?? all
+                // Load earlier counts from the oldest card that shows: a finished turn keeps its rows together, so the
+                // rows can start below the page's cut (`rowsFrom`).
+                let more = page.map { p in firstCardSeq(rows).map { replyPage(cards, floor: $0) } ?? p }
+                let unread = cards.filter { replyUnread(mark, $0) }
+                let read = CardRead(mark: mark, newest: unread.last?.id, cards: cards)
                 let hits = finding.map { findRows(rows, query: $0) } ?? []
                 let findIndex = Dictionary(hits.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { a, _ in a })
                 // Approve button: the answer with the block, or (a folded turn hides it) the next answer on screen. Only
@@ -778,14 +803,16 @@ struct ConversationView: View {
                 ScrollView {
                     // Pinned section headers: an open step group (StepsView) keeps its header at the top of the screen.
                     LazyVStack(alignment: .leading, spacing: 14, pinnedViews: .sectionHeaders) {
-                        if c.hasOlder {
+                        if c.hasOlder || more?.older == true {
                             Button {
-                                loadingOlder = true
-                                c.run(waits: false) { defer { loadingOlder = false }; try await c.loadOlder() }
+                                if let more { loadEarlierCards(more, proxy) } else {
+                                    loadingOlder = true
+                                    c.run(waits: false) { defer { loadingOlder = false }; try await c.loadOlder() }
+                                }
                             } label: {
                                 HStack(spacing: 6) {
                                     if loadingOlder { ProgressView().controlSize(.small) } else { Image(systemName: "arrow.up.circle") }
-                                    Text("Load earlier messages")
+                                    if damon { Text(String(localized: "replies.loadEarlier", defaultValue: "Load earlier", bundle: uiStrings)) } else { Text("Load earlier messages") }
                                 }.font(.footnote).frame(maxWidth: .infinity)
                             }.buttonStyle(.bordered).disabled(loadingOlder)
                         }
@@ -795,7 +822,7 @@ struct ConversationView: View {
                             switch row {
                             // A Section with its own header id: no modifier here, or each part of the Section gets it.
                             case .steps(let ls, let live): StepsView(lines: ls, live: live && !c.answering) { keepHeader(proxy, $0) }
-                            default: lineRow(row, findIndex, hits.count, approval: approval)
+                            default: lineRow(row, findIndex, hits.count, approval: approval, read: read)
                             }
                         }
                         // A message on its way to the Mac: shown at once, faded, until the Mac's copy replaces it.
@@ -832,8 +859,25 @@ struct ConversationView: View {
                     }
                 }
                 .scrollDismissesKeyboard(.interactively)
-                .safeAreaInset(edge: .top, spacing: 0) { if finding != nil { findBar(proxy, hits) } }
-                .onChange(of: c.current) { finding = nil }
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    VStack(spacing: 0) {
+                        if finding != nil { findBar(proxy, hits) }
+                        if damon, !unread.isEmpty, let sid = c.current { unreadBar(sid, count: unread.count, top: c.lastSeq ?? cards.last?.seq ?? 0) }
+                    }
+                }
+                .onChange(of: c.current) { finding = nil; replyFloor = nil; scrollAfterPage = nil }
+                // The first view of the Damon chat: its older replies count as read (the Mac's rule).
+                .onChange(of: damon && !c.loadingChat ? c.lastSeq : nil, initial: true) { _, top in if let top, let sid = c.current { c.startReplyMarks(sid, top: top) } }
+                // An unread card holds the page's cut: it stays on screen after you read it.
+                .onChange(of: page?.held == true ? page?.cut : nil, initial: true) { _, cut in if let cut { replyFloor = cut } }
+                // Load earlier, Open message above the page: the scroll runs after the body that has the new page's rows
+                // (the value changes when a scroll waits, also when the first row stays the same).
+                .onChange(of: scrollAfterPage == nil ? nil : rows.first?.id) {
+                    guard let s = scrollAfterPage else { return }
+                    scrollAfterPage = nil
+                    proxy.scrollTo(s.id, anchor: s.anchor)
+                    if let f = s.focus { replyFocus = f }
+                }
                 // composer pinned via safeAreaInset so keyboard/tab switches never leave it floating mid-screen
                 .safeAreaInset(edge: .bottom, spacing: 0) {
                     VStack(spacing: 0) {
@@ -885,20 +929,72 @@ struct ConversationView: View {
         .onChange(of: finding) { if let first = hits.first { follow = false; withAnimation { proxy.scrollTo(first.id, anchor: .center) } } }
     }
 
+    /// The Damon chat's rows: only your messages, the replies and errors while Assistant messages only is on.
+    private var damonLines: [Line] { c.assistantMessagesOnly && c.current != nil && c.current == c.botId ? botLines(c.transcript) : c.transcript }
+
+    /// Damon reply cards: "N unread" and Mark all as read (the Mac's feed header), above the chat while a card is New.
+    private func unreadBar(_ sid: String, count: Int, top: Int) -> some View {
+        HStack(spacing: 8) {
+            Text(String(localized: "replies.unread", defaultValue: "\(count) unread", bundle: uiStrings)).font(.footnote.monospacedDigit()).foregroundStyle(.secondary)
+            Spacer()
+            Button { c.readAllReplies(sid, top: top) } label: { Text(String(localized: "replies.readAll", defaultValue: "Mark all as read", bundle: uiStrings)).font(.footnote.weight(.medium)) }
+                .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 6).background(.bar)
+    }
+
+    /// Load earlier in the Damon chat: 8 older replies of the loaded chat, else dsh's next history page and then 8 of its
+    /// replies. The first row on screen keeps its place; with VoiceOver, the last tap moves the focus to the newest card
+    /// that it added (the Mac's keyboard rule).
+    private func loadEarlierCards(_ page: ReplyPage, _ proxy: ScrollViewProxy) {
+        follow = false
+        let done = { (floor: Int?) in
+            // The row that was first on screen, found again by its seq (a dsh page makes every row again, with new ids).
+            let rows = chatRows(damonLines, open: openTurns, running: c.running), cards = replyCards(rows)
+            // The last tap: nothing older after the new page, counted from its oldest card that shows (as the button does).
+            let after = floor.flatMap { firstCardSeq(rowsFrom(rows, cut: $0)) } ?? floor
+            let focus = UIAccessibility.isVoiceOverRunning && !c.hasOlder && !replyPage(cards, floor: after).older
+                ? cards.last(where: { $0.seq < page.cut }).flatMap { card in damonLines.last { $0.seq == card.seq && isCardLine($0) }?.id } : nil
+            // The row may not be in the list yet (a lower floor adds older rows; a dsh page makes the rows again), so the
+            // scroll waits for the next body (`scrollAfterPage`).
+            scrollAfterPage = rowsFrom(rows, cut: page.cut).first.map { ($0.id, .top, focus) }
+            replyFloor = floor
+        }
+        if page.older { done(page.next); return }
+        loadingOlder = true
+        c.run(waits: false) {
+            defer { loadingOlder = false }
+            try await c.loadOlder()
+            done(replyPage(replyCards(chatRows(damonLines, open: openTurns, running: c.running)), floor: page.cut).next)
+        }
+    }
+
+    /// A tap on a Damon card (or one of its buttons) reads it.
+    private func readCard(_ id: ReplyCardID?, _ read: CardRead?) {
+        guard let id, let read, let sid = c.current, replyUnread(read.mark, id) else { return }
+        c.readReplies(sid, [id.id], cards: read.cards)
+    }
+
     /// A message row or a turn summary row, with its scroll id and its tint (Open message, Find in chat).
-    @ViewBuilder private func lineRow(_ row: ChatRow, _ findIndex: [UUID: Int], _ hitCount: Int, approval: (offer: ApprovalOffer, at: Int)? = nil) -> some View {
+    @ViewBuilder private func lineRow(_ row: ChatRow, _ findIndex: [UUID: Int], _ hitCount: Int, approval: (offer: ApprovalOffer, at: Int)? = nil, read: CardRead? = nil) -> some View {
         Group {
             switch row {
             case .line(let l):
                 // Damon reply cards (Composer Plus `assistantReplyCards`): in the Damon chat each topic of a reply (the parts
                 // between `---` lines, `replySections`) and each failed turn is a card with its buttons, in time order (the
-                // newest at the bottom, where the chat opens and follows).
+                // newest at the bottom, where the chat opens and follows). A New card has a blue edge and the New label; the
+                // newest New card has a shadow; a tap on it or on one of its buttons reads it.
                 if damon, l.kind == .assistant {
                     let parts = replySections(l.text)
+                    let ids = isCardLine(l) ? l.seq.map { replyCardIDs(seq: $0, parts: parts.count) } : nil // a `[quiet]` reply is never New
                     VStack(alignment: .leading, spacing: 14) {
-                        ForEach(Array(parts.enumerated()), id: \.offset) { i, part in replyCard { lineContent(l, approval: approval, part: part, last: i == parts.count - 1) } }
+                        ForEach(Array(parts.enumerated()), id: \.offset) { i, part in
+                            replyCard(ids?[i], read) { new in lineContent(l, approval: approval, part: part, last: i == parts.count - 1, unread: new) }
+                        }
                     }
-                } else if damon, l.kind == .error { replyCard { lineContent(l, approval: approval, part: "") } }
+                } else if damon, l.kind == .error {
+                    replyCard(l.seq.map { ReplyCardID(seq: $0, id: "\($0)") }, read) { new in lineContent(l, approval: approval, part: "", unread: new) }
+                }
                 else { lineContent(l, approval: approval) }
             case .turn(let l, let foldable):
                 TurnRow(line: l, foldable: foldable, open: openTurns.contains(l.id)) {
@@ -908,27 +1004,37 @@ struct ConversationView: View {
             }
         }
         .id(row.id)
+        .accessibilityFocused($replyFocus, equals: row.id)
         // Open message: the message that the link names blinks for 2 s. Find in chat: hits are tinted, the current one more.
         .background(row.id == marked ? Color.accentColor.opacity(0.18) : findIndex[row.id].map { Color.yellow.opacity($0 == min(findAt, hitCount - 1) ? 0.45 : 0.18) } ?? .clear,
                     in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
-    /// The frame of a Damon reply card.
-    private func replyCard(@ViewBuilder _ content: () -> some View) -> some View {
-        VStack(alignment: .leading, spacing: 10) { content() }
-            .padding(14).frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color(.separator), lineWidth: 0.5))
+    /// A Damon reply card (`content` gets whether it is New). A New card has the Mac's blue left edge and VoiceOver's
+    /// Mark as read action; the newest New card has a shadow. A tap on the card or on one of its buttons reads it.
+    private func replyCard(_ id: ReplyCardID?, _ read: CardRead?, @ViewBuilder _ content: (Bool) -> some View) -> some View {
+        let unread = id.map { replyUnread(read?.mark, $0) } ?? false, newest = unread && id?.id == read?.newest
+        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+        return VStack(alignment: .leading, spacing: 10) { content(unread) }
+            .padding(14).padding(.leading, 2).frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.secondarySystemBackground), in: shape)
+            .overlay(alignment: .leading) { if unread { Rectangle().fill(Color.accentColor).frame(width: 4) } }
+            .clipShape(shape)
+            .overlay(shape.strokeBorder(Color(.separator), lineWidth: 0.5))
+            .shadow(color: .black.opacity(newest ? 0.14 : 0), radius: 12, y: 6)
+            .simultaneousGesture(TapGesture().onEnded { readCard(id, read) })
+            .accessibilityActions { if unread { Button(String(localized: "replies.markRead", defaultValue: "Mark as read", bundle: uiStrings)) { readCard(id, read) } } }
     }
 
     /// A message row with the buttons under it. `part`: a Damon reply card shows this topic of the reply (`last`: the
     /// reply's last topic, which holds its option list); the Approve buttons go under the topic with the `onay` block.
-    @ViewBuilder private func lineContent(_ l: Line, approval: (offer: ApprovalOffer, at: Int)?, part: String? = nil, last: Bool = true) -> some View {
+    @ViewBuilder private func lineContent(_ l: Line, approval: (offer: ApprovalOffer, at: Int)?, part: String? = nil, last: Bool = true, unread: Bool = false) -> some View {
         let onay = approval.flatMap { o in o.offer.from == l.seq && o.at == l.seq ? Set(o.offer.sentences) : nil } ?? []
+        let options = last && l.kind == .assistant && c.optionOffer.map { $0.seq == l.seq } == true && text.isEmpty && images.isEmpty && files.isEmpty
         LineView(line: l, onEdit: { put($0, focus: true) }, onQuote: { put(quoteDraft(text, $0), focus: true) }, onRollback: canRollBack(l) ? { rollingBack = l } : nil,
-                 onayButtons: onay, card: part != nil, part: part)
+                 onayButtons: onay, card: part != nil, part: part, unread: unread, optionButtons: options)
         // Option buttons (Composer Plus): under the answer that ends with an option list.
-        if last, l.kind == .assistant, let o = c.optionOffer, o.seq == l.seq, text.isEmpty, images.isEmpty, files.isEmpty { OptionButtons(offer: o) }
+        if options, let o = c.optionOffer { OptionButtons(offer: o) }
         // Approve button (Composer Plus): under the answer with the newest `onay` block (in a split reply, its topic).
         if let o = approval, l.kind == .assistant, l.seq == o.at, part.map({ p in onay.isEmpty ? last : !onay.isDisjoint(with: onayBlocks(p)) }) ?? true { ApproveButtons(offer: o.offer) }
     }
@@ -956,8 +1062,15 @@ struct ConversationView: View {
         if c.jump == j { c.jump = nil }
         guard let target else { c.error = String(localized: "This message is not in the chat any more."); return }
         follow = false
-        withAnimation { proxy.scrollTo(target, anchor: .center) }
         marked = target
+        // Load earlier: when the target row is above the page, the page starts at the first card at or after it (its rows
+        // go back to the card before), and the scroll waits until those rows are in the list (`scrollAfterPage`).
+        if damon, finding == nil, let s = c.transcript.first(where: { $0.id == target })?.seq {
+            let cards = cardCache.cards(chatRows(damonLines, open: openTurns, running: c.running)), mark = c.current.flatMap { c.replyMarks[$0] }
+            let cut = replyPage(cards, floor: replyFloor, unread: { replyUnread(mark, $0) }).cut
+            if let need = cards.first(where: { $0.seq >= s })?.seq, need < cut { scrollAfterPage = (target, .center, nil); replyFloor = need; return }
+        }
+        withAnimation { proxy.scrollTo(target, anchor: .center) }
     }
 
     /// Secret input (Composer Plus): the agent waits for a secret; Enter opens the sheet with a secure field.
@@ -1635,6 +1748,10 @@ struct LineView: View {
     /// of the reply that this card shows (empty for a failed turn).
     var card = false
     var part: String? = nil
+    /// Damon reply card: New (this phone's read mark).
+    var unread = false
+    /// The option buttons show under this answer: the answer hides its numbered list (Mac optionPicks, 2026-11-23).
+    var optionButtons = false
     @State private var open = false
     @State private var copied = false
     @State private var selecting = false
@@ -1687,10 +1804,15 @@ struct LineView: View {
             }.frame(maxWidth: .infinity, alignment: .trailing)
         case .assistant:
             VStack(alignment: .leading, spacing: 6) {
-                let head = card ? replyHead(part ?? line.text) : ReplyHead(body: line.text)
-                if card { cardHead(title: head.title, forYou: head.forYou) }
+                let head = card ? replyHead(part ?? line.text) : ReplyHead(body: optionButtons ? dropOptionList(line.text) : line.text)
+                if card { cardHead(title: head.title, forYou: head.forYou, unread: unread) }
                 // Assistant callouts: only in the assistant chat, as on the Mac.
                 if !head.body.isEmpty { Markdown(text: head.body, callouts: c.current != nil && c.current == c.assistantId, calloutLang: c.macLang, onayButtons: onayButtons).frame(maxWidth: .infinity, alignment: .leading) }
+                // A card's option list: the buttons under it, or (an older card) the options as a plain list (the Mac's card).
+                if card, !optionButtons, !head.options.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) { ForEach(head.options, id: \.n) { o in Text(verbatim: "\(o.n). \(o.label)") } }
+                        .font(.subheadline).foregroundStyle(.secondary).textSelection(.enabled)
+                }
                 if !live {
                     Button {
                         UIPasteboard.general.string = part ?? line.text; UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -1747,7 +1869,7 @@ struct LineView: View {
             .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10, style: .continuous)), 6)
         case .error:
             VStack(alignment: .leading, spacing: 6) {
-                if card { cardHead(title: String(localized: "replies.failed", defaultValue: "The turn failed", bundle: uiStrings), forYou: "", failed: true) }
+                if card { cardHead(title: String(localized: "replies.failed", defaultValue: "The turn failed", bundle: uiStrings), forYou: "", failed: true, unread: unread) }
                 tap(Label(line.text, systemImage: "exclamationmark.triangle").font(.caption.monospaced()).foregroundStyle(.red), 6)
                 if !c.running, let p = retryPrompt(for: line.id, in: c.transcript) {
                     Button { c.run(waits: false) { try await c.resend(p) } } label: { Label("Retry", systemImage: "arrow.clockwise").font(.footnote.weight(.medium)) }
@@ -1765,8 +1887,16 @@ struct LineView: View {
     }
     /// The top of a Damon reply card (client.js ReplyCard): the time, the title, the highlighted For you line. All are
     /// the Mac's data (verbatim) and can be selected.
-    @ViewBuilder private func cardHead(title: String, forYou: String, failed: Bool = false) -> some View {
-        if let t = line.time { Text(t, format: .dateTime.hour().minute()).font(.caption.monospacedDigit()).foregroundStyle(.secondary) }
+    @ViewBuilder private func cardHead(title: String, forYou: String, failed: Bool = false, unread: Bool = false) -> some View {
+        if unread || line.time != nil {
+            HStack(spacing: 8) {
+                if unread {
+                    Text(String(localized: "replies.new", defaultValue: "New", bundle: uiStrings)).font(.caption2.weight(.bold))
+                        .padding(.horizontal, 7).padding(.vertical, 1).background(Color.accentColor.opacity(0.18), in: Capsule())
+                }
+                if let t = line.time { Text(t, format: .dateTime.hour().minute()).font(.caption.monospacedDigit()).foregroundStyle(.secondary) }
+            }
+        }
         if !title.isEmpty { Text(verbatim: title).font(.headline).foregroundStyle(failed ? Color.red : .primary).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).accessibilityAddTraits(.isHeader) }
         if !forYou.isEmpty {
             Text(verbatim: "\(String(localized: "replies.forYou", defaultValue: "For you", bundle: uiStrings)): \(forYou)").font(.subheadline.weight(.semibold)).textSelection(.enabled)

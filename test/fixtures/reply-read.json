@@ -1,0 +1,615 @@
+{
+  "about": "One table for the read marks and the pages of the Damon reply cards (kept by hand; test/reply-cards.test.mjs checks every want against client.js): client.js markReplies, replyUnread and replyPage, and Tether's ports in Core.swift (markReplies, replyUnread, replyPage). A read id is a reply's seq (a number) or \"seq:i\" for topic i of a split reply. Tether keeps every id as text. replyPage: the cards in time order (seqs), the floor after Load earlier (null: the first view), the unread seqs; the Mac caps at 40 replies (Tether passes no cap: it pages on through dsh's history). cut is left out when there is no card (the Mac uses Infinity).",
+  "read": [
+    {
+      "name": "a card in the middle",
+      "mark": {
+        "floor": 10,
+        "read": []
+      },
+      "ids": [
+        14
+      ],
+      "cards": [
+        {
+          "seq": 12,
+          "id": 12
+        },
+        {
+          "seq": 14,
+          "id": 14
+        },
+        {
+          "seq": 16,
+          "id": 16
+        }
+      ],
+      "want": {
+        "floor": 10,
+        "read": [
+          14
+        ]
+      }
+    },
+    {
+      "name": "the floor moves over the cards read in a row",
+      "mark": {
+        "floor": 10,
+        "read": [
+          14
+        ]
+      },
+      "ids": [
+        12
+      ],
+      "cards": [
+        {
+          "seq": 12,
+          "id": 12
+        },
+        {
+          "seq": 14,
+          "id": 14
+        },
+        {
+          "seq": 16,
+          "id": 16
+        }
+      ],
+      "want": {
+        "floor": 14,
+        "read": []
+      }
+    },
+    {
+      "name": "one topic of a split reply: the floor stops before the reply",
+      "mark": {
+        "floor": 10,
+        "read": []
+      },
+      "ids": [
+        "20:0"
+      ],
+      "cards": [
+        {
+          "seq": 20,
+          "id": "20:0"
+        },
+        {
+          "seq": 20,
+          "id": "20:1"
+        },
+        {
+          "seq": 30,
+          "id": 30
+        }
+      ],
+      "want": {
+        "floor": 10,
+        "read": [
+          "20:0"
+        ]
+      }
+    },
+    {
+      "name": "all topics read: the floor moves over the reply and drops its ids",
+      "mark": {
+        "floor": 10,
+        "read": [
+          "20:0"
+        ]
+      },
+      "ids": [
+        "20:1"
+      ],
+      "cards": [
+        {
+          "seq": 20,
+          "id": "20:0"
+        },
+        {
+          "seq": 20,
+          "id": "20:1"
+        },
+        {
+          "seq": 30,
+          "id": 30
+        }
+      ],
+      "want": {
+        "floor": 20,
+        "read": []
+      }
+    },
+    {
+      "name": "a whole-reply mark moves the floor over a split reply",
+      "mark": {
+        "floor": 10,
+        "read": []
+      },
+      "ids": [
+        20
+      ],
+      "cards": [
+        {
+          "seq": 20,
+          "id": "20:0"
+        },
+        {
+          "seq": 20,
+          "id": "20:1"
+        },
+        {
+          "seq": 30,
+          "id": 30
+        }
+      ],
+      "want": {
+        "floor": 20,
+        "read": []
+      }
+    },
+    {
+      "name": "an older reply read first, then the newer: sorted by seq",
+      "mark": {
+        "floor": 10,
+        "read": [
+          30
+        ]
+      },
+      "ids": [
+        "20:1"
+      ],
+      "cards": [
+        {
+          "seq": 20,
+          "id": "20:0"
+        },
+        {
+          "seq": 20,
+          "id": "20:1"
+        },
+        {
+          "seq": 30,
+          "id": 30
+        }
+      ],
+      "want": {
+        "floor": 10,
+        "read": [
+          "20:1",
+          30
+        ]
+      }
+    },
+    {
+      "name": "a read id already at or below the floor is dropped",
+      "mark": {
+        "floor": 20,
+        "read": [
+          15
+        ]
+      },
+      "ids": [
+        12
+      ],
+      "cards": [
+        {
+          "seq": 12,
+          "id": 12
+        },
+        {
+          "seq": 15,
+          "id": 15
+        },
+        {
+          "seq": 20,
+          "id": 20
+        },
+        {
+          "seq": 25,
+          "id": 25
+        }
+      ],
+      "want": {
+        "floor": 20,
+        "read": []
+      }
+    }
+  ],
+  "unread": [
+    {
+      "name": "no mark: nothing is New",
+      "mark": null,
+      "card": {
+        "seq": 12,
+        "id": 12
+      },
+      "want": false
+    },
+    {
+      "name": "after the floor and not read: New",
+      "mark": {
+        "floor": 10,
+        "read": []
+      },
+      "card": {
+        "seq": 12,
+        "id": 12
+      },
+      "want": true
+    },
+    {
+      "name": "at the floor: read",
+      "mark": {
+        "floor": 12,
+        "read": []
+      },
+      "card": {
+        "seq": 12,
+        "id": 12
+      },
+      "want": false
+    },
+    {
+      "name": "its own id read",
+      "mark": {
+        "floor": 10,
+        "read": [
+          "20:1"
+        ]
+      },
+      "card": {
+        "seq": 20,
+        "id": "20:1"
+      },
+      "want": false
+    },
+    {
+      "name": "the other topic of the same reply stays New",
+      "mark": {
+        "floor": 10,
+        "read": [
+          "20:1"
+        ]
+      },
+      "card": {
+        "seq": 20,
+        "id": "20:0"
+      },
+      "want": true
+    },
+    {
+      "name": "a whole-reply mark reads every topic",
+      "mark": {
+        "floor": 10,
+        "read": [
+          20
+        ]
+      },
+      "card": {
+        "seq": 20,
+        "id": "20:0"
+      },
+      "want": false
+    }
+  ],
+  "pages": [
+    {
+      "name": "no reply",
+      "seqs": [],
+      "floor": null,
+      "unread": [],
+      "want": {
+        "shown": 0,
+        "held": false,
+        "older": false,
+        "next": null,
+        "more": 0
+      }
+    },
+    {
+      "name": "less than a page: all, no button",
+      "seqs": [
+        10,
+        20,
+        30,
+        40,
+        50
+      ],
+      "floor": null,
+      "unread": [],
+      "want": {
+        "cut": 10,
+        "shown": 5,
+        "held": false,
+        "older": false,
+        "next": 10,
+        "more": 0
+      }
+    },
+    {
+      "name": "the newest 8 replies (one reply in two topics)",
+      "seqs": [
+        10,
+        20,
+        30,
+        40,
+        50,
+        60,
+        70,
+        80,
+        90,
+        100,
+        110,
+        120,
+        130,
+        140,
+        150,
+        160,
+        170,
+        180,
+        190,
+        190,
+        200
+      ],
+      "floor": null,
+      "unread": [],
+      "want": {
+        "cut": 130,
+        "shown": 9,
+        "held": false,
+        "older": true,
+        "next": 50,
+        "more": 0
+      }
+    },
+    {
+      "name": "after one tap: 8 older replies",
+      "seqs": [
+        10,
+        20,
+        30,
+        40,
+        50,
+        60,
+        70,
+        80,
+        90,
+        100,
+        110,
+        120,
+        130,
+        140,
+        150,
+        160,
+        170,
+        180,
+        190,
+        190,
+        200
+      ],
+      "floor": 50,
+      "unread": [],
+      "want": {
+        "cut": 50,
+        "shown": 17,
+        "held": false,
+        "older": true,
+        "next": 10,
+        "more": 0
+      }
+    },
+    {
+      "name": "the last page",
+      "seqs": [
+        10,
+        20,
+        30,
+        40,
+        50,
+        60,
+        70,
+        80,
+        90,
+        100,
+        110,
+        120,
+        130,
+        140,
+        150,
+        160,
+        170,
+        180,
+        190,
+        190,
+        200
+      ],
+      "floor": 10,
+      "unread": [],
+      "want": {
+        "cut": 10,
+        "shown": 21,
+        "held": false,
+        "older": false,
+        "next": 10,
+        "more": 0
+      }
+    },
+    {
+      "name": "an old unread card holds the cut",
+      "seqs": [
+        5,
+        6,
+        92,
+        93,
+        94,
+        95,
+        96,
+        97,
+        98,
+        99,
+        100
+      ],
+      "floor": null,
+      "unread": [
+        6
+      ],
+      "want": {
+        "cut": 6,
+        "shown": 10,
+        "held": true,
+        "older": true,
+        "next": 5,
+        "more": 0
+      }
+    },
+    {
+      "name": "an unread card past the 40 cap stays only in the chat",
+      "seqs": [
+        956,
+        957,
+        958,
+        959,
+        960,
+        961,
+        962,
+        963,
+        964,
+        965,
+        966,
+        967,
+        968,
+        969,
+        970,
+        971,
+        972,
+        973,
+        974,
+        975,
+        976,
+        977,
+        978,
+        979,
+        980,
+        981,
+        982,
+        983,
+        984,
+        985,
+        986,
+        987,
+        988,
+        989,
+        990,
+        991,
+        992,
+        993,
+        994,
+        995,
+        996,
+        997,
+        998,
+        999,
+        1000
+      ],
+      "floor": null,
+      "unread": [
+        958
+      ],
+      "want": {
+        "cut": 993,
+        "shown": 8,
+        "held": false,
+        "older": true,
+        "next": 985,
+        "more": 5
+      }
+    },
+    {
+      "name": "the 40 cap: the note counts the rest",
+      "seqs": [
+        956,
+        957,
+        958,
+        959,
+        960,
+        961,
+        962,
+        963,
+        964,
+        965,
+        966,
+        967,
+        968,
+        969,
+        970,
+        971,
+        972,
+        973,
+        974,
+        975,
+        976,
+        977,
+        978,
+        979,
+        980,
+        981,
+        982,
+        983,
+        984,
+        985,
+        986,
+        987,
+        988,
+        989,
+        990,
+        991,
+        992,
+        993,
+        994,
+        995,
+        996,
+        997,
+        998,
+        999,
+        1000
+      ],
+      "floor": 961,
+      "unread": [],
+      "want": {
+        "cut": 961,
+        "shown": 40,
+        "held": false,
+        "older": false,
+        "next": 961,
+        "more": 5
+      }
+    },
+    {
+      "name": "a rollback took the replies above the floor: still one page",
+      "seqs": [
+        10,
+        20,
+        30,
+        40,
+        50,
+        60,
+        70,
+        80,
+        90,
+        100
+      ],
+      "floor": 90,
+      "unread": [],
+      "want": {
+        "cut": 30,
+        "shown": 8,
+        "held": false,
+        "older": true,
+        "next": 10,
+        "more": 0
+      }
+    }
+  ]
+}

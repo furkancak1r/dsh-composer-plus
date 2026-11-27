@@ -760,8 +760,7 @@ func parseOptions(_ text: String) -> [ChatOption] {
     let blank = { (l: String) in l.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     while let l = lines.last, blank(l) { lines.removeLast() }
     // From the end: the list (items, indented lines, blank lines); the line above it must be the heading.
-    var at = lines.count - 1
-    while at >= 0, blank(lines[at]) || leadingBlank(lines[at]) > 0 || groups(optionItemRE, lines[at]) != nil { at -= 1 }
+    let at = optionListStart(lines) - 1
     guard at >= 0, isOptionHeading(lines[at]) else { return [] }
     // A heading inside a code block is code. A fence inside the list is indented: it is part of an item.
     var fenced = false
@@ -1040,7 +1039,7 @@ func mdCallouts(_ parts: [MdPart]) -> [MdBlock] {
 /// a list line, a quote, a code block and other text before it give no title. `onay` blocks, the option list at the end
 /// and a `[!DETAILS]` section are not text there (the Mac shows them as buttons and a closed section). `body` is the reply
 /// without the title and the For you line: the chat's Markdown draws it, with its Approve and option buttons.
-struct ReplyHead: Equatable { var title = "", forYou = "", body = "" }
+struct ReplyHead: Equatable { var title = "", forYou = "", body = ""; var options: [ChatOption] = [] }
 private let sectionFenceRE = try! NSRegularExpression(pattern: #"^ {0,3}(`{3,}|~{3,})([^\n\r\u2028\u2029]*)$"#)
 private let sectionRuleRE = try! NSRegularExpression(pattern: #"^ {0,3}-{3,}[ \t]*$"#)
 /// The topics of a reply, one card each (client.js `replySections`, one table: test/fixtures/reply-sections.json): the
@@ -1081,14 +1080,18 @@ func replyHead(_ text: String) -> ReplyHead {
             if let g, g.mark.first == f.mark.first, g.mark.count >= f.mark.count, g.info.isEmpty { if f.onay { skip.formUnion(f.from...i) }; fence = nil }
         } else if let g { fence = (g.mark, !g.indented && g.info.lowercased() == "onay", i) }
     }
-    if !parseOptions(lines.enumerated().filter { !skip.contains($0.offset) }.map(\.element).joined(separator: "\n")).isEmpty {
-        var at = lines.count - 1
-        while at >= 0, skip.contains(at) || blank(lines[at]) || lines[at].first == " " || lines[at].first == "\t" || groups(optionItemRE, lines[at]) != nil { at -= 1 }
-        if at >= 0 { skip.formUnion(at..<lines.count) }
+    // The option list at the end and its heading leave the text (client.js replyParts): the card shows them as the option
+    // buttons, or as a plain numbered list while it has none.
+    var out = ReplyHead(), opts = Set<Int>()
+    out.options = parseOptions(lines.enumerated().filter { !skip.contains($0.offset) }.map(\.element).joined(separator: "\n"))
+    if !out.options.isEmpty {
+        let at = optionListStart(lines, skip: skip) - 1
+        if at >= 0 { opts = Set(at..<lines.count).subtracting(skip); skip.formUnion(opts) }
     }
-    var out = ReplyHead(), body: [String] = [], text = false, code = false, i = 0
+    var body: [String] = [], text = false, code = false, i = 0
     while i < lines.count {
         let line = lines[i]
+        if opts.contains(i) { i += 1; continue }
         if skip.contains(i) { body.append(line); i += 1; continue }
         if hits(optionFenceRE, line) { code.toggle() }
         if !code, groups(replyQuoteRE, line) != nil {
@@ -1113,6 +1116,101 @@ func replyHead(_ text: String) -> ReplyHead {
     out.body = body.joined(separator: "\n").replacingOccurrences(of: #"\n{3,}"#, with: "\n\n", options: .regularExpression).trimmingCharacters(in: jsTrim)
     return out
 }
+/// Options only as buttons (Mac `optionPicks`, 2026-11-23): while the option buttons show under an answer, the answer
+/// shows its option heading but not the numbered list (the buttons hold the items). The same list as `parseOptions`.
+func dropOptionList(_ text: String) -> String {
+    guard !parseOptions(text).isEmpty else { return text }
+    let lines = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n").components(separatedBy: "\n")
+    let at = optionListStart(lines) - 1
+    return at < 0 ? text : lines[...at].joined(separator: "\n")
+}
+/// The option list at the end of `lines` (`parseOptions`' scan: items, indented lines and blank lines; `skip`: lines
+/// that are not text, such as a closed `onay` block): the index of its first line, right after the heading.
+private func optionListStart(_ lines: [String], skip: Set<Int> = []) -> Int {
+    var at = lines.count - 1
+    while at >= 0, skip.contains(at) || lines[at].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || leadingBlank(lines[at]) > 0 || groups(optionItemRE, lines[at]) != nil { at -= 1 }
+    return at + 1
+}
+
+/// Damon reply cards: the read marks and the pages, ported from client.js (`markReplies`, `replyUnread`, `replyPage`;
+/// one table: test/fixtures/reply-read.json). A card's read id is its reply's seq ("12"), or "seq:i" for topic i of a
+/// split reply, so each topic is read on its own. The phone keeps its own marks (the Mac keeps its marks in its browser).
+struct ReplyCardID: Equatable { let seq: Int; let id: String }
+struct ReplyMark: Equatable, Codable { var floor: Int; var read: [String] }
+/// The cards of a reply with `parts` topics.
+func replyCardIDs(seq: Int, parts: Int) -> [ReplyCardID] { (0..<max(parts, 1)).map { ReplyCardID(seq: seq, id: parts > 1 ? "\(seq):\($0)" : "\(seq)") } }
+private func readIdSeq(_ id: String) -> Int { Int(id.split(separator: ":").first ?? "") ?? 0 }
+/// A card is unread after the floor while neither its reply (a whole-reply mark reads every topic) nor the card is read.
+func replyUnread(_ m: ReplyMark?, _ card: ReplyCardID) -> Bool {
+    guard let m else { return false }
+    return card.seq > m.floor && !m.read.contains(String(card.seq)) && !m.read.contains(card.id)
+}
+/// `ids` read: the floor moves up over the replies of `cards` that are read in a row (the reply's seq, or each of its
+/// topics), so the list stays short.
+func markReplies(_ m: ReplyMark, _ ids: [String], _ cards: [ReplyCardID]) -> ReplyMark {
+    var read = m.read; for i in ids where !read.contains(i) { read.append(i) }
+    var floor = m.floor
+    for s in Set(cards.map(\.seq)).sorted() {
+        if s <= floor { continue }
+        if !read.contains(String(s)) && !cards.allSatisfy({ $0.seq != s || read.contains($0.id) }) { break }
+        floor = s
+    }
+    return ReplyMark(floor: floor, read: read.filter { readIdSeq($0) > floor }.sorted { (readIdSeq($0), $0) < (readIdSeq($1), $1) })
+}
+/// Load earlier (Mac, 2026-11-26): first the cards of the newest `replyPageSize` replies, and every unread card among
+/// the newest `replyMax` replies; each tap adds `replyPageSize` older replies. `cut`: the oldest seq shown; `held`: an
+/// unread card holds the cut below the floor (the view keeps `cut` as its floor, so the card stays after you read it);
+/// `older`: Load earlier has more; `next`: the floor after one more tap; `more`: the replies past the cap (always 0 on
+/// the phone; kept for the shared table).
+let replyPageSize = 8, replyMax = 40
+struct ReplyPage: Equatable { var cut: Int; var held: Bool; var older: Bool; var next: Int?; var more: Int }
+/// `max`: no cap on the phone, because it pages on through dsh's history (Client.loadOlder) and has no other place for
+/// older replies; the Mac caps at `replyMax` (its older replies are in the hidden chat), which the shared table checks.
+func replyPage(_ cards: [ReplyCardID], floor: Int? = nil, unread: (ReplyCardID) -> Bool = { _ in false }, max cap: Int = .max) -> ReplyPage {
+    let all = Set(cards.map(\.seq)).sorted(by: >), seqs = Array(all.prefix(cap))
+    let base = min(floor ?? .max, seqs.count >= replyPageSize ? seqs[replyPageSize - 1] : .min)
+    let low = seqs.last ?? .max
+    let cut = max(low, ([base] + cards.filter { $0.seq >= low && unread($0) }.map(\.seq)).min() ?? base)
+    let n = seqs.filter { $0 >= cut }.count
+    return ReplyPage(cut: cut, held: cut < base, older: n < seqs.count, next: seqs.isEmpty ? nil : seqs[min(n + replyPageSize, seqs.count) - 1], more: all.count - seqs.count)
+}
+/// A Damon card row: a reply that is not only `[quiet]`, or an error line.
+func isCardLine(_ l: Line) -> Bool { l.kind == .error || (l.kind == .assistant && !quietReply(l.text)) }
+/// The cards of the Damon chat's lines, in time order: one per topic of a reply (`replySections`), one per error line.
+/// A line without a seq (a live session error) has no card id: it is never unread and always shows.
+func replyCards(_ t: [Line]) -> [ReplyCardID] {
+    t.flatMap { l -> [ReplyCardID] in
+        guard let s = l.seq, isCardLine(l) else { return [] }
+        return l.kind == .error ? [ReplyCardID(seq: s, id: "\(s)")] : replyCardIDs(seq: s, parts: replySections(l.text).count)
+    }
+}
+/// The cards of the shown rows: the lines that a folded turn hides are no cards (no New mark, no count, no page cut).
+func replyCards(_ rows: [ChatRow]) -> [ReplyCardID] { replyCards(rows.compactMap { if case .line(let l) = $0 { l } else { nil } }) }
+/// `replyCards` of the shown rows, kept while they are the same rows (the Mac's `replySig`): the rows only grow at the
+/// end, fold, or are made again with new ids (a rebuild), so the count and the first and last ids name them.
+final class ReplyCardCache {
+    private var key: (Int, UUID?, UUID?)?, value: [ReplyCardID] = []
+    func cards(_ rows: [ChatRow]) -> [ReplyCardID] {
+        let k = (rows.count, rows.first?.id, rows.last?.id)
+        if let key, key == k { return value }
+        key = k; value = replyCards(rows); return value
+    }
+}
+/// Load earlier: the rows from the first card at or after seq `cut`, with the rows just before it (its question and
+/// steps, back to the previous card). A finished turn keeps its rows together from its summary row: an opened turn
+/// (Assistant messages only off) shows its earlier texts as cards too, and its summary row must stay to fold it again.
+/// So the rows can start below `cut` (also for a running turn without a question: from the turn before it); Load
+/// earlier counts from the first card that shows (`firstCardSeq`).
+func rowsFrom(_ rows: [ChatRow], cut: Int) -> [ChatRow] {
+    let card = { (r: ChatRow) -> Line? in if case .line(let l) = r, isCardLine(l), l.seq != nil { return l }; return nil }
+    guard var at = rows.firstIndex(where: { card($0).map { $0.seq! >= cut } ?? false }) else { return rows }
+    let edge = rows[..<at].lastIndex { r in if case .turn = r { return true }; if case .line(let l) = r { return l.kind == .user }; return false }
+    if let edge, case .turn = rows[edge] { at = edge }
+    while at > 0, card(rows[at - 1]) == nil { at -= 1 }
+    return Array(rows[at...])
+}
+/// The seq of the oldest card in `rows` (rows are in time order).
+func firstCardSeq(_ rows: [ChatRow]) -> Int? { rows.lazy.compactMap { if case .line(let l) = $0, isCardLine(l) { l.seq } else { nil } }.first }
 
 /// Copy session link: dsh's session URI. Pasted into another chat, dsh attaches that chat as read-only context.
 func sessionLink(_ id: String) -> String {
@@ -1918,6 +2016,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         let saved = UserDefaults.standard.string(forKey: "activeMac")
         activeFp = list.contains { $0.fp == saved } ? saved : list.first?.fp
         finished = Set(UserDefaults.standard.stringArray(forKey: macKey("finished", activeFp, legacy: legacy)) ?? [])
+        replyMarks = Client.loadReplyMarks(macKey("replyRead", activeFp, legacy: legacy))
         Client.splitNotify(.standard, macs: list.map(\.fp), legacy: legacy)
         loadNotify()
         // A paired Mac connects as soon as the app is active: the first frames show the spinner, not "Not connected".
@@ -1947,6 +2046,26 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         // no Mac on screen (last one unpaired): nothing to save, and the bare key may still belong to the migrated Mac
         didSet { if activeFp != nil { UserDefaults.standard.set(Array(finished), forKey: key("finished")) } }
     }
+    /// Damon reply cards: this phone's read marks per chat (`markReplies`), kept per Mac. The Mac keeps its own marks in
+    /// its browser, so a card that you read on one device stays New on the other.
+    @Published var replyMarks: [String: ReplyMark] = [:] {
+        didSet { if activeFp != nil { UserDefaults.standard.set(try? JSONEncoder().encode(replyMarks), forKey: key("replyRead")) } }
+    }
+    private static func loadReplyMarks(_ key: String) -> [String: ReplyMark] {
+        UserDefaults.standard.data(forKey: key).flatMap { try? JSONDecoder().decode([String: ReplyMark].self, from: $0) } ?? [:]
+    }
+    /// The newest event seq of the open chat (its first snapshot, then each live event).
+    var lastSeq: Int? { events.last?["seq"] as? Int }
+    /// The first view of chat `sid`: every reply up to seq `top` counts as read (client.js createReplyRead `start`).
+    func startReplyMarks(_ sid: String, top: Int) { if replyMarks[sid] == nil { replyMarks[sid] = ReplyMark(floor: top, read: []) } }
+    /// `ids` read in chat `sid` (a tap on a card or one of its buttons); `cards`: the chat's cards, for the floor.
+    func readReplies(_ sid: String, _ ids: [String], cards: [ReplyCardID]) {
+        guard let m = replyMarks[sid] else { return }
+        var n = markReplies(m, ids, cards); n.read = Array(n.read.suffix(200))
+        if n != m { replyMarks[sid] = n }
+    }
+    /// Mark all as read: every card up to seq `top`.
+    func readAllReplies(_ sid: String, top: Int) { replyMarks[sid] = ReplyMark(floor: max(top, replyMarks[sid]?.floor ?? -1), read: []) }
     @Published var current: String?
     /// Branch badge (Composer Plus): the git branch of each chat's folder at its last turn, as the Mac recorded it.
     @Published var branches: [String: String] = [:]
@@ -2031,7 +2150,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     static let notifyKeys = [notifyKey, hoursKey, fromKey, toKey, damonOnlyKey]
     /// Every UserDefaults key that belongs to one Mac: unpairing (and a new certificate for the same Mac) removes them.
     /// `seenSessions` is no longer written (older builds guessed dots from it); it stays here so that unpairing removes it.
-    static let perMacKeys = ["seenSessions", "finished", "drafts"] + notifyKeys
+    static let perMacKeys = ["seenSessions", "finished", "drafts", "replyRead"] + notifyKeys
     /// The values of the Mac on screen; `loadNotify` reads them when the Mac changes.
     @Published private(set) var notifyOn = false
     /// The iOS permission ask runs: the switch waits, so a second tap cannot start a second ask.
@@ -2923,6 +3042,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         closeScreen()
         activeFp = fp
         finished = Set(UserDefaults.standard.stringArray(forKey: key("finished")) ?? [])
+        replyMarks = Client.loadReplyMarks(key("replyRead"))
         loadNotify()
         connect()
     }
@@ -3406,7 +3526,10 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         case "todo/write": liveTodos = parseTodos(d["todos"]) ?? []
         case "turn/end":
             let reason = d["reason"] as? J
-            if let m = (reason?["error"] as? J)?["message"] as? String { transcript.append(Line(kind: .error, text: m)) }
+            // The seq and time: a failed turn is a Damon card with its own read mark (client.js turn-error card).
+            if let m = (reason?["error"] as? J)?["message"] as? String {
+                transcript.append(Line(kind: .error, text: m, seq: e["seq"] as? Int, time: (e["time"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }))
+            }
             transcript.append(turnLine(reason: reason?["kind"] as? String, start: turnStartedAt,
                                        end: (e["time"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }))
             if running, !replaying {
@@ -4760,10 +4883,13 @@ func cardMark(_ text: String) -> (kind: String?, title: String) {
 }
 /// client.js `liveApproval`: an approval text that names a live target (the LIVE label): Auto review's live words without
 /// its not-live phrases ("canlı değil", "yalnız yerel").
+/// A text that says "canlı değil" (any case, also "canli degil") is never live, also when it names a deploy (client.js
+/// `foldLive`: ğ folds to g too).
 func liveApproval(_ text: String) -> Bool {
-    let f = text.precomposedStringWithCanonicalMapping.lowercased(with: Locale(identifier: "tr")).replacingOccurrences(of: "ı", with: "i").replacingOccurrences(of: "ş", with: "s")
-    return hits(approvalLiveWord, approvalScopeOff.stringByReplacingMatches(in: f, range: NSRange(location: 0, length: (f as NSString).length), withTemplate: " "))
+    let f = text.precomposedStringWithCanonicalMapping.lowercased(with: Locale(identifier: "tr")).replacingOccurrences(of: "ı", with: "i").replacingOccurrences(of: "ş", with: "s").replacingOccurrences(of: "ğ", with: "g")
+    return !hits(notLiveRE, f) && hits(approvalLiveWord, approvalScopeOff.stringByReplacingMatches(in: f, range: NSRange(location: 0, length: (f as NSString).length), withTemplate: " "))
 }
+private let notLiveRE = try! NSRegularExpression(pattern: #"canli\p{L}*\s+degil"#)
 /// One card of the deck: a topic (an item of the to-do list, a task of the day, or both with the same text).
 struct StatusCard: Identifiable {
     let group: String, key: String, n: Int, title: String, mark: String?
