@@ -1361,6 +1361,9 @@ func quietTurn(reply: String, reason: String?) -> Bool {
 func quietReply(_ text: String) -> Bool {
     text.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("[quiet]") == .orderedSame
 }
+/// Damon's reply while it streams (2026-11-27): true while its text (spaces trimmed, any case) can still become only
+/// `[quiet]`, so the live row does not show `[quiet]` before botLines hides the reply. The Mac's cards show no streaming text.
+func quietStart(_ text: String) -> Bool { "[quiet]".hasPrefix(text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) }
 /// The prompts of Damon's turns (the Mac's DAMON_PROMPTS): yours, a schedule, Assistant news, a subagent's notice that dsh
 /// steers into the running turn, and the hidden notes of Get summary, Continue and Resume.
 let damonPrompts: Set<String> = ["user", "schedule", "composer-plus-assistant-news", "subagent-settled", "agent-message",
@@ -1757,10 +1760,35 @@ func assistantMark(_ id: String?, sessions: [Sess], busy: Set<String>, waiting: 
 }
 /// Assistant messages only: the assistant chat shows your messages, its replies and errors (no thinking, tool or turn rows).
 /// A reply that is only `[quiet]` (the assistant's "nothing to say", `quietTurn`) shows nothing, as on the Mac (client.js
-/// quietStep).
+/// quietStep). In an ended turn whose last text is only `[quiet]` (the Mac's hushedTurns), a text sent with a tool call
+/// that asks you nothing shows only after the turn's first Auto review denial (the denial line; client.js afterDenial):
+/// "I gave it to a subagent" before it goes (one table: test/fixtures/quiet-replies.json `hushed`, 2026-11-27). In the
+/// running turn (after the last `.turn` line) such a text waits for the turn's end, as on the Mac (review 5: its closing
+/// answer is not known yet; client.js replyCardsOf skips it until dsh's turn tail comes).
 func botLines(_ t: [Line]) -> [Line] {
-    t.filter { $0.kind == .user || $0.kind == .error || ($0.kind == .assistant && !quietReply($0.text)) }
+    var drop = Set<Int>(), start = 0
+    let talks = { (i: Int, end: Int) in t[i].kind == .assistant && i + 1 < end && t[i + 1].kind == .tool && !asksYou(t[i].text) }
+    for (end, l) in t.enumerated() where l.kind == .turn {
+        let texts = (start..<end).filter { t[$0].kind == .assistant && !t[$0].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        if let last = texts.last, quietReply(t[last].text) {
+            var denied = false
+            for i in start..<end {
+                if t[i].kind == .tool, autoDenied(t[i].output) { denied = true }
+                else if !denied, talks(i, end) { drop.insert(i) }
+            }
+        }
+        start = end + 1
+    }
+    for i in start..<t.count where talks(i, t.count) { drop.insert(i) }
+    return t.enumerated().filter { !drop.contains($0.offset) && ($0.element.kind == .user || $0.element.kind == .error || ($0.element.kind == .assistant && !quietReply($0.element.text))) }.map(\.element)
 }
+/// A tool result that Auto review denied: dsh's own text or the auto-review-agent-first plugin's (client.js and index.js AUTO_DENIED).
+func autoDenied(_ output: String?) -> Bool {
+    guard let o = output else { return false }
+    return o.hasPrefix("Error: Auto review denied this tool call") || o.hasPrefix("Error: Auto review rejected tool \"")
+}
+/// A reply text that asks you for something (client.js asksYou): an `onay` block, an option list or a For you line.
+func asksYou(_ text: String) -> Bool { let h = replyHead(text); return !onayBlocks(text).isEmpty || !h.options.isEmpty || !h.forYou.isEmpty }
 /// Order by status (view only): finished and not opened, then running or waiting, then the rest; else dsh's order.
 func statusRank(_ s: Sess, busy: Set<String>, waiting: Set<String>, finished: Set<String>) -> Int {
     finished.contains(s.id) ? 0 : busy.contains(s.id) || waiting.contains(s.id) ? 1 : 2
@@ -3697,6 +3725,11 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     @Published var assistantApart = UserDefaults.standard.object(forKey: "assistantApart") as? Bool ?? true { didSet { UserDefaults.standard.set(assistantApart, forKey: "assistantApart") } }
     @Published var assistantMessagesOnly = UserDefaults.standard.object(forKey: "assistantMessagesOnly") as? Bool ?? true { didSet { UserDefaults.standard.set(assistantMessagesOnly, forKey: "assistantMessagesOnly") } }
     func setAssistantIdForTest(_ id: String?) { assistantId = id }
+    /// The streaming reply that the chat's live row shows: none while Damon's reply can still become only `[quiet]`
+    /// (quietStart) in the Damon chat with Assistant messages only on, as botLines hides it after.
+    func liveReply(_ streaming: String) -> String {
+        assistantMessagesOnly && current != nil && current == botId && quietStart(streaming) ? "" : streaming
+    }
     /// An older Mac (no `assistant-status`) keeps the id that the Assistant tab set (its welcome screen needs it).
     func loadAssistantStatus() async {
         guard plus.contains("assistant-status") else { return }

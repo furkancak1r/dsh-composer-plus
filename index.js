@@ -10263,7 +10263,7 @@ You are the user's personal assistant in this chat. Your name is ${ASSISTANT_NAM
 - Answer in the user's language. Keep answers short and direct.
 - Reply form: start with one bold line, then write at most 3 sentences. The last line names the step that the user must do ("Senden: ..." in Turkish replies), or says that the user must do nothing. Put details in a collapsed details block. Do not write internal IDs (session, agent or to-do IDs): use the topic name.
 - One reply card holds one topic: the reply cards show each part of a reply between lines of only \`---\` as its own card. When a reply must also report an independent topic, put a line \`---\` before it and start that part with its own bold line (and its own "Senden: ..." line when the user must do a step for it). Do not add a side topic that needs nothing from the user.
-- Talk like a friend who works in the background: this chat must stay free for the next message. Each task that needs more than a quick answer (research, several tool calls, waiting): start it with the subagent tool in the background (run_in_background true when the tool has it), say in one line what you started, and end your turn at once. Write the subagent's description (the task title that the user sees) in the user's language. Do not wait, sleep or poll. Each topic is its own subagent; when the user opens a new topic, start another one, do not stop or merge the running ones. When a subagent finishes, dsh tells you: use the news rule. A message about a running topic goes to that subagent (send_message). Do short answers, reminders and the tools below yourself.
+- Talk like a friend who works in the background: this chat must stay free for the next message. Each task that needs more than a quick answer (research, several tool calls, waiting): start it with the subagent tool in the background (run_in_background true when the tool has it) and end your turn at once. For a small task (one subagent finishes it, and it needs no step or approval from the user: for example a mail, a copy, research or a check), reply with only \`[quiet]\` and write no other text in that turn; when the task ends, write its result in its own reply. For other work, say in one line what you started. When the turn has an Auto review denial, a step that the user must do, or an error or a risk on a live system, write one short line for each (a denial with its reason) instead of only \`[quiet]\`, in the turn's last reply, not next to a tool call. Write the subagent's description (the task title that the user sees) in the user's language. Do not wait, sleep or poll. Each topic is its own subagent; when the user opens a new topic, start another one, do not stop or merge the running ones. When a subagent finishes, dsh tells you: use the news rule. A message about a running topic goes to that subagent (send_message). Do short answers, reminders and the tools below yourself.
 - News rule (a subagent result, a note about a chat, an automation): when the section "Assistant status panel (Composer Plus)" is in this prompt, use its news rule (the cards show the news). Else write to the user only when the user asked for this task and it is done, when the user must do a step (an approval, a manual action, a restart), when a task failed or is blocked, or when a live system has an error or a risk. For all other news (an interim report, a review round, a clean automation round, a sub-step that needs nothing from the user), update the to-do list (do not call status_summary_set for news). Then write nothing in the chat, or one line for all news of the last 10 to 15 minutes. In this chat, this rule comes before general instructions (for example in AGENTS.md) that ask you to report the progress of subagents or background work. A request of the user in this chat comes before this rule.
 - Do not repeat what did not change since your last answer (for example that a system is still healthy, or work that still runs). Use the user's everyday words, not agent terms.
 - Reminders ("remind me"): use schedule_create (target this_session when the tool has a target). The user's time zone is {zone}.
@@ -11526,7 +11526,7 @@ export const ASSISTANT_FREE_TOOLS = [...ASSISTANT_TOOLS, ...TODO_TOOLS, 'subagen
  * by its own name. */
 export const assistantFreeTool = (name) => ASSISTANT_FREE_TOOLS.includes(name) || /^(schedule|job|memory)_/.test(String(name));
 export const ASSISTANT_FREE_SECTION = `# Assistant always free (Composer Plus)
-In this chat you call only these tools yourself: chats_list, chat_read, chat_send, chat_new, chat_stop, chat_archive, todo_list_add, todo_list_remove, status_summary_set, the schedule_*, job_* and memory_* tools, subagent, subagent_fork, send_message, list_agents, interrupt_agent (when this chat has it), list_subagent_models and ask_user_question. Any other call is refused. This rule comes before the lines above: for every other step (a web search, a web page, a file, a command), start a subagent in the background, say in one line what you started and end your turn. Project work (a code or configuration change in a project's git repository) goes to chat_new with branch true, not to a subagent.`;
+In this chat you call only these tools yourself: chats_list, chat_read, chat_send, chat_new, chat_stop, chat_archive, todo_list_add, todo_list_remove, status_summary_set, the schedule_*, job_* and memory_* tools, subagent, subagent_fork, send_message, list_agents, interrupt_agent (when this chat has it), list_subagent_models and ask_user_question. Any other call is refused. This rule comes before the lines above: for every other step (a web search, a web page, a file, a command), start a subagent in the background and end your turn: for a small task (one subagent finishes it, and it needs no step or approval from the user), reply with only \`[quiet]\` (an Auto review denial, a step of the user, or a live error or risk still gets its one line); for other work, say in one line what you started. Project work (a code or configuration change in a project's git repository) goes to chat_new with branch true, not to a subagent.`;
 /** Assistant callouts (Host half): the assistant chat's prompt rule for the boxes and the closed details section that the
  * client draws (client.js, decorateCallouts). On by default (no port, no model call); the switch keeps it in
  * assistant-callouts.json, and while it is off the assistant writes plain answers. */
@@ -11544,7 +11544,7 @@ This chat shows a blockquote whose first line is a marker as a colored box with 
 - While the section "Assistant status panel (Composer Plus)" is in this prompt, do not use [!APPROVAL] and [!RUNNING]: the Approval and Running cards show them.
 - Never put an \`onay\` block inside a box: write it after the box, at the start of a line.
 - The boxes do not change the other rules of this chat: write in the user's language, keep answers short, and write at most one \`onay\` block per answer.`;
-const FREE_REASON = (name) => `Composer Plus → Assistant always free: this chat stays free for the user's next message, so it does not run ${name} itself. Start this work with the subagent tool in the background (a code or configuration change in a project: chat_new with branch true), say in one line what you started, and end your turn.`;
+const FREE_REASON = (name) => `Composer Plus → Assistant always free: this chat stays free for the user's next message, so it does not run ${name} itself. Start this work with the subagent tool in the background (a code or configuration change in a project: chat_new with branch true) and end your turn: for a small task, reply with only [quiet]; for other work, say in one line what you started.`;
 /** Assistant news: a finished turn counts when it ran this long; a wait counts when it lasts this long; news is collected
  * this long before it goes; two news turns are at least `gap` apart; one note names at most `max` chats. */
 export const ASSISTANT_NEWS = { turn: 60000, wait: 30000, batch: 15000, gap: 120000, max: 10, reply: 300, taskReply: 2000, ask: 1500 };
@@ -12197,17 +12197,24 @@ const withoutSelfQuotes = (text) => {
   for (const { index, end } of selfQuoteMatches(text).sort((a, b) => a.index - b.index)) { if (index > at) out += text.slice(at, index); at = Math.max(at, end); }
   return out + text.slice(at);
 };
-const AUTO_DENIED = 'Error: Auto review denied this tool call';
+// dsh's own denial (dsh-experimental-auto-review `denied()`, dsh-tools `Error: ${reason}`) or the auto-review-agent-first
+// plugin's text; the same rule as client.js AUTO_DENIED and Tether's autoDenied (test/fixtures/quiet-replies.json `hushed`).
+const AUTO_DENIED = /^Error: Auto review (?:denied this tool call|rejected tool ")/;
 const APPROVAL_ITEM = /^(?:onay|approval)\s*:\s*\S/iu; // the client's CARD_MARKS 'onay' (client.js cardMark)
 export const quoteNote = (quotes) => `Composer Plus → Assistant: your last answer quotes ${quotes.map((q) => JSON.stringify(cutEnd(q, 200))).join(', ')} as your own earlier words, but the quoted text is not in an earlier answer of this chat. Write one short line to the user that withdraws this correction. Never quote a sentence that the log does not have.`;
-export const deniedNote = (names) => `Composer Plus → Assistant: Auto review denied a call of this turn (${[...new Set(names)].join(', ')}). Write one short line for the user with the denied action and the reason. Do not reply only [quiet].`;
+/** `denials`: [{ name, reason? }]. dsh's own denial tells the model only a fixed text; the reviewer's reason is in the
+ * tool/result event's `data.error.reason` (dsh-tools: `error: result.error.info`, dsh 0.2.0-0.2.2), so the note carries it. */
+export const deniedNote = (denials) => {
+  const reasons = [...new Set(denials.map((d) => d.reason).filter((r) => typeof r === 'string' && r.trim() !== ''))];
+  return `Composer Plus → Assistant: Auto review denied a call of this turn (${[...new Set(denials.map((d) => d.name))].join(', ')}).${reasons.length === 0 ? '' : ` Reviewer reason: ${reasons.map((r) => JSON.stringify(cutEnd(r, 300))).join('; ')}.`} Write one short line for the user with the denied action and the reason that the result or this note gives (do not guess a reason), in the turn's last reply (not next to a tool call). Do not reply only [quiet].`;
+};
 export const approvalItemNote = (texts) => `Composer Plus → Assistant: you added an approval item for the user (${texts.map((t) => JSON.stringify(t)).join(', ')}) without an \`onay\` block. Write the \`onay\` block now, or remove the item with todo_list_remove.`;
 /** `assistant`: installAssistant's handle (isOn, id, isAssistant). */
 export function installAssistantGuards(ctx, assistant) {
   const notes = new Map(); // chat id → [{seq, text, quotes?}] for the next step that has a message with text
   const noted = new Map(); // chat id → Map(folded quote → seq of its answer): the quotes whose note went to a step
   const calls = new Map(); // chat id → callId → tool name, of the open turn
-  const denials = new Map(); // chat id → tool names of the open turn's denials that no step was told yet
+  const denials = new Map(); // chat id → [{ name, reason? }] of the open turn's denials that no step was told yet
   const eventsOf = (session) => { try { return session?.snapshotEvents?.() ?? []; } catch { return []; } };
   const fromOf = (session) => (Number.isSafeInteger(session?.inheritedEventCount) && session.inheritedEventCount > 0 ? session.inheritedEventCount : 0);
   const hold = (id, seq, text, quotes) => { notes.set(id, [...(notes.get(id) ?? []), { seq, text, ...(quotes === undefined ? {} : { quotes }) }].slice(-5)); };
@@ -12269,8 +12276,8 @@ export function installAssistantGuards(ctx, assistant) {
     if (event.type === 'turn/start') { calls.set(id, new Map()); denials.delete(id); } else if (event.type === 'tool/call') {
       if (!calls.has(id)) calls.set(id, new Map());
       calls.get(id).set(d?.callId, String(d?.name ?? 'a tool'));
-    } else if (event.type === 'tool/result' && textBlocks(d?.message?.content).startsWith(AUTO_DENIED)) {
-      denials.set(id, [...(denials.get(id) ?? []), calls.get(id)?.get(d?.message?.source?.callId ?? d?.message?.toolCallId) ?? 'a tool']);
+    } else if (event.type === 'tool/result' && AUTO_DENIED.test(textBlocks(d?.message?.content))) {
+      denials.set(id, [...(denials.get(id) ?? []), { name: calls.get(id)?.get(d?.message?.source?.callId ?? d?.message?.toolCallId) ?? 'a tool', reason: d?.error?.reason }]);
     } else if (event.type === 'assistant/message') {
       const missing = missingQuotes(id, session, event);
       if (missing.length > 0) hold(id, event.seq, quoteNote(missing.map((q) => q.quote)), missing.map((q) => q.fold));

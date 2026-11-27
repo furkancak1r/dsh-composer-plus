@@ -862,7 +862,9 @@ struct ConversationView: View {
                 .safeAreaInset(edge: .top, spacing: 0) {
                     VStack(spacing: 0) {
                         if finding != nil { findBar(proxy, hits) }
-                        if damon, !unread.isEmpty, let sid = c.current { unreadBar(sid, count: unread.count, top: c.lastSeq ?? cards.last?.seq ?? 0) }
+                        // Up to the newest card, not the chat's newest seq (the Mac's readAll, review 6): a denial line that
+                        // becomes a card when the running turn ends with `[quiet]` (botLines) is still New.
+                        if damon, !unread.isEmpty, let sid = c.current { unreadBar(sid, count: unread.count, top: cards.last?.seq ?? c.lastSeq ?? 0) }
                     }
                 }
                 .onChange(of: c.current) { finding = nil; replyFloor = nil; scrollAfterPage = nil }
@@ -1920,9 +1922,10 @@ struct LiveTail: View {
     let closed: (AnyHashable) -> Void
     var body: some View {
         if !text.reasoning.isEmpty { StepsView(lines: [Line(kind: .reasoning, text: text.reasoning)], live: true, anchor: "live-thinking", closed: closed) }
-        if !text.streaming.isEmpty { LineView(line: Line(kind: .assistant, text: text.streaming), live: true) }
+        let streaming = c.liveReply(text.streaming)
+        if !streaming.isEmpty { LineView(line: Line(kind: .assistant, text: streaming), live: true) }
         // upload/send progress first, so a large file never looks like a dead Send button
-        if let s = c.sendStatus ?? (c.running && text.streaming.isEmpty && text.reasoning.isEmpty && c.transcript.last?.kind != .tool ? String(localized: "Working…") : nil) {
+        if let s = c.sendStatus ?? (c.running && streaming.isEmpty && text.reasoning.isEmpty && c.transcript.last?.kind != .tool ? String(localized: "Working…") : nil) {
             HStack(spacing: 6) {
                 ProgressView().controlSize(.small); Text(s)
                 // elapsed time tells a slow turn apart from a stuck one
