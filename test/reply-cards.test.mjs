@@ -21,7 +21,7 @@ globalThis.document = { body: { tag: 'body' }, querySelector: () => null, addEve
 const ANCHOR = '/** Feature switches, in Settings order.';
 const src = read('client.js');
 assert.ok(src.includes(ANCHOR));
-eval(src.replace(ANCHOR, `globalThis.__rc = { failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, ReplyFeed, replySections, sideReadId, replyPage, REPLY_PAGE, REPLY_READ_KEY, REPLY_SHOWN_KEY, REPLY_CSS, REPLY_MAX };\n    ${ANCHOR}`));
+eval(src.replace(ANCHOR, `globalThis.__rc = { replyImageUrl, pathImagesOf, mdLabelsOf, failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, ReplyFeed, replySections, sideReadId, replyPage, REPLY_PAGE, REPLY_READ_KEY, REPLY_SHOWN_KEY, REPLY_CSS, REPLY_MAX };\n    ${ANCHOR}`));
 const h = (t, p, ...c) => ({ t, p: p ?? {}, c });
 // A small hook runtime (by call order) for ReplyFeed: state, refs and effects with deps (run after each draw).
 let hooks = []; let hi = 0; let pending = [];
@@ -31,7 +31,7 @@ const React = { createElement: h, Fragment: 'F', useState: (v) => { const i = hi
   useLayoutEffect: (f, deps) => { const i = hi++; const old = hooks[i]; if (old === undefined || changed(old.deps, deps)) pending.push(() => { old?.off?.(); hooks[i] = { deps, off: f() }; }); } };
 React.useEffect = React.useLayoutEffect;
 mod.factory((n) => (n === 'react' ? React : n === 'react-dom' ? { createPortal: (el, host, key) => ({ portal: el, host, key }) } : {}));
-const { failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, ReplyFeed, replySections, sideReadId, replyPage, REPLY_PAGE, REPLY_READ_KEY, REPLY_SHOWN_KEY, REPLY_CSS, REPLY_MAX } = globalThis.__rc;
+const { replyImageUrl, pathImagesOf, mdLabelsOf, failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, ReplyFeed, replySections, sideReadId, replyPage, REPLY_PAGE, REPLY_READ_KEY, REPLY_SHOWN_KEY, REPLY_CSS, REPLY_MAX } = globalThis.__rc;
 const find = (n, pred) => { if (n === null || typeof n !== 'object') return []; if (Array.isArray(n)) return n.flatMap((c) => find(c, pred)); return [...(pred(n) ? [n] : []), ...(n.c ?? []).flat(Infinity).flatMap((c) => find(c, pred))]; };
 const text = (n) => (typeof n === 'string' ? n : Array.isArray(n) ? n.map(text).join('') : n?.c ? text(n.c) : '');
 
@@ -91,6 +91,9 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   const running = chatOf([step(1, 0, 10, [txt('Checking.'), tool]), result(1, 10.5, DENIED), step(1, 1, 11, [txt('[quiet]'), tool])]);
   assert.deepEqual(replyCardsOf(running).map((c) => c.seq), [], 'a running turn: no card for its looking line');
   assert.deepEqual(replyCardsOf(chatOf([...running.nodes.values(), tail(1, 11)])).map((c) => c.seq), [10], 'after the turn ends with [quiet]: a card');
+  // Review 5: a Senden line with an image (it stays in the body, review 4) still asks you: a card next to a tool call.
+  const askImg = chatOf([step(1, 0, 10, [txt('Senden: şu ekrana bak ![Ekran](</a/b.png>)'), tool]), step(1, 1, 12, [txt('Bitti.')]), tail(1, 12)]);
+  assert.deepEqual(replyCardsOf(askImg).map((c) => c.seq), [10, 12], 'a Senden line with an image next to a tool call is a card');
 }
 
 // replyParts.
@@ -509,6 +512,73 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   // The click stops the follow to the bottom, so the cards that come above do not move the feed (a structure check: the
   // mock runs no ResizeObserver; test/browser-reply-pages.mjs measures it).
   assert.match(src, /follow\.current = false; \/\/ the cards that come above must not move the feed to its bottom\n\s*setFloor\(page\.next\);/, 'structure: Load earlier stops the follow');
+}
+
+// Images in a card (Furkan, 2026-11-26: "kartlara görüntüler gelmiyor düzelt"): dsh's Markdown asks `pathImages` for a
+// local destination; the card answers dsh's own file route (api/file?path=), as dsh's chat view does, for an image file only.
+{
+  const base = 'http://127.0.0.1:52053/';
+  const abs = '/Users/demo/Damon/Belgeler/Composer Plus/guncellemeler/ilk görünüm 3.png'; // spaces, written in angle brackets
+  const url = new URL(replyImageUrl(abs, '/Users/demo/Assistant', base));
+  assert.deepEqual([url.origin + url.pathname, url.searchParams.get('path'), [...url.searchParams.keys()]], ['http://127.0.0.1:52053/api/file', abs, ['path']], 'an absolute path with spaces: dsh\'s file route');
+  assert.equal(new URL(replyImageUrl('/a/b%20c.png?x=1#y', undefined, base)).searchParams.get('path'), '/a/b c.png', 'decoded once, without ?query and #fragment (as dsh)');
+  assert.equal(new URL(replyImageUrl('resim/a.png', '/Users/demo/Assistant/', base)).searchParams.get('path'), '/Users/demo/Assistant/resim/a.png', 'a relative path: in the chat\'s folder');
+  assert.equal(new URL(replyImageUrl('./b.JPG', 'C:\\work\\damon', base)).searchParams.get('path'), 'C:\\work\\damon\\b.JPG', 'a Windows folder keeps its separator');
+  assert.equal(replyImageUrl('/a/b.webp', '/x', 'dsh-app://app/'), 'dsh-app://app/api/file?path=%2Fa%2Fb.webp', 'the Desktop app\'s base');
+  for (const ext of ['png', 'jpg', 'jpeg', 'webp', 'gif']) assert.ok(replyImageUrl(`/a/b.${ext}`, '/x', base), `.${ext} is an image`);
+  for (const [value, cwd, why] of [['/a/rapor.pdf', '/x', 'a .pdf'], ['/Users/demo/.ssh/id_rsa', '/x', 'a key file'], ['/a/notes.md', '/x', 'a .md'], ['/a/x.svg', '/x', 'an .svg'],
+    ['resim/a.png', undefined, 'a relative path without a folder'], ['//server/share/a.png', '/x', 'a // network path'], ['/a/b\nc.png', '/x', 'a control character'], ['/a/%E0%A4.png', '/x', 'a broken escape'],
+    ['file:///a/b.png', '/x', 'a file: URL (review 10)'], ['smb://h/a.png', '/x', 'an smb: URL'], ['data:image/png;base64,AA.png', '/x', 'a data: URL'], ['x:y.png', '/x', 'another scheme']]) {
+    assert.equal(replyImageUrl(value, cwd, base), undefined, `no image: ${why}`);
+  }
+  assert.equal(replyImageUrl('/a/b.png', '/x', 'file:///index.html'), undefined, 'no file route on another base');
+  // The card gives dsh's MarkdownText the resolver of its chat's folder (one object per folder: MarkdownText memoizes by it).
+  const own = pathImagesOf('/Users/demo/Assistant');
+  assert.equal(own, pathImagesOf('/Users/demo/Assistant'), 'the same object at the next draw');
+  globalThis.document.baseURI = base;
+  assert.equal(new URL(own.resolve(abs)).searchParams.get('path'), abs, 'the resolver reads the page\'s base');
+  assert.equal(new URL(own.resolve('resim/a.png')).searchParams.get('path'), '/Users/demo/Assistant/resim/a.png', 'and the chat\'s folder');
+  assert.equal(own.resolve('/a/rapor.pdf'), undefined, 'a .pdf stays its alt text');
+  delete globalThis.document.baseURI;
+  assert.match(src, /React\.createElement\(primitives\.MarkdownText, \{ text, pathImages: pathImagesOf\(cwd\), labels: mdLabelsOf\(t\) \}\)/, 'structure: the card passes the resolver and the stable labels to dsh\'s Markdown');
+  assert.equal(replyParts(`**Resim.** Bak:\n\n![İlk görünüm](<${abs}>)`).body, `Bak:\n\n![İlk görünüm](<${abs}>)`, 'the image line stays in the card body');
+  // Review 1: a reply (or a topic) that starts with an image keeps the image; it is no title ("!İlk görünüm" before).
+  // Review 2: also an image after text on the first line (a sentence, a heading, a plain line).
+  // Review 3: alt text with ". ", "! " or "? " (the first sentence ends inside the image).
+  for (const first of [`![İlk görünüm](<${abs}>)`, `![İlk görünüm](<${abs}>) Sonra metin.`, `Ekran görüntüsü: ![a](</a/b.png>)`, `# Durum ![x](</a/b.png>)`, `Görünüm ![x](</a/b.png>) hazır.`,
+    '![Adım 1. Giriş ekranı](</a/b.png>)', '![Dikkat! Hata](</a/b.png>)', 'Bak: ![Neden? Bu](</a/b.png>)']) {
+    const p = replyParts(`${first}\n\nMetin burada.`);
+    assert.deepEqual([p.title, p.body], ['', `${first}\n\nMetin burada.`], `an image in the first line: no title, the image in the body (${first})`);
+  }
+  const boldFirst = replyParts('**Başlık** ![x](</a/b.png>)\n\nMetin.');
+  assert.deepEqual([boldFirst.title, boldFirst.body], ['Başlık', '![x](</a/b.png>)\n\nMetin.'], 'a bold title keeps its title; the image goes to the body');
+  // Review 4: an image on the "Senden:" line or in a [!DETAILS] summary is not lost in plain text.
+  const youImg = replyParts('**Başlık**\n\nSenden: şu ekrana bak ![Ekran](</a/b.png>)\n\nMetin.');
+  assert.deepEqual([youImg.forYou, youImg.body], ['', 'Senden: şu ekrana bak ![Ekran](</a/b.png>)\n\nMetin.'], 'a Senden line with an image stays in the body');
+  assert.equal(replyParts('**Başlık**\n\nSenden: rapora bak.').forYou, 'rapora bak.', 'a Senden line without an image is still the action line');
+  const boldYou = replyParts('**Senden:** şu ekrana bak ![x](</a/b.png>)\n\nMetin.');
+  // (The next line is the title, as for the same reply without the image on origin/main: "**Senden:** bak\n\nMetin." gives "Metin.")
+  assert.deepEqual([boldYou.title, boldYou.forYou, boldYou.asks, boldYou.body], ['Metin.', '', true, '**Senden:** şu ekrana bak ![x](</a/b.png>)'], 'a bold Senden line with an image is no title (review 5)');
+  // Review 6: a title after a Senden line with an image is still the title, as without the image.
+  const youFirst = replyParts('Senden: bak ![x](</a/b.png>)\n\n**Başlık**\n\nMetin.');
+  assert.deepEqual([youFirst.title, youFirst.body], ['Başlık', 'Senden: bak ![x](</a/b.png>)\n\nMetin.'], 'the title after a Senden line with an image');
+  assert.equal(replyParts('Senden: bak\n\n**Başlık**\n\nMetin.').title, 'Başlık', 'the same reply without the image');
+  // Review 7: only the first Senden line counts (a second one stays in the body), and "![" in inline code is no image.
+  const twoYou = replyParts('**Rapor hazır.**\n\nSenden: şu ekrana bak ![a](</a/a.png>)\nSenden: sonra raporu onayla.');
+  assert.deepEqual([twoYou.forYou, twoYou.body], ['', 'Senden: şu ekrana bak ![a](</a/a.png>)\nSenden: sonra raporu onayla.'], 'a second Senden line is no action line');
+  assert.equal(replyParts('**Kartlarda `![alt](<yol>)` görüntüleri görünüyor.** Test geçti.').title, 'Kartlarda !alt görüntüleri görünüyor.', '"![" in inline code keeps the title');
+  assert.equal(replyParts('**Başlık**\n\nSenden: `![alt](<yol>)` biçimiyle yaz.').forYou, '!alt biçimiyle yaz.', '"![" in inline code keeps the action line');
+  // Review 8: a code span between "!" and "[" makes no "![" (origin/main's title); backtick runs pair by length.
+  assert.equal(replyParts('Bitti!`npm test`[log](u)').title, 'Bitti!npm testlog', 'no "![" in the text: the title as before');
+  assert.equal(replyParts('Bak `` ![a](</p.png>) `y` tamam').title, '', 'a real image between unequal backtick runs: no title');
+  assert.equal(replyParts('``a ` ![x](y)`` tamam').title, 'a  !x tamam', 'one code span with "![" inside: the title stays');
+  assert.equal(replyParts('\\`![x](</a/b.png>)\\` sonra').title, '', 'an escaped backtick opens no code span: the image is no title (review 9)');
+  assert.deepEqual(replyParts('**Başlık**\n\n> [!DETAILS] ![x](</a/b.png>)\n> gövde').details, [{ summary: '', body: '![x](</a/b.png>)\n\ngövde' }], 'an image in a DETAILS summary goes to its text');
+  const l1 = mdLabelsOf((k) => `tr:${k}`); const l2 = mdLabelsOf((k) => `de:${k}`);
+  assert.ok(l1 !== l2 && l2.code.copyLabel === 'de:board.copy' && l2.footnotes === 'de:board.footnotes', 'a new language: a new labels object with its texts');
+  assert.equal(mdLabelsOf((k) => k), mdLabelsOf((k) => k), 'one labels object per language (MarkdownText memoizes by it)');
+  assert.equal(replyImageUrl('/a/b.png', '/x', undefined), undefined, 'no base: no image, no throw (review 1)');
+  for (const re of [/ReplyCard, \{ key: card\.key, card, sessionId, cwd,/, /ReplyCard, \{ card: rc, sessionId, cwd,/]) assert.match(src, re, 'structure: the feed and the canvas give the card the chat folder');
 }
 
 // The texts: replies.loadEarlier is our language packs' copy of dsh's chat.loadOlder (the label when dsh has no text).
