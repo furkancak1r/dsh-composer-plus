@@ -28,6 +28,8 @@ files. Out of scope: code changes, Tether builds and iPhone installs, a DSH rest
   on the release commit): the release branch is not pushed (the approval names only the main push). The owner's task
   allows "CI or the full local test suite" on the exact release commit when main moved; CI passed on ee06f990 (test run
   45949596957), and the full local `npm test` runs on the reviewed head.
+- Round 4 (review-guard-4, 5e3edf7a): P1 0, P2 0, P3 1, P4 1, in this Phase 2 text. Fixed in the next commit (order of
+  the R checks, a manual merge without push-branch or merge-main, the full awesome-dsh-plugin rule).
 
 ## Main moved (verified 2026-11-27 12:57, again 13:31)
 - origin/main and local main are 189fc00c (merge of fix/error-review-20261126, 12:00; parents ee06f990 and f53b7ecb;
@@ -35,20 +37,24 @@ files. Out of scope: code changes, Tether builds and iPhone installs, a DSH rest
 - A --no-ff merge of this branch into 189fc00c conflicts only in IMPLEMENTATION_PLAN.md (keep both sections).
 
 ## Phase 2 (after a clean review)
-1. `git fetch`; if origin/main is not 189fc00c, stop and run `git merge-tree` again. Merge into main with --no-ff; only
-   IMPLEMENTATION_PLAN.md conflicts (keep both sections). Run `npm test` on the merge, push, wait for CI on main. The merge
-   commit has the code of 189fc00c: it is not the release commit.
-2. Release commit R = the reviewed branch head, as a full 40-character SHA (`git rev-parse <merge commit>^2`): ee06f990
-   plus the version files. Before the release: full `npm test` and `npm pack --dry-run` on R (version 1.33.0; from
-   tether/ only gateway/{server.mjs,admin.html,qr.swift}). `gh release create v1.33.0 assets/active.txt
-   assets/installed.txt --target R --latest --notes "$(node -p "require('./release-notes.json').notes.en")"`. Never tag
-   the merge commit or main. Watch release.yml; check releases/latest and
-   https://registry.npmjs.org/dsh-composer-plus/1.33.0.
-3. awesome-dsh-plugin PR: `gh repo sync furkancak1r/awesome-dsh-plugin`, a new branch of the fork, change only
-   data/plugins/furkancak1r__dsh-composer-plus.yml: description.en and description.zh name the new features with the
-   labels of README.md and README.zh.md (one line in single quotes, ends with a period, no marketing words, about 700
-   characters at most). No PR when no feature name changes.
-4. Live copy: BLOCKED until Furkan decides. scripts/live-copy-check.mjs checks only first-parent commits of main; no such
+1. In this worktree, R = `git rev-parse HEAD` (full 40-character SHA) after the clean review: ee06f990 plus the version
+   files. Add no commit to the branch until the v1.33.0 tag exists. Run the full `npm test` and `npm pack --dry-run` on R
+   (version 1.33.0; from tether/ only gateway/{server.mjs,admin.html,qr.swift}).
+2. `git fetch`; if origin/main is not 189fc00c, stop and run `git merge-tree` again. Merge by hand in the main worktree:
+   `git -C <repo root> merge --no-ff chore/release-1-33-0`. Do not use push-branch or merge-main: they push the release
+   branch (not in the approval) and delete this branch and worktree. Keep both sections in IMPLEMENTATION_PLAN.md, run
+   `npm test` on the merge, check `git rev-parse HEAD^2` = R, run `git push origin main`, wait for CI on main. The merge
+   commit has the code of 189fc00c: it is not the release commit. Keep this branch and worktree until the release exists.
+3. `gh release create v1.33.0 assets/active.txt assets/installed.txt --target R --latest --notes "$(node -p
+   "require('./release-notes.json').notes.en")"`. Never tag the merge commit or main. Watch release.yml; check
+   releases/latest and https://registry.npmjs.org/dsh-composer-plus/1.33.0.
+4. awesome-dsh-plugin PR: `gh repo sync furkancak1r/awesome-dsh-plugin`, a new branch of the fork, change only
+   data/plugins/furkancak1r__dsh-composer-plus.yml; the PR goes to awesome-dsh-plugin/awesome-dsh-plugin (rules: its
+   contributing.md). description.en and description.zh name the new features with the labels of README.md and
+   README.zh.md (one line in single quotes, ends with a period, no marketing words, about 700 characters at most: take
+   out a smaller feature). Each claim must be true for the code of R. If no feature name changes, tell the owner and
+   send no PR.
+5. Live copy: BLOCKED until Furkan decides. scripts/live-copy-check.mjs checks only first-parent commits of main; no such
    commit has the release commit's files (189fc00c code differs, the merge has 189fc00c code), so after a copy of the
    release commit it prints MIXED, not MATCH. AGENTS.md: stop and report, do not patch. No backup, no copy, no DSH restart.
 
