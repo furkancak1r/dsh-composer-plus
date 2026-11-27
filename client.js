@@ -3016,7 +3016,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
      * result ("I gave it to a subagent"), so it stays hidden, as in a hushed turn without a denial. dsh's tool-call node
      * holds the call's result as its `root` (kind `tool-result`, `seq`, the message `content`) and the turn in its location
      * (dsh 0.2.0-0.2.2). */
-    const deniedQuietTurns = (chat, hushed = hushedTurns(chat)) => {
+    const deniedQuietTurns = (chat, hushed) => {
       const out = new Map();
       if (hushed.size === 0) return out;
       for (const n of chat?.nodes?.values?.() ?? []) {
@@ -3027,7 +3027,10 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       return out;
     };
     /** A result line (2026-11-27, Furkan: "kalın başlıklı sonuç metni kart olsun"): a text whose first line starts bold, the
-     * first line of the reply form. Tether's resultText (one table: test/fixtures/quiet-replies.json `hushed`). */
+     * first line of the reply form. Tether's resultText (one table: test/fixtures/quiet-replies.json `hushed`).
+     * ponytail: bold is the only mark, so a bold progress note ("**Alt ajana verdim.**" with a tool call, against the prompt's
+     * small-task rule) is a card too; such a card gives no Tether push (damonPushWords: the turn's last text is `[quiet]`).
+     * Upgrade: a result mark of its own in the reply form, if Furkan wants these apart. */
     const resultText = (text) => /^\s*(\*\*|__)(?=\S)(.+?)(?<=\S)\1/.test(String(text ?? ''));
     /** The texts sent with a tool call that a hushed turn (hushedTurns) shows: one after the turn's first denied result
      * (deniedQuietTurns), or a result line (resultText). `(n, text) => boolean` for a step node and its text. */

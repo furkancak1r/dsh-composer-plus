@@ -1402,7 +1402,7 @@ func damonWords(_ events: [J], reason: String?) -> String? {
     let mark = { (t: String?) in t?.range(of: #"^\[quiet\]|\[quiet\]$"#, options: [.regularExpression, .caseInsensitive]) != nil }
     let words = parts.reversed().lazy.compactMap { p -> String? in
         p.typed ? p.texts.last { !mark($0) }
-            : p.texts.isEmpty || mark(p.texts.last) || mark(p.done ? p.texts.last : last) ? nil : p.texts.last
+            : p.texts.isEmpty || mark(p.texts.last) || (!p.done && mark(last)) ? nil : p.texts.last
     }.first
     if reason == "completed" { return words }
     return reason == "error" ? nil : words ?? ""
@@ -1764,7 +1764,8 @@ func assistantMark(_ id: String?, sessions: [Sess], busy: Set<String>, waiting: 
 }
 /// Assistant messages only: the assistant chat shows your messages, its replies and errors (no thinking, tool or turn rows).
 /// A reply that is only `[quiet]` (the assistant's "nothing to say", `quietTurn`) shows nothing, as on the Mac (client.js
-/// quietStep). In an ended turn whose last text is only `[quiet]` (the Mac's hushedTurns), a text sent with a tool call
+/// quietStep). In an ended turn, a text sent with a tool call that asks you nothing shows only when it is the turn's last
+/// text, as on the Mac (client.js replyCardsOf). In an ended turn whose last text is only `[quiet]` (the Mac's hushedTurns), a text sent with a tool call
 /// that asks you nothing shows only after the turn's first Auto review denial (the denial line) or when it is a result
 /// line (`resultText`; client.js hushedShown): "I gave it to a subagent" before it goes (one table:
 /// test/fixtures/quiet-replies.json `hushed`, 2026-11-27). In the
@@ -1775,11 +1776,15 @@ func botLines(_ t: [Line]) -> [Line] {
     let talks = { (i: Int, end: Int) in t[i].kind == .assistant && i + 1 < end && t[i + 1].kind == .tool && !asksYou(t[i].text) }
     for (end, l) in t.enumerated() where l.kind == .turn {
         let texts = (start..<end).filter { t[$0].kind == .assistant && !t[$0].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        if let last = texts.last, quietReply(t[last].text) {
+        // The Mac's replyCardsOf: only the closing answer (the turn's last text) of such texts is a card; in a turn that ends
+        // with only `[quiet]`, also one after a denial or a result line (review 1, 2026-11-27: "**X.**" next to a tool call,
+        // then "**X.** …" as the closing answer gave two cards with the same text on the phone).
+        if let last = texts.last {
+            let hushed = quietReply(t[last].text)
             var denied = false
             for i in start..<end {
                 if t[i].kind == .tool, autoDenied(t[i].output) { denied = true }
-                else if !denied, talks(i, end), !resultText(t[i].text) { drop.insert(i) }
+                else if i != last, talks(i, end), !(hushed && (denied || resultText(t[i].text))) { drop.insert(i) }
             }
         }
         start = end + 1

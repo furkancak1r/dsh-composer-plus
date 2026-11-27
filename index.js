@@ -11710,7 +11710,7 @@ export function damonPushWords(events, from = 0) {
   }
   const words = ({ parts, end, last }) => {
     const said = ({ typed, texts: t, done }) => (typed ? t.findLast((x) => !quietMark(x))
-      : t.length === 0 || quietMark(t.at(-1)) || quietMark(done ? t.at(-1) : last) ? undefined : t.at(-1));
+      : t.length === 0 || quietMark(t.at(-1)) || (!done && quietMark(last)) ? undefined : t.at(-1));
     const w = parts.map(said).findLast((x) => x !== undefined);
     if (end === 'completed') return w;
     if (end === 'error' || (end === undefined && last === undefined)) return undefined;

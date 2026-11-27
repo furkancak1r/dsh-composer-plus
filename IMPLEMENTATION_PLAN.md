@@ -5315,8 +5315,28 @@ client.js:4951). Two cards need two dsh nodes with the same seq; dsh keys its no
   origin, so the first view counts every card as read (client.js:4721) and the first card would not show "Yeni". The
   desktop app uses `dsh-app://app/` (client.js:4587), a fixed origin. Which window Furkan used is not verified.
 
-## Last checkpoint (2026-11-27 ~14:00)
-- Phase 0 done, no product code changed. Next: Furkan's decision on items 2 and 3, Damon's log facts for item 4, then
-  Phase 1 item 1.
-- `gh release view v1.33.0`: "release not found" at 13:13. Merge waits for it.
-- Last passing test command: none run in this branch yet (no code change). Base main ee06f990 passed `npm test` (its plan).
+## Phase 1 (done, 2026-11-27 16:5x; Furkan's approval 2026-11-27: items 1-3 below, no code for a and d)
+1. b (Tether): a cut text (`interrupted: true`) is `Line.interrupted`, a plain row with **Stopped** (as dsh's chat), no
+   card (`isCardLine`); the resumed reply is the one card. Mac unchanged (settled steps only), guarded by a reply-cards test.
+2. c1: damonPushWords / damonWords: a part whose first text starts with `[quiet]` and whose last text is real pushes that
+   text; a last text that starts or ends with `[quiet]` gives none (table row 23 now pushes "Found 2 issues.").
+3. c2: in a turn that ends with `[quiet]`, a text next to a tool call whose first line starts bold (`resultText`) is a
+   row and a card (client.js hushedShown, Tether botLines). Shared table `hushed` rows.
+4. Review 1 (review-guard-1b; the first try stopped with no message): P1 0, P2 0, P3 3, P4 3. Fixed: Tether botLines uses
+   the Mac rule in ended turns that end with a real answer (only the closing text of tool-call texts is a card: the
+   phone made two cards when a result line next to a tool call was repeated as the closing answer; red on d10992d8);
+   damonPushWords/damonWords double check; unused default; this checkpoint. Kept as limits (written in FEATURES.md and a
+   `ponytail:` comment): a c2 result card gives no push (the turn's last text is `[quiet]`), and a bold progress note
+   next to a tool call is a card too.
+- Red before fix: JS reply-cards, quiet-replies, tether-push-words, assistant-subagent-rows; iOS 5 failures (QuietReply,
+  PushText, testCutTextIsNoCard); browser-assistant-answers on 0.2.2-rc.5 with the old client.js ("a result line ...").
+- Screenshots before: /Users/furkancakir/Damon/Belgeler/Composer Plus/cift-kart-20261127/ damon-sohbet-once.png,
+  damon-kartlar-once.png, tether-damon-once.png. After: same names with -<merge short sha>.
+- a (6 copies of one subagent failure note) and d: no code path found, no code change (see Phase 0). Not verified.
+
+## Last checkpoint (2026-11-27 16:5x)
+- `gh release view v1.33.0`: the release exists (16:4x). Next: commit, git fetch, merge origin/main if it moved, tests,
+  merge --no-ff into main, push, CI, after screenshots with the merge short SHA.
+- Last passing: `npm test` exit 0; iOS `cd tether/ios && xcodebuild -project DSHMobile.xcodeproj -scheme DSHMobile -destination 'platform=iOS Simulator,id=787CAECE-7075-4681-B0CE-7FBE5A5DFD49' -derivedDataPath ../../build/DerivedData test CODE_SIGNING_ALLOWED=NO`
+  132 tests, 2 skipped, 0 failures; `TMPDIR=~/Library/Caches/cp-dup-tests PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-assistant-answers.mjs <0.2.0-rc.2> <0.2.1-rc.2> <0.2.2-rc.5 bin.js>`
+  PASS x3 and FOLDED_REPLIES=all PASS on 0.2.2-rc.5.
