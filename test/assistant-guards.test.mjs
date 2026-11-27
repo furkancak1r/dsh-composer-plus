@@ -141,7 +141,8 @@ await check('item 2: an Auto review denial, then a reply of only [quiet]', async
   push('damon', 'tool/result', result('c1', 'Error: Auto review denied this tool call and it did not run. The user was not asked.\nReviewer reason: The message tells the agent to switch the local model server back to its original config, restart it, and try more speed-up paths, and it says not to ask for the stop approval that was denied earlier.', true));
   const [note, more] = notesOf(await step('damon', []));
   assert.equal(more, undefined, 'one note');
-  assert.match(note, /Auto review denied a call of this turn \(send_message\)\. Write one short line for the user with the denied action and the reason\. Do not reply only \[quiet\]\./);
+  assert.match(note, /Auto review denied a call of this turn \(send_message\)\. Write one short line for the user with the denied action and the reason that the result or this note gives \(do not guess a reason\), in the turn's last reply \(not next to a tool call\)\. Do not reply only \[quiet\]\./);
+  assert.ok(!note.includes('Reviewer reason:'), 'the reason is in the result text: the note does not repeat it');
   assert.deepEqual(notesOf(await step('damon', [])), [], 'each denial gets the note once');
   push('damon', 'tool/call', { name: 'chats_list', callId: 'c2', arguments: '{}' });
   push('damon', 'tool/result', result('c2', '{"chats":[]}'));
@@ -152,6 +153,15 @@ await check('item 2: an Auto review denial, then a reply of only [quiet]', async
   push('damon', 'tool/call', { name: 'bash', callId: 'c4', arguments: '{}' });
   push('damon', 'tool/result', result('c4', 'Error: Auto review denied this tool call and it did not run.', true));
   assert.match(notesOf(await step('damon', []))[0] ?? '', /\(bash\)/, 'a second denial: its own note');
+  // dsh's own Auto review text (dsh-experimental-auto-review denied(), review 4): a note too.
+  push('damon', 'tool/call', { name: 'chat_send', callId: 'c6', arguments: '{}' });
+  push('damon', 'tool/result', result('c6', 'Error: Auto review rejected tool "chat_send"; its body was not executed', true));
+  assert.match(notesOf(await step('damon', []))[0] ?? '', /\(chat_send\)/, "dsh's own denial text: a note");
+  // Review 5: dsh's own denial gives the model only that fixed text; the reviewer's reason is in the event's
+  // data.error.reason (dsh-tools `error: result.error.info`), and the note carries it.
+  push('damon', 'tool/call', { name: 'bash', callId: 'c7', arguments: '{}' });
+  push('damon', 'tool/result', { ...result('c7', 'Error: Auto review rejected tool "bash"; its body was not executed', true), error: { name: 'AutoReviewDenied', code: 'AUTO_REVIEW_DENIED', reason: 'It writes to the live server.' } });
+  assert.match(notesOf(await step('damon', []))[0] ?? '', /\(bash\)\. Reviewer reason: "It writes to the live server\."\. Write one short line/, "dsh's own denial: the note has the reviewer's reason");
   push('damon', 'turn/end', { reason: { kind: 'completed' } });
   push('damon', 'turn/start', { turn: 10 });
   push('damon', 'tool/call', { name: 'bash', callId: 'c5', arguments: '{}' });

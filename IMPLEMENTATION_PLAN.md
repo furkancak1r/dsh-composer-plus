@@ -16,6 +16,137 @@ main'e alınıp push edilsin (canlı değil)". Base: origin/main e1343314. No li
 - Known limit: the link-target pattern cuts two nested parenthesis levels; a guess word inside a third level counts.
 - Open step: merge into main with --no-ff and push main (approval of 2026-11-27). Keep the branch and its folder.
 
+# Quiet turns leave no card, and small tasks start quietly (branch fix/hide-quiet-only-turns, 2026-11-27)
+
+Source: Furkan in the Assistant chat, 2026-11-27 (relayed by Damon): "Yalnız `[quiet]` dönen bir turda Composer Damon
+sohbetinde ve Tether'de hiç kart görünmemeli …"; scope change: "Daha iyi bir yol görürsen onu uygula …" and small task =
+"Senin adımını ya da onayını gerektirmeyen, tek alt ajanla biten her iş: mail, kopyalama, araştırma, kontrol". Base: main
+e1343314. Standing approval: merge into main after a clean review. Not in scope: live copy, release, npm publish, DSH
+restart, iPhone install.
+
+## Phase 1 result (check of the `[quiet]` hiding)
+- a. Only `[quiet]` (spaces, newline): no card, no row on the Mac (reply-cards.test.mjs, assistant-subagent-rows.test.mjs,
+  browser-assistant-answers.mjs turn 3) and on Tether (botLines, QuietReplyTests). Passed before the change.
+- b. `[quiet]` with tool calls: no row, card or tool block (same tests; turn 3 has a `[quiet]` text with a tool call). Passed.
+- c. FAILED: a text sent with a tool call, then `[quiet]` (an Auto review denial): the Mac hid it in the chat view
+  (answerRowKeys keeps a tool-call step folded) and made no card (replyCardsOf skips a tool-call text that asks nothing).
+  Red before the fix: reply-cards ("actual [31], expected [10, 31]"), assistant-subagent-rows, browser test on 0.2.2-rc.5.
+- d. FAILED on Tether: while Damon streams `[quiet]`, the live row showed `[quiet]` (tether-damon-sessiz-once.png).
+- Push and unread: not changed. Proof: index.js agent/status handler (quietRun → no green dot; pushWords/damonPushWords →
+  no Turn finished push), test/quiet-replies.test.mjs, test/tether-push-words.test.mjs, Tether damonWords (Core.swift).
+
+## Phase 2 (fix, done)
+- client.js answerRowKeys and replyCardsOf: in an ended turn whose closing text is `[quiet]` (hushedTurns), a text with a tool
+  call shows and is a card. Tether already showed it (botLines).
+- Tether quietStart + LiveTail: no live row while the stream can still become `[quiet]` (Damon chat, Assistant messages only).
+- Prompt (index.js): ASSISTANT_SECTION "Talk like a friend" line, ASSISTANT_FREE_SECTION, FREE_REASON: a small task ends
+  with only `[quiet]`; other work keeps the one-line note; a denial, a user step and a live error or risk always show.
+  Docs: docs/features.json (13 languages, llms), build:readme. tether/FEATURES.md rows assistantChatView, assistantReplyCards.
+
+## Review
+- Round 1 (review-guard-1, head 840fe5df): P1 0, P2 0, P3 3, P4 4. All fixed in 950b0430: `hushedTurns` (turn-tail
+  `closing`, so a running turn is not hushed) replaced `quietTurnsOf` in answerRowKeys/replyCardsOf; the mandatory line
+  goes in the turn's last reply (prompt and deniedNote); always-free repeats the exception; llms texts; "until the result
+  comes" in 13 languages; tests 18:1, 19:1, running-turn card test (mutation red); Tether `Client.liveReply` test.
+- Round 2 (review-guard-2, head 950b0430): P1 0, P2 0, P3 0, P4 6. FIXED 2026-11-27 04:0x (the readAll test is red on the
+  old `read.all(sessionId, top)`; `quietTails` now comes from hushedTurns, so the unit fixtures of turns 11-16 got tails):
+  1. client.js readAll (~4707): use the newest card seq (`cards.at(-1)?.seq ?? top`), not the chat top; test: Mark all as
+     read during a running turn, then turn/end with `[quiet]` closing: the denial card is unread.
+  2. client.js: delete `quietTurnsOf`; `setQuietTails(same([...hushedTurns(chat)]))`.
+  3. Core.swift ~1261: move `quietStart` and its comment below `quietReply` (the `///` comment of quietReply).
+  4. docs/features.json assistant/assistantFree `how` (13) and `llms` (2): add "a denial, a step for you, or a live error
+     or risk still gets one line (in the turn's last reply)"; `npm run build:readme`.
+  5. tether/FEATURES.md assistantFree row (~79): a small task shows no reply until its result comes; the exception line.
+  6. This plan: done here.
+- Merge of origin/main 7593f3f8 (8667f59f): conflicts in docs/features.json, llms.txt (assistantReplyCards llms: both
+  insertions applied to the base line, no overlap), tether/FEATURES.md (assistantReplyCards row: both changes), this plan
+  (both sections). `npm run build:readme`: "docs are up to date"; the hand-merged llms.txt equals the generated one.
+- Last passing (8667f59f): `npm test` exit 0; iOS 129 tests, 2 skipped, 0 failures (simulator 787CAECE);
+  browser-assistant-answers PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5 and FOLDED_REPLIES=all on 0.2.2-rc.5.
+- Round 3 (review-guard-3, head 8667f59f, whole `git diff origin/main...HEAD`): P1 0, P2 1, P3 0, P4 2. Fixed:
+  1. P2: in a hushed turn every text next to a tool call became a card and an unfolded row, also "I gave it to a
+     subagent" (the line that Furkan wants gone). Now only a hushed turn with a denied call (`deniedQuietTurns`: dsh's
+     tool-call node, `data.root` kind tool-result, content text starts with index.js AUTO_DENIED, turn from
+     `location.turn.turn`, same in dsh 0.2.0-0.2.2) shows such a text; `hushedTurns` stays for the Copy/time row.
+     Tests: reply-cards (turn 4 without a denial: no card; a denial in another turn does not count) and
+     assistant-subagent-rows (20:1) are red with the hushed rule; browser-assistant-answers has news turn 6 (LOOK line,
+     no denial: no card, folded; with FOLDED_REPLIES=all dsh draws it itself, as on main).
+  2. P4: the assistantFree llms put the exception in the deny reason; it is in the system-prompt section (FREE_REASON has
+     none). 3. P4: this checkpoint (below: the old one is now "previous chat").
+- Last passing (round-3 fixes): `npm test` exit 0; browser-assistant-answers PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5
+  and FOLDED_REPLIES=all on 0.2.2-rc.5. iOS not run again (no Swift change after 8667f59f: 129 tests, 0 failures).
+- Merge of origin/main 4b3a3d25 (card images, 54edbadd): conflicts in docs/features.json and llms.txt (assistantReplyCards
+  llms: both insertions, no overlap; build:readme "docs are up to date", hand merge = generated) and
+  test/reply-cards.test.mjs (both blocks kept). Tests at 54edbadd: npm test exit 0; iOS 129/0 (2 skipped);
+  browser-assistant-answers x3 + FOLDED_REPLIES=all PASS; browser-reply-images, -pages, -order PASS on 0.2.2-rc.5,
+  0.2.0-rc.2, 0.2.1-rc.2.
+- Round 4 (review-guard-4, head 54edbadd): P1 0, P2 2, P3 1, P4 0. Fixed (not committed in a review round yet):
+  1. P2: the denied call's own text ("Kopyalıyorum, alt ajana verdim" + the call, then the denied result) became a card:
+     a step's text always comes before its result. Now `deniedQuietTurns` gives turn → seq of the first denied result and
+     `afterDenial` opens only a tool-call step whose finalNode.seq is after it. Fixtures in the real order.
+  2. P2: Tether botLines did not have the rule. Ported: in an ended turn (a `.turn` line) whose last text is only
+     `[quiet]`, an assistant line followed by a `.tool` line that asks nothing (`asksYou`: onay block, options, For you)
+     goes until the turn's first denied `.tool` output (`autoDenied`). One table: test/fixtures/quiet-replies.json
+     `hushed` (JS: reply-cards; iOS: QuietReplyTests.testHushedTurnsMatchTheMac; testDamonQuietTurnScreen has the
+     started line).
+  3. P3: dsh's own denial text is `Error: Auto review rejected tool "<name>"; its body was not executed`
+     (dsh-experimental-auto-review lib/index.js:525 on 0.2.2-rc.5, :421 on 0.2.0-rc.2; dsh-tools pipeline.js:411
+     `Error: ${reason}`). "Error: Auto review denied this tool call" is only the local auto-review-agent-first plugin
+     (~/.dsh/local/auto-review-agent-first/index.js:124). AUTO_DENIED in index.js and client.js is now a regex for both;
+     assistant-guards has a dsh-text row.
+  Red checks: reply-cards and assistant-subagent-rows fail with `afterDenial = denied.has(turn)` and with the old
+  one-text AUTO_DENIED; the iOS table test failed once on a wrong fixture row (fixed the row, not the code).
+- Last passing (round-4 fixes, uncommitted at the time of the run): `npm test` exit 0; iOS 130 tests, 2 skipped,
+  0 failures; browser-assistant-answers PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5 and FOLDED_REPLIES=all on 0.2.2-rc.5.
+- Round 5 (review-guard-5, head 8080cc4b, whole `git diff origin/main...HEAD`): P1 0, P2 0, P3 2, P4 2. Fixed:
+  1. P3: dsh's own denial tells the model only `Auto review rejected tool "<name>"; its body was not executed`; the
+     reviewer's reason is only in the tool/result event's `data.error.reason` (dsh-experimental-auto-review `denied()`
+     info; dsh-tools pipeline.js:205 on 0.2.2-rc.5, dsh-agent-loop appendToolResult on 0.2.0-rc.2 and 0.2.1-rc.2). index.js
+     keeps `{ name, reason }` per denial and deniedNote quotes "Reviewer reason: …" (no guessed reason). Test:
+     assistant-guards (red with `reason: undefined`). docs/features.json assistant llms (2), build:readme.
+  2. P3: Tether botLines showed a text next to a tool call in the running turn (no `.turn` line yet); the Mac waits for
+     the turn tail. Now the last segment drops such a text that asks nothing until the turn ends. Test:
+     testHushedTurnsMatchTheMac running case (red on the old botLines). tether/FEATURES.md says it.
+  3. P4: tether/FEATURES.md assistantReplyCards: the Assistant-messages-only-off clause moved back to the phone-only part;
+     "The same on both while Assistant messages only is on". 4. P4: client.js replyCardsOf comment on one line.
+- Last passing (round-5 fixes): `npm test` exit 0; iOS 130 tests, 2 skipped, 0 failures; browser-assistant-answers PASS
+  on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5 and FOLDED_REPLIES=all on 0.2.2-rc.5.
+- Round 6 (review-guard-6, head 7e1586fc): P1 0, P2 0, P3 0, P4 1. Fixed: Tether UI.swift unreadBar `top:` is the
+  newest card's seq (`cards.last?.seq ?? c.lastSeq ?? 0`), as the Mac's readAll (round 2): Mark all as read during a
+  running turn leaves the denial card that comes at the turn's end New. Structure test in reply-cards.test.mjs (no match
+  on the old line). Not done (YAGNI): the running-turn case in the shared `hushed` table (JS and Swift test it apart).
+- Last passing (round-6 fix): `npm test` exit 0; iOS 130 tests, 2 skipped, 0 failures; browser-assistant-answers PASS on
+  0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5 and FOLDED_REPLIES=all on 0.2.2-rc.5.
+- Open steps (next chat): 1. review round 7 on the final diff (merge only on a clean round). Earlier: review round 5 in a separate subagent on `git diff origin/main...HEAD` (round 4 had P2, so
+  one more round; repeat until a round has no P1/P2, fix P3/P4 of the last round). 2. `git fetch`; if origin/main moved
+  past 4b3a3d25, merge it, tests again (and a review round if client.js or Swift changed). 3. merge into main --no-ff,
+  npm test on main, push main, check CI. 4. screenshots of the merge commit (TAG=<short sha>, SHOTS=<folder>, same three
+  views; Tether: testDamonQuietTurnScreen with TEST_RUNNER_SHOT_DIR). Keep the branch and its folder. No live copy,
+  release, npm publish, restart.
+- Not verified: with dsh 0.2.2's default foldedReplies: all, dsh itself draws every text next to a tool call, so a
+  "gave it to a subagent" line still shows in the Mac chat view there (also on main); the card does not show it. Ask
+  Furkan whether the chat row must go too.
+
+## Checkpoint (2026-11-27 03:5x, about 150 tool calls: the previous chat stopped here)
+- Head 950b0430 (+ this plan commit). origin/main moved to 7593f3f8 (feat/sync-tether-damon-features merge). `git
+  merge-tree origin/main HEAD`: conflicts in IMPLEMENTATION_PLAN.md, docs/features.json, llms.txt, tether/FEATURES.md
+  (keep both sides; regenerate llms/READMEs with `npm run build:readme` after docs/features.json).
+- Open steps: review-2 fixes 1-5; `git fetch`, merge origin/main; tests; review-guard round 3 (separate subagent) on
+  `git diff origin/main...HEAD`; fix; clean round; merge into main; push main. No live copy, release, npm publish, restart.
+- Last passing (950b0430): `npm test` exit 0; iOS `cd tether/ios && xcodebuild -project DSHMobile.xcodeproj -scheme DSHMobile -destination 'platform=iOS Simulator,id=787CAECE-7075-4681-B0CE-7FBE5A5DFD49' test CODE_SIGNING_ALLOWED=NO`
+  125 tests, 2 skipped, 0 failures (boot it first: `xcrun simctl bootstatus <id> -b`; id A5766181 gave "Busy");
+  `TMPDIR=~/Library/Caches/cp-quiet-tests PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-assistant-answers.mjs <0.2.0-rc.2> <0.2.1-rc.2> <0.2.2-rc.5 bin.js>`
+  PASS x3, and FOLDED_REPLIES=all PASS on 0.2.2-rc.5.
+
+## Checkpoint before review (2026-11-27 02:1x)
+- Last passing: `npm test` exit 0; iOS `xcodebuild … -destination 'platform=iOS Simulator,id=787CAECE-7075-4681-B0CE-7FBE5A5DFD49' test CODE_SIGNING_ALLOWED=NO`
+  125 tests, 2 skipped, 0 failures; `TMPDIR=~/Library/Caches/cp-quiet-tests PLAYWRIGHT=… node test/browser-assistant-answers.mjs`
+  PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5 (also FOLDED_REPLIES=all). TMPDIR must have no "." in its path (dsh's
+  session folder name check fails for this worktree path under build/).
+- Screenshots: /Users/furkancakir/Damon/Belgeler/Composer Plus/sessiz-tur-20261127/ (damon-sohbet, damon-kartlar,
+  tether-damon-sessiz; -once / -sonra).
+- Open steps: review-guard round(s) in a separate subagent, merge origin/main, tests, merge into main, push main.
+
 # Tether = Composer Plus Damon parity (branch feat/sync-tether-damon-features, 2026-11-26)
 
 Source: Furkan, 2026-11-26: "tether da güncel tut her zaman yarın yükleriz güncelini telefonuma". Base: main e1343314.

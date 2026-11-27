@@ -153,22 +153,42 @@ assert.ok(css().includes(shown('10:1')), 'a reply that is no longer the turn\'s 
 id = null; out = answersView.render(); assert.equal(css(), '', 'off: nothing');
 answersView.unmount();
 
+// An ended turn: its steps get dsh's finalNode, and its turn tail names the last step with text as `closing`.
+const ended = (turn, ...steps) => {
+  const done = steps.map(([key, n], i) => [key, { ...n, data: { ...n.data, finalNode: { seq: turn * 100 + i } } }]);
+  const closing = done.filter(([, n]) => n.data.blocks.some((b) => b.kind === 'text' && b.text.trim() !== '')).at(-1)?.[1].data.finalNode;
+  return [...done, [`${turn}:tail`, { key: `${turn}:tail`, kind: 'turn-tail', data: { turn, closing: closing === undefined ? null : { finalNode: closing } } }]];
+};
+// dsh's tool-call node of a call that Auto review denied: the result (with its seq) as `root`, the turn in its location.
+const denied = (turn, seq) => [`${turn}:deny`, { key: `${turn}:deny`, kind: 'tool-call', location: { kind: 'step', turn: { turn } },
+  data: { root: { kind: 'tool-result', seq: seq + 0.5, content: [{ type: 'text', text: 'Error: Auto review rejected tool "bash"; its body was not executed' }], isError: true } } }];
 // A reply that is only `[quiet]` (any case, spaces): the assistant's "nothing to say" for routine news. Its row is hidden
 // like a subagent row (also when it is not the turn's last reply, and also when the step has a tool call); a reply that
 // says more stays.
 stores.set('s-quiet', storeOf([
   node('11:trig', 'turn-trigger', { kind: 'composer-plus-assistant-news' }),
-  step('11:1', 11, 1, 'think', ' [QUIET]\n'), // quiet, not the turn's last: hidden, not shown again as an answer
-  step('11:2', 11, 2, '[quiet]'), // the turn's last reply: hidden
-  step('12:1', 12, 1, '[quiet]\nThe audit found 2 issues.'), // says more: stays
-  step('12:2', 12, 2, 'Audit: [quiet]'), // stays
-  step('13:1', 13, 1, 'Real answer.'), // a real answer, then a quiet last step: the answer shows, the quiet step goes
-  step('13:2', 13, 2, '[quiet]'),
-  step('14:1', 14, 1, '[quiet]'), step('14:2', 14, 2, 'think', 'tool'), // dsh's tail copies the last step with text: quiet
+  ...ended(11,
+    step('11:1', 11, 1, 'think', ' [QUIET]\n'), // quiet, not the turn's last: hidden, not shown again as an answer
+    step('11:2', 11, 2, '[quiet]')), // the turn's last reply: hidden
+  ...ended(12,
+    step('12:1', 12, 1, '[quiet]\nThe audit found 2 issues.'), // says more: stays
+    step('12:2', 12, 2, 'Audit: [quiet]')), // stays
+  // a real answer, then a quiet last step: the answer shows, the quiet step goes
+  ...ended(13, step('13:1', 13, 1, 'Real answer.'), step('13:2', 13, 2, '[quiet]')),
+  ...ended(14, step('14:1', 14, 1, '[quiet]'), step('14:2', 14, 2, 'think', 'tool')), // dsh's tail names the last step with text: quiet
   ['15:x', { key: '15:x', kind: 'assistant-step' }], // a node without data: no rule, no error
   // A [quiet] text sent with a tool call: dsh's default (foldedReplies: all) shows it, so it goes too (the Host's
   // quietRun counts it the same way); the turn's later real reply stays.
-  step('16:1', 16, 1, '[quiet]', 'tool'), step('16:2', 16, 2, 'Found 2 issues.'),
+  ...ended(16, step('16:1', 16, 1, '[quiet]', 'tool'), step('16:2', 16, 2, 'Found 2 issues.')),
+  // 2026-11-27: a text with a tool call in an ended turn whose closing answer is [quiet] (dsh's turn tail names it) and that
+  // has a call that Auto review denied (dsh's tool-call node, its result as `root`) is for you: it shows. A [quiet] text
+  // with a tool call in such a turn stays hidden, and so does a looking line in a hushed turn without a denial (review 3).
+  // Review 4: the denied call's own text comes before its result (17:0): it stays folded; the denial line after it shows.
+  ...ended(17, step('17:0', 17, 0, 'Copying, gave it to a subagent.', 'tool'), step('17:1', 17, 1, 'Auto review denied bash.', 'tool'), step('17:2', 17, 2, '\n[quiet] ')), denied(17, 1700),
+  ...ended(18, step('18:1', 18, 1, '[quiet]', 'tool'), step('18:2', 18, 2, '[quiet]')), denied(18, 1800),
+  ...ended(20, step('20:1', 20, 1, 'Gave it to a subagent.', 'tool'), step('20:2', 20, 2, '[quiet]')),
+  // A running turn (no tail yet) whose newest text is [quiet]: its real answer can still come, so its looking line stays hidden.
+  step('19:1', 19, 1, 'Checking.', 'tool'), step('19:2', 19, 2, '[quiet]', 'tool'),
 ]));
 open = 's-quiet'; id = 's-quiet';
 const quietView = mount(() => ({ status, chatOf, t: (k) => k }));
@@ -178,12 +198,18 @@ for (const key of ['11:1', '11:2', '16:1']) assert.ok(css().includes(`${quietRul
 for (const key of ['12:1', '12:2', '16:2']) assert.ok(!css().includes(`${quietRule(key)},`) && !css().includes(`${quietRule(key)} {`), `${key} is not hidden as quiet`);
 assert.ok(!css().includes(`${quietRule('11:1')}:not(`), 'a quiet reply is not shown again as a folded answer');
 assert.ok(css().includes(`${quietRule('13:1')}:not(`), 'the real answer before a quiet last step shows');
+assert.ok(css().includes(`${quietRule('17:1')}:not(`), 'a text with a tool call after a denied result, before a quiet closing answer, shows');
+assert.ok(!css().includes(`${quietRule('17:0')}:not(`), 'the denied call\'s own text (before its result) stays folded');
+assert.ok(!css().includes(`${quietRule('18:1')}:not(`), 'a [quiet] text with a tool call in a hushed turn is not shown again');
+assert.ok(!css().includes(`${quietRule('20:1')}:not(`), 'a looking line in a hushed turn without a denial stays hidden');
+assert.ok(!css().includes(`${quietRule('19:1')}:not(`), 'a running turn: its looking line stays hidden until the turn ends');
 assert.ok(css().includes(`${quietRule('13:2')},`) || css().includes(`${quietRule('13:2')} {`), 'the quiet last step is hidden');
 // The tail of a turn that ends quiet: only its Copy/time row goes (the tail keeps the Approve and option buttons).
 const tails = css().split('}').find((b) => b.includes('data-turn-tail')) ?? '';
 for (const turn of ['11', '13', '14']) assert.ok(tails.includes(`[data-conversation-session="s-quiet"] [data-turn-tail="${turn}"] > [data-clock]`), `turn ${turn}: its Copy/time row goes`);
 assert.ok(!css().includes('"15'), 'a node without data gets no rule');
 for (const turn of ['12', '16']) assert.ok(!tails.includes(`"${turn}"`), `turn ${turn} ends with a reply that says more: it keeps its row`);
+assert.ok(!tails.includes('"19"'), 'a running turn (no tail yet) gets no tail rule');
 assert.match(tails, /display: none !important;/);
 quietView.unmount();
 

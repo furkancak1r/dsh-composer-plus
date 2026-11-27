@@ -1843,6 +1843,50 @@ final class AgentboxIdeasTests: XCTestCase {
         try XCTUnwrap(img.pngData()).write(to: URL(fileURLWithPath: dir).appendingPathComponent(name))
     }
 
+    /// A Damon turn whose every text is `[quiet]` shows nothing (2026-11-27): no card, no tool row, and no live text while
+    /// `[quiet]` streams (liveReply, LiveTail's row); a text before `[quiet]` (an Auto review denial with a tool call) stays a
+    /// card. With SHOT_DIR set
+    /// (TEST_RUNNER_SHOT_DIR, TEST_RUNNER_SHOT_NAME), it writes the screen as a PNG.
+    @MainActor func testDamonQuietTurnScreen() throws {
+        let c = Client(), strings = uiStrings
+        c.macLang = "tr"; defer { c.macLang = nil; uiStrings = strings }
+        c.plus = ["assistant-todos", "assistant-status"]; c.setAssistantIdForTest("damon")
+        c.sessions = [Sess(["sessionId": "damon", "projections": ["values": ["title": "Damon"]]])!]
+        c.state = .connected; c.current = "damon"; c.path = ["damon"]
+        let say = { (seq: Int, text: String, tool: Bool) -> [J] in
+            var e: [J] = [["type": "assistant/message", "seq": seq, "time": 1_764_140_000_000 + seq * 60_000, "data": ["message": ["content": [["type": "text", "text": text]] + (tool ? [["type": "tool-call", "id": "c\(seq)", "name": "bash"]] : [])]]]]
+            if tool { e.append(["type": "tool/call", "seq": seq + 1, "data": ["callId": "c\(seq)", "name": "bash", "arguments": ["command": "ls"]]]) }
+            return e
+        }
+        let deny = "Auto review bash çağrısını reddetti: neden canlı sunucuya yazmasıydı."
+        c.replaySnapshot(turn(1, "Bugün ne var?", "**Sabah özeti hazır.** İki iş bitti.")
+            + [["type": "turn/start", "seq": 10, "data": J()]] + say(11, "[quiet]", true) + say(13, " [QUIET]\n", false) + [["type": "turn/end", "seq": 14, "data": ["reason": ["kind": "completed"]]]]
+            + [["type": "turn/start", "seq": 20, "data": J()]] + say(21, "Kopyalıyorum, alt ajana verdim.", true)
+            + [["type": "tool/result", "seq": 23, "data": ["message": ["toolCallId": "c21", "isError": true, "content": [["type": "text", "text": "Error: Auto review rejected tool \"bash\"; its body was not executed"]]]]]]
+            + say(24, deny, true) + say(26, "\n[quiet] ", false) + [["type": "turn/end", "seq": 27, "data": ["reason": ["kind": "completed"]]]]
+            + [["type": "turn/start", "seq": 30, "data": J()]])
+        c.streamFrame(["type": "start"]); c.streamFrame(["type": "chunk", "chunk": ["type": "text-delta", "text": "[quiet]"]])
+        XCTAssertEqual(botLines(c.transcript).filter { $0.kind == .assistant }.map(\.text), ["**Sabah özeti hazır.** İki iş bitti.", deny])
+        XCTAssertEqual(botLines(c.transcript).filter { $0.kind == .tool }.count, 0, "no tool row")
+        // The live row: `[quiet]` and each start of it show nothing; a real reply (also one that starts with `[`) shows.
+        for t in ["[quiet]", " [QUIET]\n", "[qu", "[", "  "] { XCTAssertTrue(quietStart(t), t) }
+        for t in ["[quiet]\nThe audit found 2 issues.", "[x]", "Bakıyorum.", "[quiet] ok"] { XCTAssertFalse(quietStart(t), t) }
+        // LiveTail's row (liveReply): empty for `[quiet]` in the Damon chat; a real reply, another chat and the switch off show it.
+        XCTAssertEqual(c.liveReply(" [quiet]"), ""); XCTAssertEqual(c.liveReply("Bakıyorum."), "Bakıyorum.")
+        c.assistantMessagesOnly = false; XCTAssertEqual(c.liveReply("[quiet]"), "[quiet]", "Assistant messages only off"); c.assistantMessagesOnly = true
+        c.current = "other"; XCTAssertEqual(c.liveReply("[quiet]"), "[quiet]", "another chat"); c.current = "damon"
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let w = UIWindow(windowScene: scene)
+        defer { w.isHidden = true }
+        w.overrideUserInterfaceStyle = .light
+        w.rootViewController = UIHostingController(rootView: NavigationStack { ConversationView() }.environmentObject(c).environment(\.locale, Locale(identifier: "tr_TR")))
+        w.makeKeyAndVisible(); RunLoop.main.run(until: Date().addingTimeInterval(2))
+        guard let dir = ProcessInfo.processInfo.environment["SHOT_DIR"], !dir.isEmpty else { return }
+        let img = UIGraphicsImageRenderer(bounds: w.bounds).image { _ in _ = w.drawHierarchy(in: w.bounds, afterScreenUpdates: true) }
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        try XCTUnwrap(img.pngData()).write(to: URL(fileURLWithPath: dir).appendingPathComponent(ProcessInfo.processInfo.environment["SHOT_NAME"] ?? "tether-damon-quiet.png"))
+    }
+
     /// Damon reply cards: the title and the For you line as client.js replyParts (test/fixtures/reply-titles.json); the
     /// card's body keeps the rest (the Approve and option buttons read the whole reply).
     func testReplyTitleMatchesTheMac() throws {
@@ -2853,6 +2897,31 @@ final class QuietReplyTests: XCTestCase {
             // The chat view uses the same rule: a quiet reply goes, any other reply stays.
             XCTAssertEqual(botLines([Line(kind: .assistant, text: text)]).count, (c["quiet"] as? Bool == true) ? 0 : 1, text)
         }
+    }
+    /// A turn that ends with only `[quiet]`: a text sent with a tool call shows only after the turn's first Auto review
+    /// denial (client.js afterDenial; one table: quiet-replies.json `hushed`, also read by test/reply-cards.test.mjs).
+    func testHushedTurnsMatchTheMac() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../test/fixtures/quiet-replies.json")
+        let h = try XCTUnwrap((try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? J)?["hushed"] as? J)
+        let denials = try XCTUnwrap(h["denials"] as? [String]), turns = try XCTUnwrap(h["turns"] as? [J])
+        XCTAssertGreaterThanOrEqual(turns.count, 5)
+        for t in turns {
+            var lines: [Line] = []
+            for s in t["steps"] as? [[Any]] ?? [] {
+                lines.append(Line(kind: .assistant, text: s[0] as? String ?? ""))
+                if let i = s[1] as? Int { lines.append(Line(kind: .tool, text: "bash", output: denials[i], failed: true)) }
+                else if s[1] is String { lines.append(Line(kind: .tool, text: "bash", output: "{\"ok\":true}")) }
+            }
+            lines.append(Line(kind: .turn, text: "Completed"))
+            XCTAssertEqual(botLines(lines).map(\.text), t["shown"] as? [String], "\(t["steps"] ?? "")")
+        }
+        // Review 5: in the running turn (no `.turn` line yet) a text sent with a tool call that asks nothing waits for the
+        // turn's end, as on the Mac (client.js replyCardsOf, "a running turn: no card for its denial line yet"); a text that
+        // asks you (Senden) and a text without a tool call show at once; an ended turn before it keeps its lines.
+        let done = [Line(kind: .user, text: "news"), Line(kind: .assistant, text: "Bitti."), Line(kind: .turn, text: "Completed")]
+        let running = done + [Line(kind: .user, text: "copy it"), Line(kind: .assistant, text: "Kopyalıyorum, alt ajana verdim."), Line(kind: .tool, text: "bash", output: denials[1], failed: true),
+                              Line(kind: .assistant, text: "Senden: portu aç."), Line(kind: .tool, text: "bash"), Line(kind: .assistant, text: "Bakıyorum.")]
+        XCTAssertEqual(botLines(running).map(\.text), ["news", "Bitti.", "copy it", "Senden: portu aç.", "Bakıyorum."])
     }
     /// The push rule keeps its empty-reply case; a failed turn is never quiet.
     func testQuietTurn() {
