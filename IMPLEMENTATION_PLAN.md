@@ -54,8 +54,14 @@ approval: merge into main after a clean review. Not in scope: live copy, release
 - Round 5 (review-guard-5, head 5f0aafc5, origin/main 189fc00c): P1 0, P2 0, P3 0, P4 1. Fixed in the next commit: the
   push exception holds only for a message typed into a turn that you did not start by typing (index.js damonPushWords
   `typed: kind === 'user' && turn.opened !== 'user'`). docs/features.json llms and tether/FEATURES.md.
-- Open steps: one more review round on the final diff (merge only on a clean round); fetch, merge origin/main if it moved,
-  tests; merge --no-ff into main, push, CI. Screen did not change in the review fixes (cap count and docs only): no new
+- Round 6 (review-guard-6, head 73b49fb8): P1 0, P2 0, P3 0, P4 0: clean.
+- origin/main moved to 9e4bb6f0 (1.33.0 release merge: package.json, README version notes, release-notes.json, plan).
+  Merged in 98ab0639 (conflict only in this file, both sections kept). The changed lines of `git diff origin/main
+  98ab0639` (without this file) equal those of the reviewed `git diff 189fc00c 73b49fb8`, same files.
+- Last passing (98ab0639): `npm test` exit 0; iOS 130 tests, 2 skipped, 0 failures (simulator 787CAECE);
+  browser-assistant-answers PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5 and FOLDED_REPLIES=all on 0.2.2-rc.5.
+- Open steps: merge --no-ff into main, npm test, push main, CI. Keep the branch and its folder. No live copy, release,
+  npm publish, DSH restart. Screen did not change in the review fixes (cap count and docs only): no new
   screenshots. No live copy, release, npm publish, DSH restart.
 
 ## Requirement 4 options (before the decision)
