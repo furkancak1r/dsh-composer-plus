@@ -14,7 +14,8 @@ files. Out of scope: code changes, Tether builds and iPhone installs, a DSH rest
 
 ## Phase 1 (version files)
 - package.json 1.33.0; 26 README notes (2 per README × 13); release-notes.json (1.33.0, 13 languages; bold names are labels
-  from client.js en/zh and locales/<id>.json; Load earlier is dsh's chat.loadOlder text, the same as replies.loadEarlier).
+  from client.js en/zh and locales/<id>.json). Load earlier: dsh's own chat.loadOlder text; en, zh, tr, pt-BR, ko, id,
+  vi, hi equal replies.loadEarlier; de, es, fr, ru, ja add dsh 0.2.2's own text in parentheses, as their READMEs do.
 - Notes cover the merges after v1.32.0: f86a0a4c (canvas islands, reply cards), b3d67832 (order, `---` topic cards),
   2308766c (Load earlier), e1343314 (Decisions dialog), 7593f3f8 (Tether parity), 4b3a3d25 (card images), ee06f990 (quiet
   small tasks, denial reason).
