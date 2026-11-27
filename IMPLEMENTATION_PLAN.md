@@ -5000,3 +5000,8 @@ review. Not in scope: live copy (after Furkan's "tamam" on the screenshots), rel
   The reviewer's fuzz: 150,000 replies without "![" and 30,000 tool-call chats: 0 differences against origin/main;
   hasImage worst case 95 ms at 128 KB (not reported). Open: review round 10 (separate subagent) until clean; then (c)
   update from origin/main and tests, (d) merge into main --no-ff and push. No live copy, no release, Tether unchanged.
+- 2026-11-27 03:2x: review-guard round 10 (review-guard-r10, origin/main...046fa2c9): P1 0, P2 0, P3 0, P4 1: a
+  destination with a URL scheme (file:, smb:, data:, x:y.png) was joined to the chat folder and requested from
+  /api/file, which dsh's chat does not do. Fixed in the next commit (dsh 0.2.0's scheme rule; unit cases red on 046fa2c9).
+  Open: review round 11 (separate subagent) until clean; then (c) update from origin/main and tests, (d) merge into main
+  --no-ff and push. No live copy, no release, Tether unchanged.

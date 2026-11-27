@@ -479,7 +479,8 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   assert.equal(replyImageUrl('/a/b.webp', '/x', 'dsh-app://app/'), 'dsh-app://app/api/file?path=%2Fa%2Fb.webp', 'the Desktop app\'s base');
   for (const ext of ['png', 'jpg', 'jpeg', 'webp', 'gif']) assert.ok(replyImageUrl(`/a/b.${ext}`, '/x', base), `.${ext} is an image`);
   for (const [value, cwd, why] of [['/a/rapor.pdf', '/x', 'a .pdf'], ['/Users/demo/.ssh/id_rsa', '/x', 'a key file'], ['/a/notes.md', '/x', 'a .md'], ['/a/x.svg', '/x', 'an .svg'],
-    ['resim/a.png', undefined, 'a relative path without a folder'], ['//server/share/a.png', '/x', 'a // network path'], ['/a/b\nc.png', '/x', 'a control character'], ['/a/%E0%A4.png', '/x', 'a broken escape']]) {
+    ['resim/a.png', undefined, 'a relative path without a folder'], ['//server/share/a.png', '/x', 'a // network path'], ['/a/b\nc.png', '/x', 'a control character'], ['/a/%E0%A4.png', '/x', 'a broken escape'],
+    ['file:///a/b.png', '/x', 'a file: URL (review 10)'], ['smb://h/a.png', '/x', 'an smb: URL'], ['data:image/png;base64,AA.png', '/x', 'a data: URL'], ['x:y.png', '/x', 'another scheme']]) {
     assert.equal(replyImageUrl(value, cwd, base), undefined, `no image: ${why}`);
   }
   assert.equal(replyImageUrl('/a/b.png', '/x', 'file:///index.html'), undefined, 'no file route on another base');

@@ -4559,6 +4559,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       let path; try { path = decodeURIComponent(String(value).split(/[?#]/)[0]); } catch { return undefined; }
       const at = String(base ?? '');
       if (!/\.(?:png|jpe?g|webp|gif)$/i.test(path) || /[\u0000-\u001f\u007f]/.test(path) || !(/^https?:/.test(at) || at.startsWith('dsh-app://app/'))) return undefined;
+      if (/^[a-z][a-z\d+.-]*:/i.test(path) && !/^[a-z]:[\\/]/i.test(path)) return undefined; // file:, data:, smb:: no request, as in dsh (review 10)
       if (!/^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(path)) {
         if (typeof cwd !== 'string' || cwd === '') return undefined;
         const sep = /^[A-Za-z]:[/\\]/.test(cwd) && cwd.includes('\\') ? '\\' : '/'; // a Windows folder keeps its own separator, as in dsh
