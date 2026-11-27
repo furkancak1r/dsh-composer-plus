@@ -20,7 +20,7 @@ import { ASSISTANT_TODOS_PATH, STATUS_SUGGEST_NOTE, SUGGEST_ASK_MS, SUGGEST_LIMI
 // 1. The safety rule.
 for (const text of ['Onaylıyorum: X dalını main\'e al', 'ONAYLIYORUM', 'onayliyorum', 'Bunu onaylıyorum.', 'CANLI DEPLOY PROMES 22e33b30 ŞİMDİ',
   'Onaylıyorum: CANLI DEPLOY PROSO abc1234 SAAT 21:10', 'canlı deploy promes 22e33b30 şimdi', 'Karar: rapor → uzun', 'karar : x', 'İlk satır\nKarar: x',
-  'Decision: x', 'İzin veriyorum', 'Onay veriyorum', 'Onay\u200Blıyorum', 'O\u0301naylıyorum', 'CANLI DEPLOY']) {
+  'Decision: x', 'Canlı deploy öncesi duman testi', 'İzin veriyorum', 'Onay veriyorum', 'Onay\u200Blıyorum', 'O\u0301naylıyorum', 'CANLI DEPLOY']) {
   assert.equal(suggestBlocked(text), true, JSON.stringify(text));
 }
 for (const text of ['Canlı deploy\'u tek komuta indir', 'Kararlı bir test seti kur', 'Karar penceresine kısayol ekle', 'Öneri: ortak log', 'Deploy öncesi onay adımını otomatik kontrol et', '']) {

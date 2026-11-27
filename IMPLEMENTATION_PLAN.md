@@ -125,7 +125,16 @@ IMPLEMENTATION_PLAN.md. Screenshots only to the folder above.
   always shown), 13 languages, docs (features.json, build:readme), tether/FEATURES.md, tests (new
   test/assistant-suggest.test.mjs in test:all; decision-dialog step 5; assistant-todos-client "nothing waits").
   Last passing test: `npm test` exit 0.
-- Open: phase 2 (demo model + browser-card-stack step 12, 4 screenshots), phase 3 (review loop, merge after v1.33.0).
+- 2026-11-27 12:5x Phase 2 done: scripts/demo-card-stack.mjs (SUGGESTIONS, the suggest note branch, `hold`, the Öneri
+  reply), test/browser-card-stack.mjs step 12 (SUGGEST_SHOTS). PASS on dsh 0.2.2-rc.5:
+  `TMPDIR=~/Library/Caches/cp-suggest-tests PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright SUGGEST_SHOTS=<folder> node test/browser-card-stack.mjs <0.2.2-rc.5 bin.js>`.
+  Screenshots: Damon/Belgeler/Composer Plus/oneri-karti-20261127/oneri-{1-satir,2-yukleniyor,3-kartlar,4-sohbette}.png.
+  The first run (before SUGGEST_SHOTS) also wrote 1-…9-*.png there (the Kararlar step 10-11 pictures and two early
+  suggestion pictures); not deleted (rule: agents delete no file under Damon/Belgeler).
+  Demo text change: a card title that starts with "Canlı deploy" is refused (the CANLI DEPLOY rule at the start of a
+  line); the note now names the exact rule, and the tool result says how many were left out and why.
+- Open: phase 3 (review loop until no P1/P2, then a clean review-guard round; merge into main only after
+  `gh release view v1.33.0` shows the release). 0.2.0-rc.2 and 0.2.1-rc.2 browser run: started.
 
 # Quiet turns leave no card, and small tasks start quietly (branch fix/hide-quiet-only-turns, 2026-11-27)
 

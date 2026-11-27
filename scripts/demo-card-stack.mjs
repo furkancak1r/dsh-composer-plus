@@ -42,6 +42,13 @@ export const DECISIONS = [
   ['Karar ver: test sunucusundaki eski loglar silinsin mi?', ['30 günden eskiler silinsin (Önerilen)', 'Arşive taşınsın']],
   ['Karar ver: hava durumu CLI sürüm notu Türkçe mi İngilizce mi?', null],
 ];
+/** Get suggestions (made up): the cards that the demo's Damon writes (the second one is refused: an approval). */
+export const SUGGESTIONS = [
+  { project: 'acme-web', title: 'Deploy öncesi duman testi', text: 'Deploy betiği canlıya geçmeden önce giriş sayfasını ve ödeme adımını açsın. Biri açılmazsa deploy dursun.', why: 'Son iki hatayı müşteri buldu; bir dakikalık kontrol bunları yakalardı.', source: 'Hafıza: acme-web deploy notları' },
+  { title: 'Onaylıyorum: acme-web canlıya alınsın', text: 'Bu kart gösterilmez.', why: 'Onay bir öneri değildir.', source: 'test' },
+  { project: 'weather-cli', title: 'Testleri her push\'ta çalıştır', text: 'Testler şu an elle çalışıyor. Her push\'ta CI çalıştırsın.', why: 'Kırık bir sürüm iki gün fark edilmedi.', source: 'Belgeler/Projeler/weather-cli.md' },
+  { title: 'Yeni proje: ortak log görüntüleyici', text: 'Üç sunucunun loglarını tek sayfada, tarihe göre gösteren küçük bir araç.', why: 'Her sorunda üç sunucuya ayrı ayrı bağlanıyorsun.', source: 'Bu sohbet', unverified: true },
+];
 /** A long summary (made up) for Get summary: more than the default height of the summary card shows. */
 export const SUMMARY = [
   { project: 'acme-web', text: 'Ürün filtresi düzeltmesi bu sabah canlıya alındı. Tasarım dalının review\'ı sürüyor; temiz çıkınca main\'e alınacak, dallar silinecek, sonra canlı deploy için onay istenecek.' },
@@ -92,6 +99,18 @@ export async function fakeModel(calls = [], lang = 'tr') {
       // Only the Damon chat's own steps (they have the to-do tools): a side request of another plugin (a memory review, a
       // title) can carry the same message without tools.
       const damonStep = (parsed.tools ?? []).some((t) => t.function?.name === 'todo_list_add');
+      // Get suggestions' hidden note (test/browser-card-stack.mjs step 12): Damon starts one subagent, then (its result in
+      // the same or a later turn) writes the cards, and replies only [quiet].
+      const sgNote = msgs.findLastIndex((m) => m.role === 'user' && textOf(m.content).includes('The user clicked "Get suggestions"'));
+      if (damonStep && sgNote > own) {
+        const later = msgs.slice(sgNote);
+        if (later.some((m) => m.role === 'tool' && /suggestion cards/.test(textOf(m.content)))) return say('[quiet]');
+        if (later.some((m) => (m.tool_calls ?? []).some((c) => c.function?.name === 'subagent'))) return tools([['status_suggestions_set', { suggestions: SUGGESTIONS }]]);
+        // `server.hold` (ms): the test sees the loading line before the subagent starts.
+        const start = () => tools([['subagent', { description: 'Proje notlarını oku', prompt: 'DEMO-DONE first: read the project notes.', ...bg }]]);
+        if (server.hold > 0) { setTimeout(start, server.hold); return undefined; }
+        return start();
+      }
       // Get summary's hidden note (test/browser-summary-resize.mjs): a long made-up summary, then [quiet].
       const asked = msgs.findLastIndex((m) => m.role === 'user' && textOf(m.content).includes('The user clicked "Get summary"'));
       if (damonStep && asked > own) return msgs.slice(asked).some((m) => m.role === 'tool') ? say('[quiet]') : tools([['status_summary_set', { projects: SUMMARY }]]);
@@ -123,6 +142,8 @@ export async function fakeModel(calls = [], lang = 'tr') {
       const fresh = damonStep ? /^DEMO-DECISION-NEW (.+)$/.exec(newest.trim()) : null;
       if (fresh !== null) return step === 0 ? tools([['todo_list_add', { text: fresh[1], owner: 'user', options: ['Evet (Önerilen)', 'Hayır'] }]]) : say('[quiet]');
       if (/^(Karar|Not tamam|Decision|Note done):/.test(newest.trim())) return say('[quiet]');
+      // A suggestion card's message (step 12): a short reply (the chat after the click shows the message and this reply).
+      if (damonStep && /^(Öneri|Suggestion):/.test(newest.trim())) return say(lang === 'en' ? '**Noted.** I will plan this suggestion.' : '**Not aldım.** Bu öneriyi planlıyorum.');
       // Damon reply cards (test/browser-status-canvas.mjs): "DEMO-REPLY-CARD" gets one answer with a bold title, a Senden
       // line, a closed details section, an `onay` block and an option list (one card with Onayla and option buttons).
       if (damonStep && newest.trim() === 'DEMO-REPLY-CARD') return say(S.card);
