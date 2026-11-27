@@ -13175,24 +13175,21 @@ const suggestMessage = () => Object.freeze({ id: randomUUID(), role: 'user', con
 // letter of the Latin, Greek, Cyrillic, Armenian, Cherokee, Lisu or Coptic script (BMP, not ASCII) whose prototype is one
 // ASCII letter after NFKD, and each colon look-alike as ":"; plus the small capitals ᴀ…ᴛ ꜰ ᴋ ᴍ ꞯ and в н т к κ м ε τ
 // (prototype: a small capital or another non-ASCII letter). ponytail: only SUGGEST_MIXED (Latin with Greek or Cyrillic)
-// catches a pair that is not in the list; a new look-alike needs its pair here and in client.js.
+// catches a pair that is not in the list (another script such as Canadian syllabics or Runic, an astral letter that NFKD
+// does not make ASCII, a digit or sign such as 1, 0 or |); a new look-alike needs its pair here and in client.js.
 const LOOK_FROM = 'ःઃ։܃܄࠱፡᛬︰᠃᠉⁚׃˸᎓꞉∶ːꓽɑꭤαаΑАᎪꓮƄЬᏏꞴΒⲂВᏴꓐꚝɓƃƂБƀҍҌѣѢᴄϲⲥсᲃꮯϹⲤСᏟꓚȼҫҪԁᏧꓒᎠꓓɗɖƌƋđĐÐƉꬲеҽΕЕᎬꓰɇɆҿꬵꞙƒʄẝքꞘϜꓝƑᵮɡᶃƍցԌᏀᏳꓖᶢɠǥǤһҺհᏂΗⲎНᎻꓧᵸɦꚕᏲⱧҢħћĦӉӇıɪɩιⲓіꙇւꭵᎥɨᵻᵼȷϳјյꞲͿЈᎫꓙɉɟɈΚⲔКᏦꓗƙⱩҚꝀҞꞮꟾƖꞁǀΙⲒІӏӀꓲⳐᏞꓡłŁɭƗƚɫΜϺⲘМᎷꓟӍոռΝⲚꓠɳƞŋηղɲƝᵰᴏᴑꬽοσⲟϭоᲂօΟⲞОՕꓳøꬾØɵꝋⲑөѳꮎꮻƟꝊθϑΘϴⲐӨѲᎾᏫꭴᎤþƿρϱϸⲣⳏрΡⲢⳎРᏢꓑƥᵽԛգզԚʠꭇꭈᴦⲅгꮁƦɌᎡᏒꓣɽɼɍғᵲꜱƽѕꮪЅՏᏕᏚꓢʂꟅᵴΤⲦТᎢꓔƭȾƮꚌҬŧŦƫᎿᵵꞟᴜꭎꭒʋυսՍꓴџᵾꮜɄᏌᴠνѵꮩѴᏙꓦɯꟺᴡⲽѡшԝաꮃꮤԜᎳᏔꓪѽꝡхꞳΧⲬХꓫҲɣᶌʏỿꭚγⲩуүΥϒⲨУҮᎩᎽꓬƴɏұɎҰᴢⱬⲍꮓⱫΖⲌᏃꓜʐƶƵȥȤᵶᴀʙᴅᴇɢʜᴊʟɴᴘʀᴛꜰᴋᴍꞯвнткκмετ';
 const LOOK_TO = ':::::::::::::::::::aaaaAAAAbbbBBBBBBbbbbbbbbbbccccccCCCCCccCdddDDdddddDDDeeeEEEEeEeffffffFFFFfggggGGGGgggGhhhhHHHHHHhhhHHhhHHHiiiiiiiiiiiiijjjjJJJJJjjJKKKKKkKKKKlllllllllllLLLlLllllMMMMMMMnnNNNnnnnnnNnooooooooooOOOOOooOoooooooOOOOOOOOOOOoOppppppppPPPPPPppqqqQqrrrrrrRRRRRrrrrrssssSSSSSsSsTTTTTtTTTTtTtttuuuuuuuUUuuuUUvvvvVVVwwwwwwwwwwWWWWwwxXXXXXXyyyyyyyyyYYYYYYYYyyyYYzzzzZZZZZzzZzZzabdeghjlnprtfkmqbhtkkmet';
 const LOOK_ALIKE = new RegExp(`[${LOOK_FROM}]`, 'gu');
-const SMALL_CAPS = 'ᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘꞯʀꜱᴛᴜᴠᴡʏᴢ';
-// cased: a capital or a small capital gives a capital.
-const lookLatin = (s, cased = false) => s.replace(LOOK_ALIKE, (c) => {
-  const to = LOOK_TO[LOOK_FROM.indexOf(c)];
-  return cased && (c !== c.toLowerCase() || SMALL_CAPS.includes(c)) ? to.toUpperCase() : to;
-});
+// upper: every look-alike gives a capital (for the CANLI DEPLOY line; an "ɑ" or "ø" there is not a lower-case word).
+const lookLatin = (s, upper = false) => s.replace(LOOK_ALIKE, (c) => (upper ? LOOK_TO[LOOK_FROM.indexOf(c)].toUpperCase() : LOOK_TO[LOOK_FROM.indexOf(c)]));
 // NFKD, then marks, format, invisible and control characters out (NEL is a line break; tab and newline stay).
 const unhide = (s) => s.normalize('NFKD').replace(/\x85/g, '\n').replace(/[\p{M}\p{Cf}\p{Default_Ignorable_Code_Point}\0-\x08\x0E-\x1F\x7F-\x9F\u2800]/gu, '');
 // "l" is written "i": the folded text reads l and i as one letter (Ι І Ӏ ӏ ı I l look alike; "ONAYIIYORUM" matches,
-// review 5). CANLI DEPLOY: a look-alike keeps its case (lookLatin cased), I i l L read as one letter (written I:
+// review 5). CANLI DEPLOY: each look-alike is a capital (lookLatin upper), I i l L read as one letter (written I:
 // "CANII DEPIOY"; ı and İ are i and I by then), and the words may touch (an invisible character between them is
-// removed; review 6).
+// removed; review 6). Only spaces and tabs before CANLI: \s* there would cross lines and cost n² on many blank lines.
 const SUGGEST_BLOCKED = /(?<![\p{sc=Latn}\p{N}])(?:(?:onayi(?:i|idir|iyorum|iyoruz|adim)|onay\s*ver(?:iyorum|dim)|izin\s*ver(?:iyorum|dim)|i\s*approve)(?![\p{sc=Latn}\p{N}])|(?:approved|karar|decision)\s*:)|canii\s*depioy\s+\S+\s+[0-9a-f]{7,40}(?![\p{sc=Latn}\p{N}])/u;
-const SUGGEST_LIVE = /^\s*CANII\s*DEPIOY(?![\p{sc=Latn}\p{N}])/mu;
+const SUGGEST_LIVE = /^[^\S\r\n\u2028\u2029]*CANII\s*DEPIOY(?![\p{sc=Latn}\p{N}])/mu;
 const SUGGEST_MIXED = /(?<![\p{sc=Latn}\p{sc=Grek}\p{sc=Cyrl}])(?=(?:[\p{sc=Latn}\p{sc=Grek}\p{sc=Cyrl}]*?\p{sc=Latn}){3})(?=[\p{sc=Latn}\p{sc=Grek}\p{sc=Cyrl}]*[\p{sc=Grek}\p{sc=Cyrl}])/u;
 export const suggestBlocked = (text) => {
   const raw = String(text ?? '');

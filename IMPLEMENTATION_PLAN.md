@@ -194,7 +194,12 @@ IMPLEMENTATION_PLAN.md. Screenshots only to the folder above.
   look-alike at each position of "CANLI DEPLOY": 0 misses); P4-1 the colon marks ः ઃ (408 pairs); P4-2 comment and llms
   say accents go ("Decisión:" counts). Tests red on 8a5759cc ("CANLI⠀DEPLOY"). False-positive scans: /usr/share/dict/words
   (235976 words) only "decision" (+":"); locales and READMEs (81191 texts) only Karar/Decisión forms. npm test exit 0.
-- Open steps: review round 7 (separate subagent) on `git diff $(git merge-base origin/main HEAD)..HEAD`; when clean:
+- Review 7 (review-guard-7, head ce959281): P1 0, P2 1, P3 1, P4 1. Fixed: P2 look-alikes that are lower case by nature
+  (ɑ ո ɣ ⲥ ø ꓒ ɇ þ) in the CANLI DEPLOY line: lookLatin(s, upper) makes every look-alike a capital there (scan of every
+  pair at every position: 0 misses); P3 the line start of SUGGEST_LIVE is [^\S\r\n\u2028\u2029]* (100000 blank lines:
+  4505 ms on the old code, about 2 ms now; test with a 500 ms bound); P4 the ponytail comment and llms name the limit
+  (another script, an astral letter, 1, 0 or |). npm test exit 0. Round 7 had a P2: the loop needs one more round.
+- Open steps: review round 8 (separate subagent) on `git diff $(git merge-base origin/main HEAD)..HEAD`; when clean:
   merge into main (--no-ff), npm test on main, push, CI. Earlier wording: fix 1-3; `npm test`; review round 5 on `git diff ee06f990..HEAD`; when
   clean: `git fetch`, merge origin/main into the branch if it moved (the release branch chore/release-1-33-0 is not
   touched), `npm test`, merge into main, push main. No live copy, no new release, no DSH or AIProxy restart.

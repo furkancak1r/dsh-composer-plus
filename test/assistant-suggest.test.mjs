@@ -40,7 +40,9 @@ for (const text of ['Onaylıyorum: X dalını main\'e al', 'ONAYLIYORUM', 'onayl
   // Review 6: CANLI DEPLOY with an invisible character between the words, and with look-alikes that NFKD or the pairs
   // turn into lower case (ı ɪ ʟ ʏ ᴀ ᴅ ɴ, Ł Ɩ); two colon marks.
   'CANLI\u2800DEPLOY', 'CANLI\u200BDEPLOY', 'CANLI\u0000DEPLOY', 'CANLI\u3164DEPLOY', 'CANL\u0131 DEPLOY', 'CANL\u026A DEPLOY', 'CAN\u029FI DEP\u029FOY',
-  'CANLI DEPLO\u028F', 'C\u1D00NLI \u1D05EPLOY', 'CA\u0274LI DEPLOY', 'CANLI \u1D05\u1D07\u1D18\u029F\u1D0F\u028F', 'CAN\u0141I DEPLOY', 'CANLI DEP\u0196OY', 'Karar\u0903 al', 'Decision\u0A83 x']) {
+  'CANLI DEPLO\u028F', 'C\u1D00NLI \u1D05EPLOY', 'CA\u0274LI DEPLOY', 'CANLI \u1D05\u1D07\u1D18\u029F\u1D0F\u028F', 'CAN\u0141I DEPLOY', 'CANLI DEP\u0196OY', 'Karar\u0903 al', 'Decision\u0A83 x',
+  // Review 7: look-alikes that are lower case by nature (ɑ ո ɣ ⲥ ø ꓒ ɇ þ) in the CANLI DEPLOY line.
+  'C\u0251NLI DEPLOY', 'CA\u0578LI DEPLOY', 'CANLI DEPLO\u0263', '\u2CA5ANLI DEPLOY', 'CANLI DEPL\u00F8Y', 'CANLI \uA4D2EPLOY', 'CANLI D\u0247PLOY', 'CANLI DE\u00FELOY', 'x\n\u2003CANLI DEPLOY']) {
   assert.equal(suggestBlocked(text), true, JSON.stringify(text));
 }
 for (const text of ['Canlı deploy\'u tek komuta indir', 'Canlı deploy öncesi duman testi', 'Canlı deploy: tek komut', 'Kararlı bir test seti kur', 'Karar penceresine kısayol ekle', 'Öneri: ortak log',
@@ -55,6 +57,11 @@ for (const text of ['Canlı deploy\'u tek komuta indir', 'Canlı deploy öncesi 
   // Review 6: only CANLI DEPLOY in capitals at a line start.
   'canlı deploy planı', 'Canlı DEPLOY süresi', 'CANLI ORTAM izlemesi', 'DEPLOY CANLI', 'CANLIDEPLOYMENT raporu', '']) {
   assert.equal(suggestBlocked(text), false, JSON.stringify(text));
+}
+// Review 7: many blank lines cost no n² time (the line start of the CANLI DEPLOY rule does not cross lines).
+{
+  const t0 = performance.now(); suggestBlocked(`x${'\n'.repeat(100000)}`);
+  assert.ok(performance.now() - t0 < 500, 'many blank lines take less than 500 ms');
 }
 // The browser has the same rule (client.js suggestBlocked): compare them on the texts above and on random mixes.
 {
