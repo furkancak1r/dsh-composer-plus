@@ -2888,7 +2888,21 @@
     "decide.allDone": "Всё готово",
     "decide.skipped": "Вернуться к пропущенным ({count})",
     "decide.close": "Закрыть",
-    "decide.remove": "Удалить"
+    "decide.remove": "Удалить",
+    "suggest.row": "Получить предложения",
+    "suggest.rowHint": "{name} читает чат, память и заметки проектов и пишет предложения по всем проектам взглядом со стороны.",
+    "suggest.again": "Получить новые предложения",
+    "suggest.loading": "{name} готовит предложения: читает чат, память и заметки проектов. Это может занять несколько минут.",
+    "suggest.late": "Предложения не пришли. Попробуйте ещё раз.",
+    "suggest.failed": "Не удалось запросить предложения: {error}",
+    "suggest.title": "Предложения",
+    "suggest.when": "Написано: {when}",
+    "suggest.why": "Почему: {why}",
+    "suggest.source": "Источник: {source}",
+    "suggest.unverified": "не проверено",
+    "suggest.send": "Отправить в чат: {title}",
+    "suggest.sent": "✓ Отправлено",
+    "suggest.message": "Предложение: {title} — {text}"
   },
   "common": {
     "ok": "OK",

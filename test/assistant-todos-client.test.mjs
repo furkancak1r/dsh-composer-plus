@@ -542,11 +542,15 @@ const groupBtn = (tr, g) => find(tr, (n) => n.t === 'button' && n.p['data-group'
   assert.equal(text(find(tr, (n) => n.p?.['data-decide-error'] !== undefined)[0]), 'decide.failed', 'the reason shows in the panel');
   rt.clear(); tr = panel();
   assert.equal(text(find(tr, (n) => n.p?.['data-decide-error'] !== undefined)[0]), 'decide.failed', 'a new panel of the chat still shows it (kept per chat)');
-  // Nothing waits: one line says so. The dialog that was open closes: the button is gone, so the focus goes to the
-  // panel's title (not to the page).
+  // Nothing waits: the button stays and says so (Furkan, 2026-11-27: its dialog has the Get suggestions row). When the
+  // button is not in the page (another place drew the panel), a closed dialog gives the focus to the panel's title.
   decideBtn(tr).p.onClick(); tr = panel(); dialogOf(tr).p.setDecide((d) => ({ ...d, error: null })); tr = panel();
   items = items.filter((i) => i.owner !== 'user' || /^(Senden|Sorun):/.test(i.text)); await panelProps.store.load('s-assistant'); tr = panel();
-  assert.equal(decideBtn(tr), undefined); assert.equal(text(find(tr, (n) => n.p?.['data-decide-none'] !== undefined)[0]), 'decide.none');
+  {
+    const b = decideBtn(tr); assert.ok(b, 'the Kararlar button stays when nothing waits');
+    assert.equal(b.p['data-decide-none'], '', 'marked: nothing waits'); assert.equal(b.p['aria-label'], 'decide.title: decide.none');
+    assert.match(text(b), /decide\.title\s+decide\.none/); assert.equal(find(b, (n) => n.p?.['data-decide-count'] !== undefined).length, 0, 'no badge');
+  }
   const byId = globalThis.document.getElementById;
   globalThis.document.getElementById = (id) => (id === 'cp-td-s-assistant-decide' ? null : byId(id));
   dialogOf(tr).p.onClose(); await new Promise((r) => setTimeout(r, 5)); globalThis.document.getElementById = byId;

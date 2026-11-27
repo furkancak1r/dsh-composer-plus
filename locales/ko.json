@@ -2888,7 +2888,21 @@
     "decide.allDone": "모두 완료",
     "decide.skipped": "건너뛴 항목으로 돌아가기 ({count})",
     "decide.close": "닫기",
-    "decide.remove": "삭제"
+    "decide.remove": "삭제",
+    "suggest.row": "제안 가져오기",
+    "suggest.rowHint": "{name}이(가) 채팅, 메모리, 프로젝트 메모를 읽고 모든 프로젝트에 대한 제안을 바깥의 시각으로 작성합니다.",
+    "suggest.again": "새 제안 가져오기",
+    "suggest.loading": "{name}이(가) 제안을 준비하고 있습니다. 채팅, 메모리, 프로젝트 메모를 읽는 중입니다. 몇 분 걸릴 수 있습니다.",
+    "suggest.late": "제안이 오지 않았습니다. 다시 시도하세요.",
+    "suggest.failed": "제안을 요청할 수 없습니다: {error}",
+    "suggest.title": "제안",
+    "suggest.when": "작성: {when}",
+    "suggest.why": "이유: {why}",
+    "suggest.source": "출처: {source}",
+    "suggest.unverified": "확인되지 않음",
+    "suggest.send": "채팅으로 보내기: {title}",
+    "suggest.sent": "✓ 보냈습니다",
+    "suggest.message": "제안: {title} — {text}"
   },
   "common": {
     "ok": "확인",

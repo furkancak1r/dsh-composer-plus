@@ -118,8 +118,14 @@ IMPLEMENTATION_PLAN.md. Screenshots only to the folder above.
 
 ## Last checkpoint
 
-- 2026-11-27 Phase 0 done; design written. Open: phases 1-3. Last passing test: `node test/decision-dialog.test.mjs`,
-  `node test/assistant-todos-client.test.mjs` (both ok on ee06f990).
+- 2026-11-27 Phase 0 done; design written.
+- 2026-11-27 12:4x Phase 1 done: index.js (askNote for summary and suggest, SUGGEST_SOURCE, STATUS_SUGGEST_NOTE,
+  status_suggestions_set, cleanSuggestions, suggestBlocked, GET suggest/suggestAsked/suggestMissed, no nudge for the
+  suggest turn), client.js (store.askSuggest, sgAsk, suggestionMessage, DecisionDialog row + cards, Kararlar button
+  always shown), 13 languages, docs (features.json, build:readme), tether/FEATURES.md, tests (new
+  test/assistant-suggest.test.mjs in test:all; decision-dialog step 5; assistant-todos-client "nothing waits").
+  Last passing test: `npm test` exit 0.
+- Open: phase 2 (demo model + browser-card-stack step 12, 4 screenshots), phase 3 (review loop, merge after v1.33.0).
 
 # Quiet turns leave no card, and small tasks start quietly (branch fix/hide-quiet-only-turns, 2026-11-27)
 

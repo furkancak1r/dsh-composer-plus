@@ -4552,7 +4552,21 @@
     "decide.allDone": "Hepsi bitti",
     "decide.skipped": "Atlananlara dön ({count})",
     "decide.close": "Kapat",
-    "decide.remove": "Sil"
+    "decide.remove": "Sil",
+    "suggest.row": "Öneri getir",
+    "suggest.rowHint": "{name} sohbeti, hafızayı ve proje notlarını okur; bütün projeler için dışarıdan bakan öneriler yazar.",
+    "suggest.again": "Yeni öneri getir",
+    "suggest.loading": "{name} öneri hazırlıyor: sohbeti, hafızayı ve proje notlarını okuyor. Bu birkaç dakika sürebilir.",
+    "suggest.late": "Öneriler gelmedi. Yeniden deneyin.",
+    "suggest.failed": "Öneri istenemedi: {error}",
+    "suggest.title": "Öneriler",
+    "suggest.when": "Hazırlandı: {when}",
+    "suggest.why": "Neden: {why}",
+    "suggest.source": "Kaynak: {source}",
+    "suggest.unverified": "doğrulanmadı",
+    "suggest.send": "Sohbete gönder: {title}",
+    "suggest.sent": "✓ Gönderildi",
+    "suggest.message": "Öneri: {title} — {text}"
   },
   "directory-browser": {
     "browser.title": "Çalışma alanı klasörünü seçin",

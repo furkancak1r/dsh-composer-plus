@@ -26,7 +26,7 @@ let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } } }
 const ANCHOR = '/** Feature switches, in Settings order.';
 const src = read('client.js');
 assert.ok(src.includes(ANCHOR));
-eval(src.replace(ANCHOR, `globalThis.__dc = { decisionQueue, isDecision, decisionOption, DecisionDialog, DecidePeek, canPeek, decideSeen, createOptionPicks, DECIDE_CSS, DECIDE_PEEK_QUIET_MS };\n    ${ANCHOR}`));
+eval(src.replace(ANCHOR, `globalThis.__dc = { decisionQueue, isDecision, decisionOption, DecisionDialog, DecidePeek, canPeek, decideSeen, createOptionPicks, DECIDE_CSS, DECIDE_PEEK_QUIET_MS, suggestionMessage, suggestBlocked };\n    ${ANCHOR}`));
 
 // A hook runtime: state, refs and layout effects (with deps) by call order.
 let hooks = []; let hi = 0; let pending = [];
@@ -416,5 +416,59 @@ for (const h of hooks) h?.off?.(); assert.equal(dialog.open, false); assert.equa
   open = true; run('b c d e f'); open = false; run('b c d e f'); assert.equal(peeks, 3, 'shown in an open dialog: seen');
   for (const h of hk) h?.off?.(); assert.equal(docListeners.size, 0, 'its listeners go');
   React.useEffect = realEffect; React.useRef = realRef; globalThis.setInterval = realSet; globalThis.clearInterval = realClear; globalThis.document = realDoc;
+}
+
+// 5. Get suggestions (Furkan, 2026-11-27): the row under the cards (also at the end, with no decision), its waiting line,
+// the cards, one click sends "Öneri: <title> — <text>" once, and a card that would send an approval or a decision never
+// shows and never sends (suggestionMessage; the Host has the same rule: test/assistant-suggest.test.mjs).
+{
+  const { suggestionMessage, suggestBlocked } = globalThis.__dc;
+  assert.equal(suggestionMessage({ title: 'Ortak test verisi', text: 'Testler aynı veriyi kullansın.' }, t), 'Öneri: Ortak test verisi — Testler aynı veriyi kullansın.');
+  for (const bad of [{ title: 'Onaylıyorum: canlıya al', text: 'x' }, { title: 'x', text: 'ONAYLIYORUM' }, { title: 'CANLI DEPLOY PROMES abc1234 ŞİMDİ', text: 'x' },
+    { title: 'Karar: rapor', text: 'x' }, { title: 'x', text: 'Bir.\nKarar: rapor → uzun' }, { title: 'x', text: 'y', why: 'İzin veriyorum' }, { title: 'x', text: 'y', source: 'Onay\u200Blıyorum' },
+    { title: 'x', text: 'y', project: 'Decision: z' }, { title: '', text: 'y' }]) {
+    assert.equal(suggestionMessage(bad, t), null, JSON.stringify(bad));
+  }
+  assert.equal(suggestBlocked('Canlı deploy\'u tek komuta indir'), false, 'a suggestion about deploys is fine');
+  assert.equal(suggestBlocked('Kararlı bir test seti'), false);
+  const saved = [hooks, decide, sent.length];
+  hooks = []; decide = { answered: new Map(), drafts: new Map(), later: [], error: null, suggested: new Set() };
+  let asks = 0; let sg = null; let sgAsk = null;
+  const d5 = { ...dialog, open: true, addEventListener() {}, removeEventListener() {} };
+  const draw = () => { hi = 0; pending = []; tree = DecisionDialog({ sessionId: 's-s', notes: [], decide, setDecide, picks, remove, t, lang: 'tr', onClose: () => {}, suggest: sg, sgAsk, askSuggest: () => { asks += 1; } }); tree.p.ref.current = d5; for (const f of pending) f(); return tree; };
+  draw();
+  const row = () => btn('suggest');
+  assert.ok(find(tree, (n) => n.p?.className === 'cp-dc-empty').length === 1, 'nothing waits: "Hepsi bitti"');
+  assert.match(text(row()), /Öneri getir/, 'the row shows under it'); assert.equal(row().p['aria-disabled'], false);
+  row().p.onClick(); assert.equal(asks, 1, 'a click asks');
+  sgAsk = { state: 'waiting', asked: 1 }; draw();
+  assert.equal(row().p['aria-disabled'], true); assert.equal(row().p['aria-busy'], true);
+  assert.match(text(find(tree, (n) => n.p?.['data-dc-suggest-state'] === 'loading')[0]), /Damon öneri hazırlıyor/, 'the loading line');
+  row().p.onClick(); assert.equal(asks, 1, 'no second request while it waits');
+  sgAsk = { state: 'late', asked: 1 }; draw(); assert.match(text(find(tree, (n) => n.p?.['data-dc-suggest-state'] === 'late')[0]), /gelmedi/);
+  sgAsk = { state: 'error', error: 'HTTP 502' }; draw(); assert.match(text(find(tree, (n) => n.p?.['data-dc-suggest-state'] === 'error')[0]), /Öneri istenemedi: HTTP 502/);
+  sgAsk = { state: 'done', asked: 1 };
+  sg = { at: NOW, items: [
+    { project: 'Promes', title: 'E2E testlerini CI\'a al', text: 'Testler her push\'ta koşsun.', why: 'Elle koşmak unutuluyor.', source: 'Hafıza: promes.md' },
+    { title: 'Onaylıyorum: deploy', text: 'x', why: 'y', source: 'z' },
+    { title: 'Yeni proje: ortak log görüntüleyici', text: 'Bütün sunucu loglarını tek sayfada göster.', why: 'Her sorunda üç sunucuya bağlanıyorsun.', source: 'sohbet', unverified: true }] };
+  draw();
+  const cards5 = () => find(tree, (n) => n.t === 'button' && n.p['data-suggestion'] !== undefined);
+  assert.equal(cards5().length, 2, 'the approval card never shows');
+  assert.match(text(row()), /Yeni öneri getir/, 'with cards, the row asks for new ones');
+  assert.match(text(cards5()[0]), /Promes[\s\S]*E2E testlerini CI'a al[\s\S]*Testler her push'ta koşsun\.[\s\S]*Neden: Elle koşmak unutuluyor\.[\s\S]*Kaynak: Hafıza: promes\.md/);
+  assert.equal(find(cards5()[0], (n) => n.p?.['data-unverified'] !== undefined).length, 0);
+  assert.match(text(find(cards5()[1], (n) => n.p?.['data-unverified'] !== undefined)[0]), /doğrulanmadı/, 'the not verified tag');
+  clock += 1000; cards5()[0].p.onClick(); await flush(); draw();
+  assert.deepEqual(sent.at(-1), ['s-s', 'Öneri: E2E testlerini CI\'a al — Testler her push\'ta koşsun.'], 'one click sends the suggestion as the user\'s message');
+  assert.match(text(cards5()[0]), /✓ Gönderildi/); assert.equal(cards5()[0].p['aria-disabled'], true);
+  const n5 = sent.length; clock += 1000; cards5()[0].p.onClick(); await flush(); assert.equal(sent.length, n5, 'a sent card does not send again');
+  // A failed send: the card can be sent again, and the reason shows.
+  failSend = 'the chat is closed'; clock += 1000; cards5()[1].p.onClick(); await flush(); draw(); failSend = null;
+  assert.equal(cards5()[1].p['aria-disabled'], false, 'a failed send: the card can go again'); assert.equal(decide.error, 'Gönderilemedi: the chat is closed');
+  assert.ok(sent.slice(saved[2]).every(([, m]) => /^Öneri: /.test(m)), 'every sent text is a suggestion');
+  // A card is shown with the decisions too: the row is after the card area.
+  hooks = []; draw();
+  [hooks, decide] = saved;
 }
 console.log('decision-dialog: ok');

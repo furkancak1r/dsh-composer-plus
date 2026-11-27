@@ -2888,7 +2888,21 @@
     "decide.allDone": "Todo listo",
     "decide.skipped": "Volver a las omitidas ({count})",
     "decide.close": "Cerrar",
-    "decide.remove": "Eliminar"
+    "decide.remove": "Eliminar",
+    "suggest.row": "Obtener sugerencias",
+    "suggest.rowHint": "{name} lee el chat, la memoria y las notas de los proyectos, y escribe sugerencias para todos los proyectos desde una visión externa.",
+    "suggest.again": "Obtener nuevas sugerencias",
+    "suggest.loading": "{name} prepara sugerencias: lee el chat, la memoria y las notas de los proyectos. Esto puede tardar unos minutos.",
+    "suggest.late": "No llegaron sugerencias. Inténtalo de nuevo.",
+    "suggest.failed": "No se pudieron pedir las sugerencias: {error}",
+    "suggest.title": "Sugerencias",
+    "suggest.when": "Escrito: {when}",
+    "suggest.why": "Por qué: {why}",
+    "suggest.source": "Fuente: {source}",
+    "suggest.unverified": "no verificado",
+    "suggest.send": "Enviar al chat: {title}",
+    "suggest.sent": "✓ Enviado",
+    "suggest.message": "Sugerencia: {title} — {text}"
   },
   "common": {
     "ok": "Aceptar",

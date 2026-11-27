@@ -2888,7 +2888,21 @@
     "decide.allDone": "すべて完了",
     "decide.skipped": "スキップした項目に戻る ({count})",
     "decide.close": "閉じる",
-    "decide.remove": "削除"
+    "decide.remove": "削除",
+    "suggest.row": "提案を取得",
+    "suggest.rowHint": "{name} はチャット、メモリー、プロジェクトのメモを読み、外からの視点ですべてのプロジェクトへの提案を書きます。",
+    "suggest.again": "新しい提案を取得",
+    "suggest.loading": "{name} が提案を準備しています。チャット、メモリー、プロジェクトのメモを読んでいます。数分かかることがあります。",
+    "suggest.late": "提案が届きませんでした。もう一度お試しください。",
+    "suggest.failed": "提案を依頼できませんでした: {error}",
+    "suggest.title": "提案",
+    "suggest.when": "作成: {when}",
+    "suggest.why": "理由: {why}",
+    "suggest.source": "出典: {source}",
+    "suggest.unverified": "未確認",
+    "suggest.send": "チャットに送信: {title}",
+    "suggest.sent": "✓ 送信しました",
+    "suggest.message": "提案: {title} — {text}"
   },
   "common": {
     "ok": "OK",

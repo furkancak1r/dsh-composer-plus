@@ -2888,7 +2888,21 @@
     "decide.allDone": "Tudo pronto",
     "decide.skipped": "Voltar às puladas ({count})",
     "decide.close": "Fechar",
-    "decide.remove": "Excluir"
+    "decide.remove": "Excluir",
+    "suggest.row": "Obter sugestões",
+    "suggest.rowHint": "{name} lê o chat, a memória e as notas dos projetos e escreve sugestões para todos os projetos, com um olhar de fora.",
+    "suggest.again": "Obter novas sugestões",
+    "suggest.loading": "{name} prepara sugestões: lê o chat, a memória e as notas dos projetos. Isso pode levar alguns minutos.",
+    "suggest.late": "Nenhuma sugestão chegou. Tente de novo.",
+    "suggest.failed": "Não foi possível pedir sugestões: {error}",
+    "suggest.title": "Sugestões",
+    "suggest.when": "Escrito: {when}",
+    "suggest.why": "Por quê: {why}",
+    "suggest.source": "Fonte: {source}",
+    "suggest.unverified": "não verificado",
+    "suggest.send": "Enviar ao chat: {title}",
+    "suggest.sent": "✓ Enviado",
+    "suggest.message": "Sugestão: {title} — {text}"
   },
   "common": {
     "ok": "OK",

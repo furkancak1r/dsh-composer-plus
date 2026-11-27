@@ -2888,7 +2888,21 @@
     "decide.allDone": "Semua selesai",
     "decide.skipped": "Kembali ke yang dilewati ({count})",
     "decide.close": "Tutup",
-    "decide.remove": "Hapus"
+    "decide.remove": "Hapus",
+    "suggest.row": "Ambil saran",
+    "suggest.rowHint": "{name} membaca obrolan, memori, dan catatan proyek, lalu menulis saran untuk semua proyek dari sudut pandang luar.",
+    "suggest.again": "Ambil saran baru",
+    "suggest.loading": "{name} menyiapkan saran: membaca obrolan, memori, dan catatan proyek. Ini bisa memakan beberapa menit.",
+    "suggest.late": "Saran tidak datang. Coba lagi.",
+    "suggest.failed": "Tidak dapat meminta saran: {error}",
+    "suggest.title": "Saran",
+    "suggest.when": "Ditulis: {when}",
+    "suggest.why": "Alasan: {why}",
+    "suggest.source": "Sumber: {source}",
+    "suggest.unverified": "belum diverifikasi",
+    "suggest.send": "Kirim ke obrolan: {title}",
+    "suggest.sent": "✓ Terkirim",
+    "suggest.message": "Saran: {title} — {text}"
   },
   "common": {
     "ok": "OK",

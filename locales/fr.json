@@ -2888,7 +2888,21 @@
     "decide.allDone": "Tout est fait",
     "decide.skipped": "Revenir aux passées ({count})",
     "decide.close": "Fermer",
-    "decide.remove": "Supprimer"
+    "decide.remove": "Supprimer",
+    "suggest.row": "Obtenir des suggestions",
+    "suggest.rowHint": "{name} lit la discussion, la mémoire et les notes des projets, et écrit des suggestions pour tous les projets avec un regard extérieur.",
+    "suggest.again": "Obtenir de nouvelles suggestions",
+    "suggest.loading": "{name} prépare des suggestions : lecture de la discussion, de la mémoire et des notes des projets. Cela peut prendre quelques minutes.",
+    "suggest.late": "Aucune suggestion n’est arrivée. Réessayez.",
+    "suggest.failed": "Impossible de demander des suggestions : {error}",
+    "suggest.title": "Suggestions",
+    "suggest.when": "Écrit : {when}",
+    "suggest.why": "Pourquoi : {why}",
+    "suggest.source": "Source : {source}",
+    "suggest.unverified": "non vérifié",
+    "suggest.send": "Envoyer dans la discussion : {title}",
+    "suggest.sent": "✓ Envoyé",
+    "suggest.message": "Suggestion : {title} — {text}"
   },
   "common": {
     "ok": "OK",
