@@ -188,7 +188,13 @@ IMPLEMENTATION_PLAN.md. Screenshots only to the folder above.
   (confusables.txt latest 2026-08-06: Latin small capitals and IPA, Greek, Cyrillic, Armenian, Cherokee, Lisu, Coptic,
   colon look-alikes; 406 pairs). P4-3 (a Greek letter glued to a Latin word, "µops") stays: the documented ponytail
   limit, and the tool result names the rule. Tests red on the old code ("οηауӏіуогυм"). npm test exit 0.
-- Open steps: review round 6 (separate subagent) on `git diff $(git merge-base origin/main HEAD)..HEAD`; when clean:
+- Review 6 (review-guard-6, head 8a5759cc): P1 0, P2 0, P3 2, P4 2. Fixed: P3-1 an invisible character between CANLI
+  and DEPLOY (SUGGEST_LIVE `\s*`); P3-2 look-alikes that NFKD or the pairs made lower case (`lookLatin(s, cased)` keeps a
+  capital or small capital as a capital; the live line reads I i l L as one letter: /^\s*CANII\s*DEPIOY/; a scan of each
+  look-alike at each position of "CANLI DEPLOY": 0 misses); P4-1 the colon marks ः ઃ (408 pairs); P4-2 comment and llms
+  say accents go ("Decisión:" counts). Tests red on 8a5759cc ("CANLI⠀DEPLOY"). False-positive scans: /usr/share/dict/words
+  (235976 words) only "decision" (+":"); locales and READMEs (81191 texts) only Karar/Decisión forms. npm test exit 0.
+- Open steps: review round 7 (separate subagent) on `git diff $(git merge-base origin/main HEAD)..HEAD`; when clean:
   merge into main (--no-ff), npm test on main, push, CI. Earlier wording: fix 1-3; `npm test`; review round 5 on `git diff ee06f990..HEAD`; when
   clean: `git fetch`, merge origin/main into the branch if it moved (the release branch chore/release-1-33-0 is not
   touched), `npm test`, merge into main, push main. No live copy, no new release, no DSH or AIProxy restart.

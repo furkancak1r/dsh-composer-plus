@@ -36,7 +36,11 @@ for (const text of ['Onaylıyorum: X dalını main\'e al', 'ONAYLIYORUM', 'onayl
   '\u03BF\u03B7\u0430\u0443\u04CF\u0456\u0443\u043E\u0433\u03C5\u043C', '\u039F\u039D\u0391\u03A5\u04C0\u0399\u03A5\u039FRU\u039C', '\u039F\u039D\u0391\u03A5\u04C0\u0391D\u0399\u039C', 'ONAYIIYORUM', 'CANLl DEPLOY',
   '\u0441\u03B1\u03B7\u04CF\u0456 d\u0435\u0440\u04CF\u043E\u0443 promes abcdef1', '\u0501\u0435\u03F2\u0456\u0455\u0456\u03BF\u03B7:x', '\u03F9ANLI DEPLOY',
   'onayl\u0001\u0131yorum', 'onay\u0007veriyorum', 'onay\u0085verdim', 'onay\u001Fverdim', 'onay\u2800verdim',
-  '\u1D0F\u0274\u1D00\u028F\u029F\u026A\u028F\u1D0F\u0280\u1D1C\u1D0D', 'onayl\u026Ayorum', 'o\u0578ayliyorum', '\u0585nayliyorum', 'Karar\u2236 x', 'Decision\uA789 x', 'Karar\uFE30 x', 'Karar\u0589 x']) {
+  '\u1D0F\u0274\u1D00\u028F\u029F\u026A\u028F\u1D0F\u0280\u1D1C\u1D0D', 'onayl\u026Ayorum', 'o\u0578ayliyorum', '\u0585nayliyorum', 'Karar\u2236 x', 'Decision\uA789 x', 'Karar\uFE30 x', 'Karar\u0589 x',
+  // Review 6: CANLI DEPLOY with an invisible character between the words, and with look-alikes that NFKD or the pairs
+  // turn into lower case (ı ɪ ʟ ʏ ᴀ ᴅ ɴ, Ł Ɩ); two colon marks.
+  'CANLI\u2800DEPLOY', 'CANLI\u200BDEPLOY', 'CANLI\u0000DEPLOY', 'CANLI\u3164DEPLOY', 'CANL\u0131 DEPLOY', 'CANL\u026A DEPLOY', 'CAN\u029FI DEP\u029FOY',
+  'CANLI DEPLO\u028F', 'C\u1D00NLI \u1D05EPLOY', 'CA\u0274LI DEPLOY', 'CANLI \u1D05\u1D07\u1D18\u029F\u1D0F\u028F', 'CAN\u0141I DEPLOY', 'CANLI DEP\u0196OY', 'Karar\u0903 al', 'Decision\u0A83 x']) {
   assert.equal(suggestBlocked(text), true, JSON.stringify(text));
 }
 for (const text of ['Canlı deploy\'u tek komuta indir', 'Canlı deploy öncesi duman testi', 'Canlı deploy: tek komut', 'Kararlı bir test seti kur', 'Karar penceresine kısayol ekle', 'Öneri: ortak log',
@@ -47,7 +51,9 @@ for (const text of ['Canlı deploy\'u tek komuta indir', 'Canlı deploy öncesi 
   'APIのβ版', 'TetherのSwiftUI版をβ版としてTestFlightで配布する', '把SDK的β版本发布到TestFlight', 'iOSアプリのβ版を配る', 'ΑΛΦΑ ΒΗΤΑ', 'МОСКВА',
   // Review 5: l and i read as one letter must not catch normal Turkish text.
   'İzinli günleri takvime ekle', 'Kararsız testleri bul', 'Kolay iyileştirme: önbellek', 'Saat 10:30 toplantı', 'Bir izin akışı: kullanıcı onay verir',
-  'Onay vermeden önce testleri oku', 'Log seviyesini ayarla', 'canlı ortamı izle', 'Approvals sayfası', '']) {
+  'Onay vermeden önce testleri oku', 'Log seviyesini ayarla', 'canlı ortamı izle', 'Approvals sayfası',
+  // Review 6: only CANLI DEPLOY in capitals at a line start.
+  'canlı deploy planı', 'Canlı DEPLOY süresi', 'CANLI ORTAM izlemesi', 'DEPLOY CANLI', 'CANLIDEPLOYMENT raporu', '']) {
   assert.equal(suggestBlocked(text), false, JSON.stringify(text));
 }
 // The browser has the same rule (client.js suggestBlocked): compare them on the texts above and on random mixes.
@@ -59,7 +65,7 @@ for (const text of ['Canlı deploy\'u tek komuta indir', 'Canlı deploy öncesi 
   eval(src.replace(ANCHOR, `globalThis.__sg = { suggestBlocked };\n    ${ANCHOR}`));
   mod.factory(() => ({ createElement: () => null, useState: () => [], useRef: () => ({}), useEffect: () => {}, useLayoutEffect: () => {}, useSyncExternalStore: () => undefined }));
   const browser = globalThis.__sg.suggestBlocked;
-  const parts = ['Onaylıyorum', 'ONAY', 'lıyorum', 'lı', 'dım', 'Karar', ':', ' ', '\n', 'CANLI', 'canlı', 'DEPLOY', 'Decision', 'izin', 'veriyorum', 'verdim', 'İ', 'ı', 'promes', 'abc1234', 'Öneri', '\u200B', 'deploy\'u', 'x', 'I', 'approve', 'Approved', '\u043E', 'β', '\u039F', '\u039D', '\u03A5', '\u04C0', '版', 'の', 'API', '\uFF2F', '\u3164', 'l', '\u04CF', '\u0001', '\u2236', '\u03F2', '\u026A', 'ver'];
+  const parts = ['Onaylıyorum', 'ONAY', 'lıyorum', 'lı', 'dım', 'Karar', ':', ' ', '\n', 'CANLI', 'canlı', 'DEPLOY', 'Decision', 'izin', 'veriyorum', 'verdim', 'İ', 'ı', 'promes', 'abc1234', 'Öneri', '\u200B', 'deploy\'u', 'x', 'I', 'approve', 'Approved', '\u043E', 'β', '\u039F', '\u039D', '\u03A5', '\u04C0', '版', 'の', 'API', '\uFF2F', '\u3164', 'l', '\u04CF', '\u0001', '\u2236', '\u03F2', '\u026A', 'ver', '\u028F', '\u1D00', '\u0141', 'L', '\u2800'];
   let seed = 7; const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
   for (let i = 0; i < 3000; i++) {
     const text = Array.from({ length: 1 + Math.floor(rnd() * 6) }, () => parts[Math.floor(rnd() * parts.length)]).join(rnd() < 0.5 ? ' ' : '');
