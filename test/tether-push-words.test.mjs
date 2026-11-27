@@ -83,7 +83,7 @@ assert.equal(pushWords([...turnOf(1, NEWS, '[quiet]', 'aborted')], 0), '', 'a st
 assert.equal(pushWords(turnOf(1, NEWS, 'Deploy failed.'), 0), 'Deploy failed.');
 
 // Damon's [quiet] turn never pushes, not even its first part (2026-11-24, Furkan: "bazı [quiet] bildirimleri de ilk kısım
-// geliyor"). The three forms: only [quiet], a turn that starts with [quiet], a turn that ends with [quiet].
+// geliyor"). The three forms: only [quiet], a last text that starts with [quiet], a last text that ends with [quiet].
 const steps = (seq, kind, texts, end = 'completed') => [{ seq, type: 'turn/start' }, prompt(seq + 1, kind),
   ...texts.map((t, i) => ({ seq: seq + 2 + i, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: t }, { type: 'tool-call', id: `t${i}`, name: 'chats_list' }] } } })),
   { seq: seq + 2 + texts.length, type: 'turn/end', data: { reason: { kind: end } } }];
