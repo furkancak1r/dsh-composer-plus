@@ -11,7 +11,7 @@ approval: merge into main after a clean review. Not in scope: live copy, release
   running turn stay. Only the assistant chat (AssistantChatView). Tether had the rule already (botLines, before shot).
 - Tests: test/assistant-subagent-rows.test.mjs (store test + the shared `hushed` table, ended and running; red on
   ee06f990), test/browser-assistant-answers.mjs (LOOK and STARTED lines hidden also with FOLDED_REPLIES=all; red on
-  ee06f990), iOS testHushedTurnsMatchTheMac (chatRows from the same table, folded and opened turn).
+  ee06f990), iOS testHushedTurnsMatchTheMac (one chatRows assertion on the same table, open: []).
 - Docs: docs/features.json assistantChatView (llms + 13 how), build:readme, tether/FEATURES.md assistantChatView.
 - Screenshots: /Users/furkancakir/Damon/Belgeler/Composer Plus/sessiz-tur-satir-20261127/
   damon-sohbet-, damon-kartlar-, tether-damon- with -once-ee06f990 and -sonra-5e3a269e.
@@ -24,8 +24,22 @@ approval: merge into main after a clean review. Not in scope: live copy, release
 ## Requirement 4: decided 2026-11-27 (option B, no code change)
 - Furkan, Assistant chat, 2026-11-27: "Karar ver: sessiz turda ara satır, tur sürerken nasıl görünsün? → Tur sürerken
   görünsün, sessiz bitince gizlensin". This is option B below: 5e3a269e stays as it is.
-- origin/main is still ee06f990 (fetched 2026-11-27 10:4x): no merge needed. Diff 21 files, +120/-40: review loop until a
-  round has no P1/P2, then fix the P3/P4 of the last round.
+- origin/main is still ee06f990 (fetched 2026-11-27 10:4x and 12:0x): no merge needed. Diff 23 files, +142/-48 at
+  1b546b1d: review loop until a round has no P1/P2, then fix the P3/P4 of the last round.
+
+## Review (this branch)
+- Round 1 (review-guard-1, head dd49aadd): P1 0, P2 0, P3 1, P4 2. Fixed in 1b546b1d: tether/FEATURES.md said that Tether
+  hides the line only after the turn ends (it hides it while the turn runs too): row text, new "Assistant chat: gaps" row,
+  client.js and Core.swift comments; the iOS test's `open` loop tested nothing (one assertion now); a hushed turn whose every
+  text is hidden took a place of the 8-turn cap (`quietTurnSet(chat, hidden)` only for `setQuietTurns`; assistant-cap turn
+  64, red on dd49aadd's client.js).
+- Last passing (1b546b1d): `npm test` exit 0; iOS 130 tests, 2 skipped, 0 failures (simulator 787CAECE);
+  browser-assistant-answers PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5 and FOLDED_REPLIES=all on 0.2.2-rc.5.
+- Round 2 (review-guard-2, head 1b546b1d): P1 0, P2 0, P3 0, P4 2. Fixed in the next commit: this plan (stale lines) and
+  the `about` text of test/fixtures/quiet-replies.json (names hushedRowKeys and assistant-subagent-rows as readers).
+- Open steps: one more review round on the final diff (merge only on a clean round); fetch, merge origin/main if it moved,
+  tests; merge --no-ff into main, push, CI. Screen did not change in the review fixes (cap count and docs only): no new
+  screenshots. No live copy, release, npm publish, DSH restart.
 
 ## Requirement 4 options (before the decision)
 - Facts (dsh 0.2.2-rc.5 source): a step streams its text block before its tool-call block (dsh-client-ui-chat
