@@ -1909,6 +1909,11 @@ final class AgentboxIdeasTests: XCTestCase {
             + start(20, "composer-plus-resume", "Continue.") + say(22, "**acme-web yedeği bitti.** Yedek 02:10'da alındı; senden bir şey gerekmiyor.", false, false) + [end(23, "completed")]
             + start(30, "composer-plus-assistant-news", "news") + say(32, "[quiet]", true, false) + say(34, "**Mail gönderildi.** Haftalık rapor Ayşe'ye gitti.", true, false)
             + say(36, "[quiet]", false, false) + [end(37, "completed")])
+        // Review 2: a real replay with tool calls and a cut text through botLines: the cut text is a row, not a card.
+        let lines = botLines(c.transcript)
+        XCTAssertEqual(lines.filter { $0.kind == .assistant }.compactMap(\.seq), [3, 12, 22, 34], "the cut text stays as a row")
+        XCTAssertEqual(lines.filter(\.interrupted).compactMap(\.seq), [12])
+        XCTAssertEqual(replyCards(lines).map(\.id), ["3", "22", "34"], "one card for the resumed reply, one for the result line")
         c.replyMarks["damon"] = ReplyMark(floor: 3, read: [])
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
         let w = UIWindow(windowScene: scene)
