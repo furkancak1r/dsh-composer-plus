@@ -4200,14 +4200,16 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
     /** Get suggestions (Furkan, 2026-11-27): a card's text goes as your message, so it is never an approval or a decision.
      * The same rule as the Host's (index.js suggestBlocked, which lists what it blocks; test/assistant-suggest.test.mjs
      * compares them). */
-    const LOOK_ALIKE = { а: 'a', е: 'e', о: 'o', р: 'p', с: 'c', у: 'y', х: 'x', і: 'i', ј: 'j', к: 'k', ѕ: 's', м: 'm', т: 't', н: 'h', в: 'b', ο: 'o', α: 'a', ι: 'i', κ: 'k', ν: 'v', ρ: 'p', υ: 'u', τ: 't', ε: 'e' };
-    const suggestFold = (s) => String(s ?? '').normalize('NFKD').replace(/[\p{M}\p{Cf}]/gu, '').toLocaleLowerCase('tr').replace(/ı/g, 'i').replace(/[аеорсухіјкѕмтнвοαικνρυτε]/gu, (c) => LOOK_ALIKE[c]);
-    const SUGGEST_BLOCKED = /(?<![\p{L}\p{N}])(?:onayl(?:i|idir|iyorum|iyoruz|adim)|onay\s+ver(?:iyorum|dim)|izin\s+ver(?:iyorum|dim)|i\s+approve|approved\s*:|karar\s*:|decision\s*:)(?![\p{L}\p{N}])|canli\s+deploy\s+\S+\s+[0-9a-f]{7,40}(?![\p{L}\p{N}])/u;
-    const SUGGEST_LIVE = /^\s*CANLI\s+DEPLOY(?![\p{L}\p{N}])/mu;
-    const SUGGEST_MIXED = /(?<!\p{L})(?=(?:\p{L}*?\p{Script=Latin}){3})(?=\p{L}*[\p{Script=Cyrillic}\p{Script=Greek}])\p{L}+/u;
+    const LOOK_FROM = 'αаΑАЬΒВБҍҌѣѢсᲃСҫҪԁеҽΕЕҿϜԌһҺΗНꚕҢћӉӇιіꙇϳјͿЈΚКҚҞΙІӏӀΜϺМӍΝηοσоᲂΟОөѳθΘӨѲρϸрΡРԛԚᴦгғѕЅΤТꚌҬυџνѵѴѡшԝԜѽхΧХҲγуүΥУҮұҰΖкмтнвκτε';
+    const LOOK_TO = 'aaAAbBBbbbbbccCcCdeeEEeFGhhHHhHhHHiiijjJJKKKKIIIIMMMMNnooooOOooOOOOpppPPqQrrrsSTTTTuuvvVwwwWwxXXXyyyYYYyYZkmthbkte';
+    const LOOK_ALIKE = new RegExp(`[${LOOK_FROM}]`, 'gu');
+    const SUGGEST_BLOCKED = /(?<![\p{sc=Latn}\p{N}])(?:(?:onayl(?:i|idir|iyorum|iyoruz|adim)|onay\s+ver(?:iyorum|dim)|izin\s+ver(?:iyorum|dim)|i\s+approve)(?![\p{sc=Latn}\p{N}])|(?:approved|karar|decision)\s*:)|canli\s+deploy\s+\S+\s+[0-9a-f]{7,40}(?![\p{sc=Latn}\p{N}])/u;
+    const SUGGEST_LIVE = /^\s*CANLI\s+DEPLOY(?![\p{sc=Latn}\p{N}])/mu;
+    const SUGGEST_MIXED = /(?<![\p{sc=Latn}\p{sc=Grek}\p{sc=Cyrl}])(?=(?:[\p{sc=Latn}\p{sc=Grek}\p{sc=Cyrl}]*?\p{sc=Latn}){3})(?=[\p{sc=Latn}\p{sc=Grek}\p{sc=Cyrl}]*[\p{sc=Grek}\p{sc=Cyrl}])/u;
     const suggestBlocked = (text) => {
-      const plain = String(text ?? '').normalize('NFKD').replace(/[\p{M}\p{Cf}]/gu, '');
-      return SUGGEST_LIVE.test(plain) || SUGGEST_MIXED.test(plain) || SUGGEST_BLOCKED.test(suggestFold(text));
+      const plain = String(text ?? '').normalize('NFKD').replace(/[\p{M}\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, '');
+      const latin = plain.replace(LOOK_ALIKE, (c) => LOOK_TO[LOOK_FROM.indexOf(c)]);
+      return SUGGEST_LIVE.test(latin) || SUGGEST_MIXED.test(plain) || SUGGEST_BLOCKED.test(latin.toLocaleLowerCase('tr').replace(/ı/g, 'i'));
     };
     /** The message of a suggestion card ("Öneri: <title> — <text>" in the UI language), or null when it must not go. */
     function suggestionMessage(item, t) {
