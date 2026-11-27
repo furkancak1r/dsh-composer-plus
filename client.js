@@ -2980,16 +2980,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
     const quietStep = (n) => n?.kind === 'assistant-step' && Array.isArray(n.data?.blocks)
       && quietText(n.data.blocks.filter((b) => b?.kind === 'text').map((b) => String(b.text ?? '')).join(''));
     const quietRowKeys = (chat) => [...(chat?.nodes?.values?.() ?? [])].filter(quietStep).map((n) => n.key);
-    /** The turns whose closing reply is quiet: dsh's turn tail shows the Copy/time row of the turn's last step with text
-     * (its `closing`), so that step decides (quietTails). */
     const hasText = (n) => n.data.blocks.some((b) => b?.kind === 'text' && String(b.text ?? '').trim() !== '');
-    const quietTurnsOf = (chat) => {
-      const last = new Map();
-      for (const n of chat?.nodes?.values?.() ?? []) {
-        if (n?.kind === 'assistant-step' && Array.isArray(n.data?.blocks) && hasText(n) && (last.get(n.data.turn)?.data.step ?? -Infinity) < n.data.step) last.set(n.data.turn, n);
-      }
-      return [...last].filter(([, n]) => quietStep(n)).map(([turn]) => turn);
-    };
     /** The quiet turns of the drawn window (their numbers as text): each step with text is quiet (quietStep), and there is
      * at least one. The Host's quietRun has the same rule (also for a text sent with a tool call; test/quiet-replies.test.mjs
      * runs both on one table). No trace of such a turn stays: its rows, its news note, its place in the 8-turn cap. */
@@ -3008,8 +2999,8 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
         && quiet.has(String(n.location?.turn?.turn))).map((n) => n.key);
     /** The ended turns whose closing answer is only `[quiet]` (2026-11-27): dsh's turn tail (made at `turn/end`, dsh
      * dsh-client-ui-chat turn-tail.ts `tailData`) names the turn's last step with text as `closing`. Such a turn shows no other
-     * reply, so its other texts (an Auto review denial, a live error) are for you, also next to a tool call. A running turn
-     * is not one: its real answer can still come. */
+     * reply, so its other texts (an Auto review denial, a live error) are for you, also next to a tool call, and its tail
+     * hides the Copy/time row of that `[quiet]` (quietTails). A running turn is not one: its real answer can still come. */
     const hushedTurns = (chat) => {
       const nodes = [...(chat?.nodes?.values?.() ?? [])]; const bySeq = new Map(); const out = new Set();
       for (const n of nodes) if (n?.kind === 'assistant-step' && Number.isSafeInteger(n.data?.finalNode?.seq)) bySeq.set(n.data.finalNode.seq, n);
@@ -3088,7 +3079,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       const [flow, setFlow] = React.useState(null);
       const [quiet, setQuiet] = React.useState([]); // node keys of the subagent rows and the `[quiet]` replies (quietRowKeys)
       const [answers, setAnswers] = React.useState([]); // node keys of the folded answers (answerRowKeys)
-      const [quietTails, setQuietTails] = React.useState([]); // turns that end with a quiet reply (quietTurnsOf)
+      const [quietTails, setQuietTails] = React.useState([]); // ended turns whose closing reply is quiet: no Copy/time row (hushedTurns)
       const [quietTurns, setQuietTurns] = React.useState([]); // turns whose every text is quiet (quietTurnSet)
       const [rail, setRail] = React.useState(null); // dsh's turn rail of the chat (TURN_RAIL)
 
@@ -3132,7 +3123,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
         const read = () => {
           const chat = source.getSnapshot(); const turnsQuiet = quietTurnSet(chat);
           setQuiet(same([...subagentRowKeys(chat), ...quietRowKeys(chat), ...newsRowKeys(chat, turnsQuiet)])); setAnswers(same(answerRowKeys(chat)));
-          setQuietTails(same(quietTurnsOf(chat))); setQuietTurns(same([...turnsQuiet].sort()));
+          setQuietTails(same([...hushedTurns(chat)])); setQuietTurns(same([...turnsQuiet].sort()));
         };
         read();
         return source.subscribe(read);
@@ -4707,7 +4698,9 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const top = key === null ? -1 : Number(key.split(':')[1]);
       React.useEffect(() => { if (replies !== undefined && ready && mark === undefined && top >= 0) replies.read.start(sessionId, top); }, [sessionId, ready, mark === undefined, top >= 0]);
       const cards = chat === null || replies === undefined || !ready ? [] : replyCardsOf(chat, rb?.withdrawn ?? NO_SPANS, rb?.inherited ?? 0);
-      return { ready: replies !== undefined && ready, cards, mark, read: (ids) => replies?.read.mark(sessionId, ids, cards), readAll: () => replies?.read.all(sessionId, top) };
+      // Mark all as read reads the cards that show (review 2): up to the newest card, not the chat's newest seq, so a text
+      // that becomes a card when its running turn ends with `[quiet]` (hushedTurns: an Auto review denial) is still New.
+      return { ready: replies !== undefined && ready, cards, mark, read: (ids) => replies?.read.mark(sessionId, ids, cards), readAll: () => replies?.read.all(sessionId, cards.at(-1)?.seq ?? top) };
     }
     const REPLY_CSS = `.cp-rc{box-sizing:border-box;display:flex;flex-direction:column;gap:10px;padding:16px 18px;border:.5px solid var(--dsw-alias-border-l1,rgba(127,127,127,.3));border-left:4px solid transparent;border-radius:var(--dsw-radius-xl,16px);background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-primary,#111);font-size:14px;line-height:20px;text-align:left;overflow-wrap:anywhere;cursor:default}`
       // The pointer (Furkan, 2026-11-26: "text alanları ... I ya benzeyen şeyin çıkması lazım"): in the chat's feed and the

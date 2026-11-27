@@ -471,6 +471,18 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   find(out, (n) => n.t === 'section')[0].p.ref.current = feedEl; olderOf(out).p.onClick({ currentTarget: olderOf(out), detail: 1 }); out = render();
   assert.deepEqual([cardsOf(out).length, olderOf(out), focused, shownBy], [20, undefined, [40], [[40, 'nearest']]], 'a mouse click: all shown, the focus stays');
   props.sessionId = 'feed'; delete props.loadOlder;
+  // Mark all as read while a turn runs (review 2): the floor is the newest card, not the chat's newest seq, so the text
+  // that becomes a card when the turn ends with [quiet] (an Auto review denial) is still New.
+  const at = (n, seq) => { n.anchorSeq = seq; return n; };
+  const runningTurn = [at(step(1, 0, 10, [txt('**Eski.**')]), 10), at(tail(1, 10), 10.1), at(step(2, 0, 20, [txt('Auto review denied bash.'), tool]), 20)];
+  snap = chatOf([...runningTurn, at(step(2, 1, 21, [txt('[quiet]'), tool], 'running'), 21)]);
+  store.start('run', 5); props.sessionId = 'run'; hooks = []; out = render();
+  assert.deepEqual(cardsOf(out).map((c) => [c.seq, c.unread]), [[10, true]], 'a running turn: its looking line is no card yet');
+  find(out, (n) => n.t === 'button' && n.p['data-reply-read-all'] !== undefined)[0].p.onClick(); out = render();
+  assert.equal(store.of('run').floor, 10, 'Mark all as read: up to the newest card');
+  snap = chatOf([...runningTurn, at(step(2, 1, 21, [txt('[quiet]'), tool]), 21), at(tail(2, 21), 21.1)]); for (const fn of subs) fn(); out = render();
+  assert.deepEqual(cardsOf(out).map((c) => [c.seq, c.unread]), [[10, false], [20, true]], 'the turn ends with [quiet]: the denial card is New');
+  props.sessionId = 'feed'; snap = chat;
   // The click stops the follow to the bottom, so the cards that come above do not move the feed (a structure check: the
   // mock runs no ResizeObserver; test/browser-reply-pages.mjs measures it).
   assert.match(src, /follow\.current = false; \/\/ the cards that come above must not move the feed to its bottom\n\s*setFloor\(page\.next\);/, 'structure: Load earlier stops the follow');

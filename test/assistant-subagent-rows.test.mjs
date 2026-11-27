@@ -164,17 +164,19 @@ const ended = (turn, ...steps) => {
 // says more stays.
 stores.set('s-quiet', storeOf([
   node('11:trig', 'turn-trigger', { kind: 'composer-plus-assistant-news' }),
-  step('11:1', 11, 1, 'think', ' [QUIET]\n'), // quiet, not the turn's last: hidden, not shown again as an answer
-  step('11:2', 11, 2, '[quiet]'), // the turn's last reply: hidden
-  step('12:1', 12, 1, '[quiet]\nThe audit found 2 issues.'), // says more: stays
-  step('12:2', 12, 2, 'Audit: [quiet]'), // stays
-  step('13:1', 13, 1, 'Real answer.'), // a real answer, then a quiet last step: the answer shows, the quiet step goes
-  step('13:2', 13, 2, '[quiet]'),
-  step('14:1', 14, 1, '[quiet]'), step('14:2', 14, 2, 'think', 'tool'), // dsh's tail copies the last step with text: quiet
+  ...ended(11,
+    step('11:1', 11, 1, 'think', ' [QUIET]\n'), // quiet, not the turn's last: hidden, not shown again as an answer
+    step('11:2', 11, 2, '[quiet]')), // the turn's last reply: hidden
+  ...ended(12,
+    step('12:1', 12, 1, '[quiet]\nThe audit found 2 issues.'), // says more: stays
+    step('12:2', 12, 2, 'Audit: [quiet]')), // stays
+  // a real answer, then a quiet last step: the answer shows, the quiet step goes
+  ...ended(13, step('13:1', 13, 1, 'Real answer.'), step('13:2', 13, 2, '[quiet]')),
+  ...ended(14, step('14:1', 14, 1, '[quiet]'), step('14:2', 14, 2, 'think', 'tool')), // dsh's tail names the last step with text: quiet
   ['15:x', { key: '15:x', kind: 'assistant-step' }], // a node without data: no rule, no error
   // A [quiet] text sent with a tool call: dsh's default (foldedReplies: all) shows it, so it goes too (the Host's
   // quietRun counts it the same way); the turn's later real reply stays.
-  step('16:1', 16, 1, '[quiet]', 'tool'), step('16:2', 16, 2, 'Found 2 issues.'),
+  ...ended(16, step('16:1', 16, 1, '[quiet]', 'tool'), step('16:2', 16, 2, 'Found 2 issues.')),
   // 2026-11-27: a text with a tool call in an ended turn whose closing answer is [quiet] (dsh's turn tail names it) is for
   // you (an Auto review denial): it shows. A [quiet] text with a tool call in such a turn stays hidden.
   ...ended(17, step('17:1', 17, 1, 'Auto review denied bash.', 'tool'), step('17:2', 17, 2, '\n[quiet] ')),
@@ -199,6 +201,7 @@ const tails = css().split('}').find((b) => b.includes('data-turn-tail')) ?? '';
 for (const turn of ['11', '13', '14']) assert.ok(tails.includes(`[data-conversation-session="s-quiet"] [data-turn-tail="${turn}"] > [data-clock]`), `turn ${turn}: its Copy/time row goes`);
 assert.ok(!css().includes('"15'), 'a node without data gets no rule');
 for (const turn of ['12', '16']) assert.ok(!tails.includes(`"${turn}"`), `turn ${turn} ends with a reply that says more: it keeps its row`);
+assert.ok(!tails.includes('"19"'), 'a running turn (no tail yet) gets no tail rule');
 assert.match(tails, /display: none !important;/);
 quietView.unmount();
 

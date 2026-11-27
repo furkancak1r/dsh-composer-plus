@@ -30,7 +30,8 @@ restart, iPhone install.
   `closing`, so a running turn is not hushed) replaced `quietTurnsOf` in answerRowKeys/replyCardsOf; the mandatory line
   goes in the turn's last reply (prompt and deniedNote); always-free repeats the exception; llms texts; "until the result
   comes" in 13 languages; tests 18:1, 19:1, running-turn card test (mutation red); Tether `Client.liveReply` test.
-- Round 2 (review-guard-2, head 950b0430): P1 0, P2 0, P3 0, P4 6. OPEN (fix all, then round 3 on the merged diff):
+- Round 2 (review-guard-2, head 950b0430): P1 0, P2 0, P3 0, P4 6. FIXED 2026-11-27 04:0x (the readAll test is red on the
+  old `read.all(sessionId, top)`; `quietTails` now comes from hushedTurns, so the unit fixtures of turns 11-16 got tails):
   1. client.js readAll (~4707): use the newest card seq (`cards.at(-1)?.seq ?? top`), not the chat top; test: Mark all as
      read during a running turn, then turn/end with `[quiet]` closing: the denial card is unread.
   2. client.js: delete `quietTurnsOf`; `setQuietTails(same([...hushedTurns(chat)]))`.
