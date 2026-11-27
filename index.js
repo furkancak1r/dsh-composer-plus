@@ -12167,11 +12167,13 @@ const quoteFold = (s) => String(s ?? '').normalize('NFC').replace(/[*_`]/g, '').
   .replace(/[.,;:!?]+$/, '').trimEnd().toLocaleLowerCase('tr');
 /** `text` with each line of a fenced code block (``` or ~~~, its fence lines too) as spaces: the same length, so a match
  * keeps its place. An open fence runs to the end. `fenceAt`: the opening fence line (CommonMark: 0-3 spaces). The closing
- * fence has at most 3 more spaces than the opening one (CommonMark §4.5), so an indented ``` line in the block is text. */
+ * fence has at most 3 more spaces than the opening one (CommonMark §4.5), so an indented ``` line in the block is text.
+ * A tab goes to the next tab stop of 4 columns (CommonMark §2.2). */
+const indentOf = (lead) => { let c = 0; for (const ch of lead) c = ch === '\t' ? c + 4 - (c % 4) : c + 1; return c; };
 const blankFences = (text, fenceAt = /^ {0,3}(`{3,}|~{3,})/) => {
   let fence = null; let indent = 0;
   return text.split('\n').map((line) => {
-    const found = fenceAt.exec(line); const mark = found?.[1]; const at = found ? found[0].length - mark.length : 0;
+    const found = fenceAt.exec(line); const mark = found?.[1]; const at = found ? indentOf(found[0].slice(0, -mark.length)) : 0;
     if (fence === null && mark === undefined) return line;
     if (fence === null) { fence = mark; indent = at; }
     else if (mark !== undefined && mark[0] === fence[0] && mark.length >= fence.length && line.trim() === mark && at <= indent + 3) fence = null;

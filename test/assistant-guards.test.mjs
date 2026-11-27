@@ -333,6 +333,9 @@ await check('item 5: a guess word in an answer', async () => {
   assert.deepEqual(host.guessWords('```md\n1. Adım\n    ```\n    muhtemelen log\n    ```\n```\nBitti.').words, [], 'an indented fence inside a block is code');
   assert.deepEqual(host.guessWords('```md\n1. Adım\n    ```bash\n    npm test\n    ```\n```\nSonuç: galiba doğru.').words, ['galiba'], 'the text after such a block counts');
   for (const text of ['```kod``` tamam\nSonuç: galiba doğru.', '1. a\n    ```kod``` tamam\nSonuç: galiba doğru.']) assert.deepEqual(host.guessWords(text).words, ['galiba'], `inline code is no fence: ${JSON.stringify(text)}`);
+  // Final review round 7 (P4): a tab indent goes to the next tab stop of 4 columns, as 4 spaces.
+  assert.deepEqual(host.guessWords('```md\n1. Adım\n\t```\n\tmuhtemelen log\n\t```\n```\nBitti.').words, [], 'a tab-indented fence inside a block is code');
+  assert.deepEqual(host.guessWords('1. a\n\t```\n\tmuhtemelen\n     ```\nSonuç: galiba.').words, ['galiba'], 'a tab-indented fence closes at 5 spaces');
   // The limit of ponytail: the ASCII spelling is not a word of the list.
   assert.deepEqual(host.guessWords('Sanirim, buyuk olasilikla ve galibA yok.').words, ['galiba'], 'only the Turkish spelling');
   assert.deepEqual(host.guessWords('Sanirim, buyuk olasilikla.').words, [], 'the ASCII spelling is not found');

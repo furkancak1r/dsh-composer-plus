@@ -23,10 +23,14 @@ main'e alınıp push edilsin (canlı değil)". Base: origin/main e1343314. No li
   most 3 more spaces than the opening one (an indented ``` line inside a block is text); a backtick fence has no backtick
   after it ("```kod``` tamam" is inline code); the ponytail comment names the limit (a ``` line with 4+ spaces opens a
   block also outside a list item). Test rows red on 9be6e6e2 (4 of 4); selfQuotes: 0 differences on 20,000 random texts.
-- Last checkpoint: the round-6 fix commit. Last passing test command: `npm test` (exit 0, 2026-11-27 10:2x).
+- Round 7 (review-guard-7, head 31e76018): P1 0, P2 0, P3 0, P4 1. Fixed: the fence indent counts a tab as the next tab
+  stop of 4 columns (CommonMark §2.2, `indentOf`). Test rows red on 31e76018 (2 of 2); selfQuotes 0 differences.
+  review-guard-7 left its scratch folder ~/Library/Caches/cp-review7 (Auto review denied its delete: it needs Furkan's
+  written approval that names cp-review7 and the delete).
+- Last checkpoint: the round-7 fix commit. Last passing test command: `npm test` (exit 0, 2026-11-27 11:0x).
 - Known limit: the link-target pattern cuts two nested parenthesis levels; a guess word inside a third level counts.
 - Open steps:
-  1. Review-guard round 7 of origin/main...HEAD (separate subagent). Merge only on a clean round.
+  1. Review-guard round 8 of origin/main...HEAD (separate subagent). Merge only on a clean round.
   2. When the round is clean: fetch, merge origin/main if it moved, `npm test`, merge into main with --no-ff, push main,
      check the CI run. Keep the branch and its folder.
 
