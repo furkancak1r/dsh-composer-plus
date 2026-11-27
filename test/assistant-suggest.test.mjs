@@ -1,0 +1,238 @@
+// Get suggestions (Furkan, 2026-11-27: a "third eye" in the Kararlar dialog), Host half, with a fake dsh:
+// - POST {sessionId, action: "suggest"} asks the assistant chat with a hidden note on Get summary's path (an idle chat:
+//   a steer and a marker at the queue head; a running chat: the steer), one open request per chat for SUGGEST_ASK_MS;
+//   not for another chat (404), not while off (409), a refused steer is 502.
+// - The pre-step turns the marker into one note (the summary note's source kind, its own text), next to a Get summary
+//   note when both wait.
+// - The turn with the note: a subagent call keeps the request open (the result comes in a later turn) and gives no to-do
+//   nudge; a turn without a subagent and without the tool marks it missed.
+// - status_suggestions_set: only the assistant chat, the limits, the safety rule (an approval or a decision never becomes
+//   a card; all refused: 400), GET `suggest {at, items}`, the request ends. Off forgets everything.
+// - The safety rule of the Host (suggestBlocked) and of the browser (client.js) give the same answer for many texts.
+import './temp-home.mjs';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { ASSISTANT_TODOS_PATH, STATUS_SUGGEST_NOTE, SUGGEST_ASK_MS, SUGGEST_LIMITS, TODO_TOOLS, assistantFreeTool, cleanSuggestions, installAssistant, installAssistantTodos, suggestBlocked } from '../index.js';
+
+// 1. The safety rule.
+for (const text of ['Onaylıyorum: X dalını main\'e al', 'ONAYLIYORUM', 'onayliyorum', 'Bunu onaylıyorum.', 'CANLI DEPLOY PROMES 22e33b30 ŞİMDİ',
+  'Onaylıyorum: CANLI DEPLOY PROSO abc1234 SAAT 21:10', 'canlı deploy promes 22e33b30 şimdi', 'Karar: rapor → uzun', 'karar : x', 'İlk satır\nKarar: x',
+  'Decision: x', 'İzin veriyorum', 'Onay veriyorum', 'Onay\u200Blıyorum', 'O\u0301naylıyorum', 'CANLI DEPLOY', 'CANLİ DEPLOY PROMES', 'x\nCANLI DEPLOY y',
+  // Review 1: the forms that Auto review takes as an approval, and a Cyrillic "о" in a Latin word.
+  'Onaylı', 'Onaylıdır', 'Onaylıyoruz', 'Onayladım', 'onay verdim', 'İzin verdim', 'I approve the merge', 'Approved: push to main', 'Deploy öncesi onaylı sürüm', '\u043Enaylıyorum', 'onaylıyor\u0443m', 'Onayl\u03B9yorum', '\u03BFnay verdim',
+  // Review 3: short words with 2 look-alike letters.
+  '\u041A\u0430r\u0430r: rapor', '\u041En\u0430y verdim', '\u0456z\u0456n verdim', '\u039Fn\u03B1y verdim', '\u0406 approve',
+  // Review 4: capital look-alikes (Greek Ο Ν Υ Ι Ζ Α Ρ, Cyrillic Ӏ О Н А Р Т), lower case η, mixed case; full-width letters,
+  // a ligature and invisible characters (NFKD and Default_Ignorable); an approval word next to Japanese or Chinese text.
+  '\u039F\u039DAY VERD\u0130M', '\u039FNA\u03A5 verdim', '\u0399\u0396\u0399\u039D VERD\u0130M', '\u04C0 approve', '\u03BF\u03B7ay verdim',
+  '\u039F\u039D\u0391\u03A5 VERD\u0130M', '\u039A\u0391R\u0391R: x', 'C\u0391\u039DL\u0399 DEPLOY', 'K\u0430R\u0410r: x', '\u041E\u041D\u0410\u0423 \u0432\u0435rdim',
+  '\u039Fn\u0391y VeRd\u0130m', 'onayl\u0131yoru\u043C', '\uFF2F\uFF2E\uFF21\uFF39\u3000\uFF36\uFF25\uFF32\uFF24\uFF29\uFF2D', 'Onay\u3164l\u0131yorum', 'Onay\u00ADl\u0131yorum',
+  'API\u306E\u03B2\u7248\u3092Onayl\u0131yorum', '\u627F\u8BA4\u53EF\u4EE5\uFF1Aonayl\u0131yorum', 'Onayl\u0131yorum\u3067\u3059', 'Karar:merge', '\u03B2\u7248\u306E\u039Fn\u03B1y verdim',
+  // Review 5: an "l" written as Ι І Ӏ ӏ or I; ϲ/Ϲ (NFKD makes them ς/Σ); control and blank characters inside a word;
+  // Latin small capitals, IPA and Armenian look-alikes; colon look-alikes.
+  '\u03BF\u03B7\u0430\u0443\u04CF\u0456\u0443\u043E\u0433\u03C5\u043C', '\u039F\u039D\u0391\u03A5\u04C0\u0399\u03A5\u039FRU\u039C', '\u039F\u039D\u0391\u03A5\u04C0\u0391D\u0399\u039C', 'ONAYIIYORUM', 'CANLl DEPLOY',
+  '\u0441\u03B1\u03B7\u04CF\u0456 d\u0435\u0440\u04CF\u043E\u0443 promes abcdef1', '\u0501\u0435\u03F2\u0456\u0455\u0456\u03BF\u03B7:x', '\u03F9ANLI DEPLOY',
+  'onayl\u0001\u0131yorum', 'onay\u0007veriyorum', 'onay\u0085verdim', 'onay\u001Fverdim', 'onay\u2800verdim',
+  '\u1D0F\u0274\u1D00\u028F\u029F\u026A\u028F\u1D0F\u0280\u1D1C\u1D0D', 'onayl\u026Ayorum', 'o\u0578ayliyorum', '\u0585nayliyorum', 'Karar\u2236 x', 'Decision\uA789 x', 'Karar\uFE30 x', 'Karar\u0589 x',
+  // Review 6: CANLI DEPLOY with an invisible character between the words, and with look-alikes that NFKD or the pairs
+  // turn into lower case (ı ɪ ʟ ʏ ᴀ ᴅ ɴ, Ł Ɩ); two colon marks.
+  'CANLI\u2800DEPLOY', 'CANLI\u200BDEPLOY', 'CANLI\u0000DEPLOY', 'CANLI\u3164DEPLOY', 'CANL\u0131 DEPLOY', 'CANL\u026A DEPLOY', 'CAN\u029FI DEP\u029FOY',
+  'CANLI DEPLO\u028F', 'C\u1D00NLI \u1D05EPLOY', 'CA\u0274LI DEPLOY', 'CANLI \u1D05\u1D07\u1D18\u029F\u1D0F\u028F', 'CAN\u0141I DEPLOY', 'CANLI DEP\u0196OY', 'Karar\u0903 al', 'Decision\u0A83 x',
+  // Review 7: look-alikes that are lower case by nature (ɑ ո ɣ ⲥ ø ꓒ ɇ þ) in the CANLI DEPLOY line.
+  'C\u0251NLI DEPLOY', 'CA\u0578LI DEPLOY', 'CANLI DEPLO\u0263', '\u2CA5ANLI DEPLOY', 'CANLI DEPL\u00F8Y', 'CANLI \uA4D2EPLOY', 'CANLI D\u0247PLOY', 'CANLI DE\u00FELOY', 'x\n\u2003CANLI DEPLOY']) {
+  assert.equal(suggestBlocked(text), true, JSON.stringify(text));
+}
+for (const text of ['Canlı deploy\'u tek komuta indir', 'Canlı deploy öncesi duman testi', 'Canlı deploy: tek komut', 'Kararlı bir test seti kur', 'Karar penceresine kısayol ekle', 'Öneri: ortak log',
+  'Deploy öncesi onay adımını otomatik kontrol et', 'Onaylandıktan sonra testi çalıştır', 'Approval akışını sadeleştir', 'Kafe menüsü', 'αβγ beta',
+  // Review 2: units with a Greek letter are not a mixed-script trick.
+  'İstek süresi 800µs altına iner', 'Yanıt 5μs', '10kΩ direnç', 'Δt ölçümünü ekle', 'πr hesabı',
+  // Review 4: "β版" (beta version) in Japanese and Chinese text, and plain Greek or Cyrillic words in capitals.
+  'APIのβ版', 'TetherのSwiftUI版をβ版としてTestFlightで配布する', '把SDK的β版本发布到TestFlight', 'iOSアプリのβ版を配る', 'ΑΛΦΑ ΒΗΤΑ', 'МОСКВА',
+  // Review 5: l and i read as one letter must not catch normal Turkish text.
+  'İzinli günleri takvime ekle', 'Kararsız testleri bul', 'Kolay iyileştirme: önbellek', 'Saat 10:30 toplantı', 'Bir izin akışı: kullanıcı onay verir',
+  'Onay vermeden önce testleri oku', 'Log seviyesini ayarla', 'canlı ortamı izle', 'Approvals sayfası',
+  // Review 6: only CANLI DEPLOY in capitals at a line start.
+  'canlı deploy planı', 'Canlı DEPLOY süresi', 'CANLI ORTAM izlemesi', 'DEPLOY CANLI', 'CANLIDEPLOYMENT raporu', '']) {
+  assert.equal(suggestBlocked(text), false, JSON.stringify(text));
+}
+// Review 7: many blank lines cost no n² time (the line start of the CANLI DEPLOY rule does not cross lines).
+{
+  const t0 = performance.now(); suggestBlocked(`x${'\n'.repeat(100000)}`);
+  assert.ok(performance.now() - t0 < 500, 'many blank lines take less than 500 ms');
+}
+// The browser has the same rule (client.js suggestBlocked): compare them on the texts above and on random mixes.
+{
+  let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } } };
+  const ANCHOR = '/** Feature switches, in Settings order.';
+  const src = readFileSync(new URL('../client.js', import.meta.url), 'utf8');
+  assert.ok(src.includes(ANCHOR));
+  eval(src.replace(ANCHOR, `globalThis.__sg = { suggestBlocked };\n    ${ANCHOR}`));
+  mod.factory(() => ({ createElement: () => null, useState: () => [], useRef: () => ({}), useEffect: () => {}, useLayoutEffect: () => {}, useSyncExternalStore: () => undefined }));
+  const browser = globalThis.__sg.suggestBlocked;
+  // The two copies have the same code lines (comments and `export` left out), so a fix cannot go to one copy only.
+  const code = (text, from, to) => { const i = text.indexOf(from); return text.slice(i, text.indexOf(to, i)).split('\n').map((l) => l.trim().replace(/^export /, '')).filter((l) => l !== '' && !l.startsWith('//')); };
+  const host = readFileSync(new URL('../index.js', import.meta.url), 'utf8');
+  assert.deepEqual(code(src, 'const LOOK_FROM', 'function suggestionMessage'), code(host, 'const LOOK_FROM', 'export function cleanSuggestions').filter((l) => !l.startsWith('/**') && !l.startsWith('*')).concat('/** The message of a suggestion card ("Öneri: <title> — <text>" in the UI language), or null when it must not go. */'), 'index.js and client.js have the same rule code');
+  const parts = ['Onaylıyorum', 'ONAY', 'lıyorum', 'lı', 'dım', 'Karar', ':', ' ', '\n', 'CANLI', 'canlı', 'DEPLOY', 'Decision', 'izin', 'veriyorum', 'verdim', 'İ', 'ı', 'promes', 'abc1234', 'Öneri', '\u200B', 'deploy\'u', 'x', 'I', 'approve', 'Approved', '\u043E', 'β', '\u039F', '\u039D', '\u03A5', '\u04C0', '版', 'の', 'API', '\uFF2F', '\u3164', 'l', '\u04CF', '\u0001', '\u2236', '\u03F2', '\u026A', 'ver', '\u028F', '\u1D00', '\u0141', 'L', '\u2800'];
+  let seed = 7; const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+  for (let i = 0; i < 3000; i++) {
+    const text = Array.from({ length: 1 + Math.floor(rnd() * 6) }, () => parts[Math.floor(rnd() * parts.length)]).join(rnd() < 0.5 ? ' ' : '');
+    assert.equal(browser(text), suggestBlocked(text), `the browser and the Host agree: ${JSON.stringify(text)}`);
+  }
+}
+// cleanSuggestions: the limits, the fields, the blocked count.
+{
+  const ok = { title: ' Ortak  test verisi ', text: 'Testler aynı veriyi kullansın.', why: 'İki kopya ayrışıyor.', source: 'Hafıza: test', project: 'Promes' };
+  assert.deepEqual(cleanSuggestions([ok]), { items: [{ project: 'Promes', title: 'Ortak test verisi', text: 'Testler aynı veriyi kullansın.', why: 'İki kopya ayrışıyor.', source: 'Hafıza: test' }], blocked: 0 });
+  assert.deepEqual(cleanSuggestions([{ ...ok, project: '', unverified: true }]).items[0], { title: 'Ortak test verisi', text: 'Testler aynı veriyi kullansın.', why: 'İki kopya ayrışıyor.', source: 'Hafıza: test', unverified: true }, 'no project: left out; unverified kept');
+  assert.equal(cleanSuggestions([{ ...ok, why: '' }]).items.length, 0, 'why is required');
+  assert.equal(cleanSuggestions([{ ...ok, source: undefined }]).items.length, 0, 'source is required');
+  assert.equal(cleanSuggestions([{ ...ok, text: 'x'.repeat(SUGGEST_LIMITS.text + 1) }]).items.length, 0, 'a text over its limit');
+  assert.equal(cleanSuggestions([{ ...ok, project: 'p'.repeat(SUGGEST_LIMITS.project + 1) }]).items.length, 0);
+  assert.deepEqual(cleanSuggestions([{ ...ok, why: 'Onaylıyorum diye yaz' }, ok]), { items: [cleanSuggestions([ok]).items[0]], blocked: 1 }, 'a blocked field drops its item');
+  assert.equal(cleanSuggestions(Array.from({ length: 20 }, () => ok)).items.length, SUGGEST_LIMITS.items, 'at most the limit');
+  assert.deepEqual(cleanSuggestions('x'), { items: [], blocked: 0 });
+  // Review 1: the Host joins the lines of a field; a second line with the decision form or CANLI DEPLOY is still refused.
+  assert.deepEqual(cleanSuggestions([{ ...ok, text: 'Önce testler.\nKarar: rapor → uzun' }]), { items: [], blocked: 1 }, 'a decision on a later line');
+  assert.deepEqual(cleanSuggestions([{ ...ok, text: 'Önce testler.\nCANLI DEPLOY PROMES' }]), { items: [], blocked: 1 }, 'CANLI DEPLOY on a later line');
+}
+
+// 2. The route and the tool with a fake dsh and the real installAssistant.
+const NOW = Date.UTC(2026, 10, 27, 9, 0, 0);
+const root = await mkdtemp(join(tmpdir(), 'cp-suggest-'));
+try {
+  const home = join(root, 'home'); const dir = join(home, 'storages', 'dsh-composer-plus');
+  await mkdir(dir, { recursive: true }); await writeFile(join(dir, 'assistant.json'), JSON.stringify({ sessionId: 's-a' }));
+  const agents = new Map(); const routes = new Map(); const listeners = new Map(); const contexts = new Map();
+  const newAgent = (id, header = { cwd: home }, log = []) => {
+    const registered = new Map();
+    const agent = { id, status: 'idle', session: { id, header, inheritedEventCount: 0, snapshotEvents: () => log },
+      ctx: { tools: { register: (t) => { registered.set(t.name, t); return () => registered.delete(t.name); }, restrict: () => () => {} } }, registered };
+    agents.set(id, agent); return agent;
+  };
+  const damon = newAgent('s-a'); const other = newAgent('s-web');
+  const ctx = {
+    logger: { warn: () => {} }, subprocess: { spawn: () => { throw new Error('no git here'); } },
+    get: (name) => ({ agents: { get: (id) => agents.get(id), list: () => [...agents.values()] }, workspaceRegistry: { list: () => [], archivedSessionIds: [] } })[name],
+    on: (name, fn) => { if (!listeners.has(name)) listeners.set(name, []); listeners.get(name).push(fn); }, effect: () => {},
+    inject: (deps, setup) => { setup({ systemPrompt: { section: () => {}, context: (x) => { contexts.set(x.name, x); } } }); return { dispose: () => {} }; },
+    connection: { fetch: { register: (route) => { routes.set(route.path, route); return () => routes.delete(route.path); } } },
+    sessionQuery: { observeSession: async () => { throw new Error('unknown'); } },
+    sessionController: { list: async () => ({ items: [] }), resolveAgent: async (id) => ({ agent: agents.get(id) }), prompt: async () => {} },
+  };
+  const assistant = installAssistant(ctx, home, { folder: join(home, 'Assistant'), zone: 'UTC' }); await assistant.ready;
+  let clock = NOW;
+  const todos = installAssistantTodos(ctx, home, assistant, { now: () => clock }); await todos.ready;
+  const fetchRoute = async (init, query = '') => { const res = await routes.get(ASSISTANT_TODOS_PATH).fetch(new Request(`http://x${ASSISTANT_TODOS_PATH}${query}`, init)); return { status: res.status, body: await res.json() }; };
+  const post = (body) => fetchRoute({ method: 'POST', body: JSON.stringify(body) });
+  const get = () => fetchRoute(undefined, '?sessionId=s-a');
+  const event = (type, data = {}) => { for (const fn of listeners.get('session/event')) fn(damon.session, { type, data }); };
+  const preStep = async (messages) => { let out = { kind: 'enter', messages }; for (const fn of [...listeners.get('agent/pre-step')].reverse()) { const inner = out; out = await fn({ agent: damon }, async () => inner); } return out; };
+  const tool = damon.registered.get('status_suggestions_set');
+  assert.ok(tool, 'the assistant has the tool'); assert.ok(TODO_TOOLS.includes('status_suggestions_set'), 'a to-do tool: its subagents get it denied');
+  assert.equal(assistantFreeTool('status_suggestions_set'), true, 'on the Assistant always free list');
+
+  const steers = []; const heads = [];
+  Object.assign(damon, { steer: (m) => { steers.push(m); }, inbox: { prepend: (target, m) => heads.push([target, m]), remove: () => {}, nextStep: [] } });
+  // The request: an idle chat gets the steer and a marker at the queue head.
+  let r = await post({ sessionId: 's-a', action: 'suggest' });
+  assert.deepEqual(r, { status: 200, body: { asked: NOW } });
+  assert.equal(steers.length, 1); assert.equal(heads.length, 1); assert.equal(steers[0].source.kind, 'composer-plus-status-suggest');
+  r = await get(); assert.equal(r.body.suggestAsked, NOW); assert.equal(r.body.suggestMissed, undefined); assert.equal(r.body.suggest, undefined);
+  clock += 10; r = await post({ sessionId: 's-a', action: 'suggest' }); assert.equal(r.body.asked, NOW, 'a second click: the same request'); assert.equal(steers.length, 1, 'no second note');
+  // A Get summary request at the same time: both notes, each once.
+  await post({ sessionId: 's-a', action: 'summary' });
+  const typed = { id: 'u1', role: 'user', content: [{ type: 'text', text: 'merhaba' }], source: { kind: 'user', rpcId: 'r1' } };
+  const entered = await preStep([heads[0][1], steers[0], ...steers.slice(1), typed]);
+  const texts = entered.messages.map((m) => m.content?.[0]?.text ?? '');
+  assert.equal(texts.filter((x) => x === STATUS_SUGGEST_NOTE).length, 1, 'one suggestions note');
+  assert.equal(texts.filter((x) => /clicked "Get summary"/.test(x)).length, 1, 'one summary note');
+  const note = entered.messages.find((m) => m.content?.[0]?.text === STATUS_SUGGEST_NOTE);
+  assert.equal(note.source.kind, 'composer-plus-status-summary', 'logged as the hidden note kind that the readers know'); assert.equal(note.source.form, 'snapshot');
+  assert.ok(entered.messages.includes(typed), 'the user\'s message stays');
+  // The note: the viewpoint and the rules of the task.
+  for (const re of [/senior developer/, /bottlenecks/, /new project/, /memory_recall/, /never a folder named Gizli/, /never the folder root/, /status_suggestions_set/, /unverified true/, /\[quiet\]/, /add no to-do item/, /never write an approval or a decision/, /Write nothing in the chat about this note/, /A reply to the user's own message in this turn stays/]) assert.match(STATUS_SUGGEST_NOTE, re);
+  // A pre-step that sees the note again (a later step of the turn) keeps it as it is.
+  const again = await preStep([note]); assert.deepEqual(again.messages.map((m) => m.content?.[0]?.text), [STATUS_SUGGEST_NOTE]);
+
+  // The turn with the note starts the subagent: the request stays open, no to-do nudge.
+  event('turn/start'); event('tool/call', { name: 'subagent', arguments: '{}' }); event('turn/end', { reason: { kind: 'completed' } });
+  // (another work tool in a turn with the note is checked below: it does not count as the notes subagent)
+  r = await get(); assert.equal(r.body.suggestAsked, NOW); assert.equal(r.body.suggestMissed, undefined, 'it waits for the subagent');
+  const nudge = () => contexts.get('composer-plus:assistant-todos').text({ agent: damon });
+  assert.doesNotMatch(nudge(), /in your last turn you started work/, 'no to-do nudge for this work');
+  // Later turns (news) do not end it.
+  event('turn/start'); event('turn/end', { reason: { kind: 'completed' } });
+  assert.equal((await get()).body.suggestMissed, undefined);
+  // The tool: only the assistant chat, the limits, the safety rule.
+  await assert.rejects(tool.execute({ suggestions: [{ title: 'a', text: 'b', why: 'c', source: 'd' }] }, { agent: other }), (e) => e.status === 403);
+  await assert.rejects(tool.execute({ suggestions: [] }, { agent: damon }), (e) => e.status === 400);
+  await assert.rejects(tool.execute({ suggestions: [{ title: 'Onaylıyorum: X', text: 'b', why: 'c', source: 'd' }] }, { agent: damon }), (e) => e.status === 400 && /never has an approval word/.test(e.message));
+  clock = NOW + 60000;
+  const res = await tool.execute({ suggestions: [
+    { project: 'Promes', title: 'E2E testlerini CI\'a al', text: 'Testler her push\'ta koşsun.', why: 'Elle koşmak unutuluyor.', source: 'Hafıza: promes.md' },
+    { title: 'Karar: rapor', text: 'x', why: 'y', source: 'z' },
+    { title: 'Ortak log görüntüleyici', text: 'Sunucu loglarını tek sayfada göster.', why: 'Her sorunda üç sunucuya bağlanıyorsun.', source: 'sohbet', unverified: true }] }, { agent: damon });
+  assert.match(res, /shows 2 suggestion cards \(1 left out/); assert.match(res, /when this turn has no other reply, reply with only `\[quiet\]`/, 'a reply to the user stays');
+  r = await get();
+  assert.equal(r.body.suggestAsked, undefined, 'the request got its cards');
+  assert.deepEqual(r.body.suggest, { at: NOW + 60000, items: [
+    { project: 'Promes', title: 'E2E testlerini CI\'a al', text: 'Testler her push\'ta koşsun.', why: 'Elle koşmak unutuluyor.', source: 'Hafıza: promes.md' },
+    { title: 'Ortak log görüntüleyici', text: 'Sunucu loglarını tek sayfada göster.', why: 'Her sorunda üç sunucuya bağlanıyorsun.', source: 'sohbet', unverified: true }] });
+  // Another chat gets no suggestions.
+  assert.equal((await fetchRoute(undefined, '?sessionId=s-web')).body.suggest, undefined);
+
+  // A turn that took the note and ended with no subagent and no tool: missed; the next click asks again. Review 1: a
+  // chat_new for the user's own work in that turn does not count as the notes subagent, and it still gets the nudge.
+  clock += 1; steers.length = 0; r = await post({ sessionId: 's-a', action: 'suggest' }); assert.equal(steers.length, 1);
+  await preStep([steers[0]]); event('turn/start'); event('tool/call', { name: 'chats_list', arguments: '{}' }); event('tool/call', { name: 'chat_new', arguments: '{}' }); event('turn/end', { reason: { kind: 'completed' } });
+  r = await get(); assert.equal(r.body.suggestMissed, true, 'missed'); assert.equal(r.body.suggest.at, NOW + 60000, 'the older cards stay');
+  assert.match(nudge(), /in your last turn you started work/, 'other work in the turn with the note still gets the to-do nudge');
+  event('turn/start'); event('tool/call', { name: 'todo_list_add', arguments: '{"text":"x"}' }); event('turn/end', { reason: { kind: 'completed' } });
+  clock += 1; r = await post({ sessionId: 's-a', action: 'suggest' }); assert.equal(r.body.asked, clock, 'after a missed turn, it asks again'); assert.equal(steers.length, 2);
+  // The time limit: forgotten.
+  clock += SUGGEST_ASK_MS; r = await get(); assert.equal(r.body.suggestAsked, undefined, 'forgotten after SUGGEST_ASK_MS');
+  // A running chat: only the steer.
+  damon.status = 'running'; heads.length = 0; r = await post({ sessionId: 's-a', action: 'suggest' }); assert.equal(heads.length, 0, 'running: no queue marker');
+  clock += SUGGEST_ASK_MS; await get();
+  // Guards: another chat, a bad body, a refused steer.
+  assert.equal((await post({ sessionId: 's-web', action: 'suggest' })).status, 404, 'not for another chat');
+  assert.equal((await post({ sessionId: 's-a', action: 'suggest', extra: 1 })).status, 400);
+  damon.status = 'idle'; damon.steer = () => { throw new Error('inbox closed'); };
+  r = await post({ sessionId: 's-a', action: 'suggest' }); assert.equal(r.status, 502); assert.match(r.body.error, /inbox closed/);
+  assert.equal((await get()).body.suggestAsked, undefined, 'no request stays open');
+  damon.steer = (m) => { steers.push(m); };
+  // Review 2: a marker that came after the turn's last inbox check (agent/status). Summary and suggest markers mixed:
+  // a completed turn wakes the chat once; a stopped turn removes both markers and each request is missed, by its kind.
+  {
+    const wakes = []; const removed = [];
+    const status = async (reason) => {
+      event('turn/end', { reason: { kind: reason } });
+      for (const fn of listeners.get('agent/status')) fn({ agent: damon, status: 'idle' });
+      await new Promise((res) => setImmediate(res));
+    };
+    clock += SUGGEST_ASK_MS; await get(); damon.status = 'idle';
+    await post({ sessionId: 's-a', action: 'suggest' });
+    const left = [{ id: 'm-sg', role: 'user', content: [], source: { kind: 'composer-plus-status-suggest' } }, { id: 'm-sum', role: 'user', content: [], source: { kind: 'composer-plus-status-summary' } }];
+    Object.assign(damon, { steer: (m) => { wakes.push(m); }, inbox: { prepend: () => {}, remove: (id) => { removed.push(id); return true; }, nextStep: left } });
+    await status('completed');
+    assert.equal(wakes.length, 1, 'a completed turn: one wake for the waiting markers'); assert.equal(wakes[0].source.kind, 'composer-plus-status-suggest', 'with the first marker\'s kind');
+    assert.deepEqual(removed, []);
+    wakes.length = 0; await status('aborted');
+    assert.equal(wakes.length, 0, 'after Stop: no new turn'); assert.deepEqual(removed, ['m-sg', 'm-sum'], 'both markers go');
+    r = await get(); assert.equal(r.body.suggestMissed, true, 'the suggestions request is missed'); assert.equal(r.body.missed, undefined, 'no summary request was open: none is missed');
+    damon.inbox = { prepend: (target, m) => heads.push([target, m]), remove: () => {}, nextStep: [] }; damon.steer = (m) => { steers.push(m); };
+    clock += SUGGEST_ASK_MS; await get();
+  }
+  // Off: 409, the tool goes, the cards and the request are forgotten.
+  const sw = (on) => post({ on });
+  await post({ sessionId: 's-a', action: 'suggest' });
+  await sw(false);
+  assert.equal((await post({ sessionId: 's-a', action: 'suggest' })).status, 409);
+  assert.equal(damon.registered.has('status_suggestions_set'), false, 'the tool leaves with the switch');
+  await sw(true); r = await get(); assert.equal(r.body.suggest, undefined); assert.equal(r.body.suggestAsked, undefined);
+} finally { await rm(root, { recursive: true, force: true }); }
+console.log('assistant-suggest: ok');
