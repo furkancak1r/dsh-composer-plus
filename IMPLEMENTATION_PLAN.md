@@ -5517,9 +5517,32 @@ client.js:4951). Two cards need two dsh nodes with the same seq; dsh keys its no
   damon-kartlar-once.png, tether-damon-once.png. After: same names with -<merge short sha>.
 - a (6 copies of one subagent failure note) and d: no code path found, no code change (see Phase 0). Not verified.
 
-## Last checkpoint (2026-11-27 16:5x)
-- `gh release view v1.33.0`: the release exists (16:4x). Next: commit, git fetch, merge origin/main if it moved, tests,
-  merge --no-ff into main, push, CI, after screenshots with the merge short SHA.
-- Last passing: `npm test` exit 0; iOS `cd tether/ios && xcodebuild -project DSHMobile.xcodeproj -scheme DSHMobile -destination 'platform=iOS Simulator,id=787CAECE-7075-4681-B0CE-7FBE5A5DFD49' -derivedDataPath ../../build/DerivedData test CODE_SIGNING_ALLOWED=NO`
-  132 tests, 2 skipped, 0 failures; `TMPDIR=~/Library/Caches/cp-dup-tests PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-assistant-answers.mjs <0.2.0-rc.2> <0.2.1-rc.2> <0.2.2-rc.5 bin.js>`
-  PASS x3 and FOLDED_REPLIES=all PASS on 0.2.2-rc.5.
+## Last checkpoint (2026-11-27 17:1x, about 150 tool calls: this chat stops here)
+- Head: 102d799d (merge of origin/main cd1ff110 into the branch) + this plan commit. Branch commits after the plan:
+  d10992d8 (fix), 1738d3ce (review 1 fixes), 102d799d (merge).
+- `gh release view v1.33.0`: the release exists (checked 16:4x). origin/main was cd1ff110 at 16:5x.
+- Merge 102d799d: main's hushedRowKeys (Mac hides "gave it to a subagent" rows in a hushed turn) now uses this branch's
+  hushedShown, so a result line (bold first line) stays shown, as its card. browser-assistant-answers keeps main's
+  assertions (LOOK and STARTED hidden in every fold mode) and this branch's turns 7-9.
+- Last passing at 102d799d: `npm test` exit 0 (one earlier full run timed out once in test/assistant-bot.test.mjs
+  "a quiet reply with a denied step is news", a 3 s wait, load average about 9; it passed alone 4 times and in the next
+  full run; origin/main passed in the same hour; not verified as a flake). iOS 132 tests, 2 skipped, 0 failures.
+  NOT run yet after the merge: browser-assistant-answers on the three dsh versions (last PASS at 1738d3ce).
+- Open steps (next chat):
+  1. browser-assistant-answers on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5 and FOLDED_REPLIES=all (command below).
+  2. Review round 2 (separate review-guard subagent, `git diff origin/main...HEAD`): the diff is > 100 lines and > 3
+     files, so repeat until a round has no P1/P2; fix P3/P4 of the last round. Before the merge into main the final
+     review must be clean (task rule). Round 1 (review-guard-1b at d10992d8): P1 0, P2 0, P3 3, P4 3, all handled in
+     1738d3ce. The first try (review-guard-1) stopped with no message.
+  3. `git fetch`; if origin/main moved, merge it (keep both sides), tests again.
+  4. In the main worktree: `git merge --no-ff fix/duplicate-reply-cards`, push main (fetch + merge again if rejected),
+     check CI of the merge commit.
+  5. After screenshots with the merge short SHA into /Users/furkancakir/Damon/Belgeler/Composer Plus/cift-kart-20261127/:
+     `SHOTS=<folder> TAG=sonra-<sha> TMPDIR=~/Library/Caches/cp-dup-tests PLAYWRIGHT=… node test/browser-assistant-answers.mjs <0.2.2-rc.5 bin>`
+     (damon-sohbet, damon-kartlar) and Tether `TEST_RUNNER_SHOT_DIR=<folder> TEST_RUNNER_SHOT_NAME=tether-damon-sonra-<sha>.png xcodebuild … test -only-testing:DSHMobileTests/AgentboxIdeasTests/testDuplicateCardScreen`.
+     Before set (kept): damon-sohbet-once.png, damon-kartlar-once.png, tether-damon-once.png.
+  6. Keep the branch and its folder. No live copy, release, npm publish, DSH restart, iPhone install.
+- Commands: iOS `cd tether/ios && xcodebuild -project DSHMobile.xcodeproj -scheme DSHMobile -destination 'platform=iOS Simulator,id=787CAECE-7075-4681-B0CE-7FBE5A5DFD49' -derivedDataPath ../../build/DerivedData test CODE_SIGNING_ALLOWED=NO`;
+  browser `TMPDIR=~/Library/Caches/cp-dup-tests PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-assistant-answers.mjs ~/Documents/testdeepseekharness/work/dsh-0.2.0-rc.2/node_modules/@deepseek-ai/dsh/lib/bin.js ~/Documents/testdeepseekharness/work/dsh-0.2.1-rc.2/node_modules/@deepseek-ai/dsh/lib/bin.js ~/ai-maintenance/dsh-composer-plus/dsh/0.2.2-rc.5/node_modules/@deepseek-ai/dsh/lib/bin.js`.
+- Temporary files: none left (build/ is ignored; build/DerivedData is the Xcode cache). ~/Library/Caches/cp-dup-tests
+  holds dsh's own spill folder only; delete the folder at the end of the task.
