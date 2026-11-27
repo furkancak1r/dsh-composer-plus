@@ -72,25 +72,39 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
     step(1, 4, 14, [txt('Bitti.')]), tail(1, 14),
   ]);
   assert.deepEqual(replyCardsOf(ask).map((c) => c.seq), [11, 12, 13, 14], 'an approval, options or a Senden line next to a tool call is a card');
-  // 2026-11-27: in a turn that ends with only [quiet] and has a call that Auto review denied, a text next to a tool call
-  // is a card (the denial: the closing answer says nothing). Without a denial (review 3), a "looking at it" or "I gave it
-  // to a subagent" line next to a tool call stays out, as in every turn. Spaces and a newline around [quiet] count as
-  // [quiet]. dsh's tool-call node: the result as `root` (kind tool-result, content) and the turn in its location.
+  // 2026-11-27: in a turn that ends with only [quiet], a text next to a tool call after a result that Auto review denied is
+  // a card (the denial line: the closing answer says nothing). The text of the denied call's own step comes before its
+  // result (review 4), so it stays out like a "looking at it" or "I gave it to a subagent" line in a turn without a denial
+  // (review 3). Spaces and a newline around [quiet] count as [quiet]. dsh's tool-call node: the result as `root` (kind
+  // tool-result, seq, content) and the turn in its location. Both denial texts (fixtures/quiet-replies.json `hushed`).
   const result = (turn, seq, text) => ({ key: `r${seq}`, kind: 'tool-call', location: { kind: 'step', turn: { turn } }, data: { root: { kind: 'tool-result', seq, callId: 'c', content: [{ type: 'text', text }], isError: true } } });
-  const DENIED = 'Error: Auto review denied this tool call and it did not run.\nReviewer reason: X.';
+  const [DENIED, DSH_DENIED] = JSON.parse(read('test/fixtures/quiet-replies.json')).hushed.denials;
   const hushed = chatOf([
-    step(1, 0, 10, [txt('Auto review denied bash: the reason is X.'), tool]), result(1, 10.5, DENIED), step(1, 1, 11, [txt(' [quiet]\n')]), tail(1, 11),
+    step(1, 0, 10, [txt('Kopyalıyorum, alt ajana verdim.'), tool]), result(1, 10.5, DENIED), step(1, 1, 11, [txt('Auto review denied bash: the reason is X.'), tool]), step(1, 2, 12, [txt(' [quiet]\n')]), tail(1, 12),
     step(2, 0, 20, [txt('[QUIET]'), tool]), result(2, 20.5, DENIED), step(2, 1, 21, [txt('\n[quiet] ')]), tail(2, 21), // a quiet turn with a tool call
     step(3, 0, 30, [txt('Bakıyorum.'), tool]), step(3, 1, 31, [txt('Bitti.')]), tail(3, 31), // a real closing answer: the looking line stays out
     step(4, 0, 40, [txt('Alt ajana verdim.'), tool]), result(4, 40.5, '{"ok":true}'), step(4, 1, 41, [txt('[quiet]')]), tail(4, 41), // no denial: no card
+    step(5, 0, 50, [txt('Bakıyorum.'), tool]), result(5, 50.5, DSH_DENIED), step(5, 1, 51, [txt('Auto review chat_send çağrısını reddetti.'), tool]), step(5, 2, 52, [txt('[quiet]')]), tail(5, 52), // dsh's own text
   ]);
-  assert.deepEqual(replyCardsOf(hushed).map((c) => c.seq), [10, 31], 'the denial before [quiet] is a card; a quiet turn and looking lines are not');
+  assert.deepEqual(replyCardsOf(hushed).map((c) => c.seq), [11, 31, 51], 'the denial line after the denied result is a card; the denied call\'s own text, a quiet turn and looking lines are not');
   // A denial in another turn does not open a hushed turn without one.
-  assert.deepEqual(replyCardsOf(chatOf([...hushed.nodes.values(), result(3, 30.5, DENIED)])).map((c) => c.seq), [10, 31], 'a denial counts only in its own hushed turn');
+  assert.deepEqual(replyCardsOf(chatOf([...hushed.nodes.values(), result(3, 30.5, DENIED)])).map((c) => c.seq), [11, 31, 51], 'a denial counts only in its own hushed turn');
   // A running turn (no tail yet) whose newest settled text is [quiet]: its real answer can still come, so no card yet.
-  const running = chatOf([step(1, 0, 10, [txt('Checking.'), tool]), result(1, 10.5, DENIED), step(1, 1, 11, [txt('[quiet]'), tool])]);
-  assert.deepEqual(replyCardsOf(running).map((c) => c.seq), [], 'a running turn: no card for its looking line');
-  assert.deepEqual(replyCardsOf(chatOf([...running.nodes.values(), tail(1, 11)])).map((c) => c.seq), [10], 'after the turn ends with [quiet]: a card');
+  const running = chatOf([step(1, 0, 10, [txt('Checking.'), tool]), result(1, 10.5, DENIED), step(1, 1, 11, [txt('Denied: X.'), tool]), step(1, 2, 12, [txt('[quiet]'), tool])]);
+  assert.deepEqual(replyCardsOf(running).map((c) => c.seq), [], 'a running turn: no card for its denial line yet');
+  assert.deepEqual(replyCardsOf(chatOf([...running.nodes.values(), tail(1, 12)])).map((c) => c.seq), [11], 'after the turn ends with [quiet]: a card');
+  // The shared table (Tether's botLines reads it too): each step is [text, result]; a result makes the text a tool-call step.
+  const { hushed: table } = JSON.parse(read('test/fixtures/quiet-replies.json'));
+  for (const [ti, t] of table.turns.entries()) {
+    const nodes = []; let seq = (ti + 1) * 100;
+    t.steps.forEach(([text, res], i) => {
+      nodes.push(step(ti + 1, i, seq, [txt(text), ...(res === null ? [] : [tool])]));
+      if (res !== null) nodes.push(result(ti + 1, seq + 0.5, typeof res === 'number' ? table.denials[res] : '{"ok":true}'));
+      seq += 1;
+    });
+    nodes.push(tail(ti + 1, seq - 1));
+    assert.deepEqual(replyCardsOf(chatOf(nodes)).map((c) => c.text), t.shown, `hushed table: ${JSON.stringify(t.steps)}`);
+  }
   // Review 5: a Senden line with an image (it stays in the body, review 4) still asks you: a card next to a tool call.
   const askImg = chatOf([step(1, 0, 10, [txt('Senden: şu ekrana bak ![Ekran](</a/b.png>)'), tool]), step(1, 1, 12, [txt('Bitti.')]), tail(1, 12)]);
   assert.deepEqual(replyCardsOf(askImg).map((c) => c.seq), [10, 12], 'a Senden line with an image next to a tool call is a card');
@@ -499,14 +513,14 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   // Mark all as read while a turn runs (review 2): the floor is the newest card, not the chat's newest seq, so the text
   // that becomes a card when the turn ends with [quiet] (an Auto review denial) is still New.
   const at = (n, seq) => { n.anchorSeq = seq; return n; };
-  const denial = { key: 'r20', kind: 'tool-call', location: { kind: 'step', turn: { turn: 2 } }, anchorSeq: 20.5, data: { root: { kind: 'tool-result', content: [{ type: 'text', text: 'Error: Auto review denied this tool call and it did not run.' }] } } };
-  const runningTurn = [at(step(1, 0, 10, [txt('**Eski.**')]), 10), at(tail(1, 10), 10.1), at(step(2, 0, 20, [txt('Auto review denied bash.'), tool]), 20), denial];
-  snap = chatOf([...runningTurn, at(step(2, 1, 21, [txt('[quiet]'), tool], 'running'), 21)]);
+  const denial = { key: 'r19', kind: 'tool-call', location: { kind: 'step', turn: { turn: 2 } }, anchorSeq: 19.5, data: { root: { kind: 'tool-result', seq: 19.5, content: [{ type: 'text', text: 'Error: Auto review denied this tool call and it did not run.' }] } } };
+  const runningTurn = [at(step(1, 0, 10, [txt('**Eski.**')]), 10), at(tail(1, 10), 10.1), at(step(2, 0, 19, [txt('Bakıyorum.'), tool]), 19), denial, at(step(2, 1, 20, [txt('Auto review denied bash.'), tool]), 20)];
+  snap = chatOf([...runningTurn, at(step(2, 2, 21, [txt('[quiet]'), tool], 'running'), 21)]);
   store.start('run', 5); props.sessionId = 'run'; hooks = []; out = render();
   assert.deepEqual(cardsOf(out).map((c) => [c.seq, c.unread]), [[10, true]], 'a running turn: its looking line is no card yet');
   find(out, (n) => n.t === 'button' && n.p['data-reply-read-all'] !== undefined)[0].p.onClick(); out = render();
   assert.equal(store.of('run').floor, 10, 'Mark all as read: up to the newest card');
-  snap = chatOf([...runningTurn, at(step(2, 1, 21, [txt('[quiet]'), tool]), 21), at(tail(2, 21), 21.1)]); for (const fn of subs) fn(); out = render();
+  snap = chatOf([...runningTurn, at(step(2, 2, 21, [txt('[quiet]'), tool]), 21), at(tail(2, 21), 21.1)]); for (const fn of subs) fn(); out = render();
   assert.deepEqual(cardsOf(out).map((c) => [c.seq, c.unread]), [[10, false], [20, true]], 'the turn ends with [quiet]: the denial card is New');
   props.sessionId = 'feed'; snap = chat;
   // The click stops the follow to the bottom, so the cards that come above do not move the feed (a structure check: the

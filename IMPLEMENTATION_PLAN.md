@@ -57,8 +57,38 @@ restart, iPhone install.
      none). 3. P4: this checkpoint (below: the old one is now "previous chat").
 - Last passing (round-3 fixes): `npm test` exit 0; browser-assistant-answers PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5
   and FOLDED_REPLIES=all on 0.2.2-rc.5. iOS not run again (no Swift change after 8667f59f: 129 tests, 0 failures).
-- Open steps: review round 4 on the whole diff; fix; when clean: fetch, merge origin/main if it moved, tests, merge into
-  main (--no-ff), push; screenshots of the merge commit. No live copy, release, npm publish, restart.
+- Merge of origin/main 4b3a3d25 (card images, 54edbadd): conflicts in docs/features.json and llms.txt (assistantReplyCards
+  llms: both insertions, no overlap; build:readme "docs are up to date", hand merge = generated) and
+  test/reply-cards.test.mjs (both blocks kept). Tests at 54edbadd: npm test exit 0; iOS 129/0 (2 skipped);
+  browser-assistant-answers x3 + FOLDED_REPLIES=all PASS; browser-reply-images, -pages, -order PASS on 0.2.2-rc.5,
+  0.2.0-rc.2, 0.2.1-rc.2.
+- Round 4 (review-guard-4, head 54edbadd): P1 0, P2 2, P3 1, P4 0. Fixed (not committed in a review round yet):
+  1. P2: the denied call's own text ("Kopyalıyorum, alt ajana verdim" + the call, then the denied result) became a card:
+     a step's text always comes before its result. Now `deniedQuietTurns` gives turn → seq of the first denied result and
+     `afterDenial` opens only a tool-call step whose finalNode.seq is after it. Fixtures in the real order.
+  2. P2: Tether botLines did not have the rule. Ported: in an ended turn (a `.turn` line) whose last text is only
+     `[quiet]`, an assistant line followed by a `.tool` line that asks nothing (`asksYou`: onay block, options, For you)
+     goes until the turn's first denied `.tool` output (`autoDenied`). One table: test/fixtures/quiet-replies.json
+     `hushed` (JS: reply-cards; iOS: QuietReplyTests.testHushedTurnsMatchTheMac; testDamonQuietTurnScreen has the
+     started line).
+  3. P3: dsh's own denial text is `Error: Auto review rejected tool "<name>"; its body was not executed`
+     (dsh-experimental-auto-review lib/index.js:525 on 0.2.2-rc.5, :421 on 0.2.0-rc.2; dsh-tools pipeline.js:411
+     `Error: ${reason}`). "Error: Auto review denied this tool call" is only the local auto-review-agent-first plugin
+     (~/.dsh/local/auto-review-agent-first/index.js:124). AUTO_DENIED in index.js and client.js is now a regex for both;
+     assistant-guards has a dsh-text row.
+  Red checks: reply-cards and assistant-subagent-rows fail with `afterDenial = denied.has(turn)` and with the old
+  one-text AUTO_DENIED; the iOS table test failed once on a wrong fixture row (fixed the row, not the code).
+- Last passing (round-4 fixes, uncommitted at the time of the run): `npm test` exit 0; iOS 130 tests, 2 skipped,
+  0 failures; browser-assistant-answers PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5 and FOLDED_REPLIES=all on 0.2.2-rc.5.
+- Open steps (next chat): 1. review round 5 in a separate subagent on `git diff origin/main...HEAD` (round 4 had P2, so
+  one more round; repeat until a round has no P1/P2, fix P3/P4 of the last round). 2. `git fetch`; if origin/main moved
+  past 4b3a3d25, merge it, tests again (and a review round if client.js or Swift changed). 3. merge into main --no-ff,
+  npm test on main, push main, check CI. 4. screenshots of the merge commit (TAG=<short sha>, SHOTS=<folder>, same three
+  views; Tether: testDamonQuietTurnScreen with TEST_RUNNER_SHOT_DIR). Keep the branch and its folder. No live copy,
+  release, npm publish, restart.
+- Not verified: with dsh 0.2.2's default foldedReplies: all, dsh itself draws every text next to a tool call, so a
+  "gave it to a subagent" line still shows in the Mac chat view there (also on main); the card does not show it. Ask
+  Furkan whether the chat row must go too.
 
 ## Checkpoint (2026-11-27 03:5x, about 150 tool calls: the previous chat stopped here)
 - Head 950b0430 (+ this plan commit). origin/main moved to 7593f3f8 (feat/sync-tether-damon-features merge). `git

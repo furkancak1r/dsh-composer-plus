@@ -1861,7 +1861,9 @@ final class AgentboxIdeasTests: XCTestCase {
         let deny = "Auto review bash çağrısını reddetti: neden canlı sunucuya yazmasıydı."
         c.replaySnapshot(turn(1, "Bugün ne var?", "**Sabah özeti hazır.** İki iş bitti.")
             + [["type": "turn/start", "seq": 10, "data": J()]] + say(11, "[quiet]", true) + say(13, " [QUIET]\n", false) + [["type": "turn/end", "seq": 14, "data": ["reason": ["kind": "completed"]]]]
-            + [["type": "turn/start", "seq": 20, "data": J()]] + say(21, deny, true) + say(23, "\n[quiet] ", false) + [["type": "turn/end", "seq": 24, "data": ["reason": ["kind": "completed"]]]]
+            + [["type": "turn/start", "seq": 20, "data": J()]] + say(21, "Kopyalıyorum, alt ajana verdim.", true)
+            + [["type": "tool/result", "seq": 23, "data": ["message": ["toolCallId": "c21", "isError": true, "content": [["type": "text", "text": "Error: Auto review rejected tool \"bash\"; its body was not executed"]]]]]]
+            + say(24, deny, true) + say(26, "\n[quiet] ", false) + [["type": "turn/end", "seq": 27, "data": ["reason": ["kind": "completed"]]]]
             + [["type": "turn/start", "seq": 30, "data": J()]])
         c.streamFrame(["type": "start"]); c.streamFrame(["type": "chunk", "chunk": ["type": "text-delta", "text": "[quiet]"]])
         XCTAssertEqual(botLines(c.transcript).filter { $0.kind == .assistant }.map(\.text), ["**Sabah özeti hazır.** İki iş bitti.", deny])
@@ -2894,6 +2896,24 @@ final class QuietReplyTests: XCTestCase {
             XCTAssertEqual(quietReply(text), c["quiet"] as? Bool, text)
             // The chat view uses the same rule: a quiet reply goes, any other reply stays.
             XCTAssertEqual(botLines([Line(kind: .assistant, text: text)]).count, (c["quiet"] as? Bool == true) ? 0 : 1, text)
+        }
+    }
+    /// A turn that ends with only `[quiet]`: a text sent with a tool call shows only after the turn's first Auto review
+    /// denial (client.js afterDenial; one table: quiet-replies.json `hushed`, also read by test/reply-cards.test.mjs).
+    func testHushedTurnsMatchTheMac() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../test/fixtures/quiet-replies.json")
+        let h = try XCTUnwrap((try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? J)?["hushed"] as? J)
+        let denials = try XCTUnwrap(h["denials"] as? [String]), turns = try XCTUnwrap(h["turns"] as? [J])
+        XCTAssertGreaterThanOrEqual(turns.count, 5)
+        for t in turns {
+            var lines: [Line] = []
+            for s in t["steps"] as? [[Any]] ?? [] {
+                lines.append(Line(kind: .assistant, text: s[0] as? String ?? ""))
+                if let i = s[1] as? Int { lines.append(Line(kind: .tool, text: "bash", output: denials[i], failed: true)) }
+                else if s[1] is String { lines.append(Line(kind: .tool, text: "bash", output: "{\"ok\":true}")) }
+            }
+            lines.append(Line(kind: .turn, text: "Completed"))
+            XCTAssertEqual(botLines(lines).map(\.text), t["shown"] as? [String], "\(t["steps"] ?? "")")
         }
     }
     /// The push rule keeps its empty-reply case; a failed turn is never quiet.

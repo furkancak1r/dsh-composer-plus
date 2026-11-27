@@ -12197,7 +12197,9 @@ const withoutSelfQuotes = (text) => {
   for (const { index, end } of selfQuoteMatches(text).sort((a, b) => a.index - b.index)) { if (index > at) out += text.slice(at, index); at = Math.max(at, end); }
   return out + text.slice(at);
 };
-const AUTO_DENIED = 'Error: Auto review denied this tool call';
+// dsh's own denial (dsh-experimental-auto-review `denied()`, dsh-tools `Error: ${reason}`) or the auto-review-agent-first
+// plugin's text; the same rule as client.js AUTO_DENIED and Tether's autoDenied (test/fixtures/quiet-replies.json `hushed`).
+const AUTO_DENIED = /^Error: Auto review (?:denied this tool call|rejected tool ")/;
 const APPROVAL_ITEM = /^(?:onay|approval)\s*:\s*\S/iu; // the client's CARD_MARKS 'onay' (client.js cardMark)
 export const quoteNote = (quotes) => `Composer Plus → Assistant: your last answer quotes ${quotes.map((q) => JSON.stringify(cutEnd(q, 200))).join(', ')} as your own earlier words, but the quoted text is not in an earlier answer of this chat. Write one short line to the user that withdraws this correction. Never quote a sentence that the log does not have.`;
 export const deniedNote = (names) => `Composer Plus → Assistant: Auto review denied a call of this turn (${[...new Set(names)].join(', ')}). Write one short line for the user with the denied action and the reason, in the turn's last reply (not next to a tool call). Do not reply only [quiet].`;
@@ -12269,7 +12271,7 @@ export function installAssistantGuards(ctx, assistant) {
     if (event.type === 'turn/start') { calls.set(id, new Map()); denials.delete(id); } else if (event.type === 'tool/call') {
       if (!calls.has(id)) calls.set(id, new Map());
       calls.get(id).set(d?.callId, String(d?.name ?? 'a tool'));
-    } else if (event.type === 'tool/result' && textBlocks(d?.message?.content).startsWith(AUTO_DENIED)) {
+    } else if (event.type === 'tool/result' && AUTO_DENIED.test(textBlocks(d?.message?.content))) {
       denials.set(id, [...(denials.get(id) ?? []), calls.get(id)?.get(d?.message?.source?.callId ?? d?.message?.toolCallId) ?? 'a tool']);
     } else if (event.type === 'assistant/message') {
       const missing = missingQuotes(id, session, event);

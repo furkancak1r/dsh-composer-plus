@@ -149,6 +149,10 @@ await check('item 2: an Auto review denial, then a reply of only [quiet]', async
   push('damon', 'tool/call', { name: 'bash', callId: 'c4', arguments: '{}' });
   push('damon', 'tool/result', result('c4', 'Error: Auto review denied this tool call and it did not run.', true));
   assert.match(notesOf(await step('damon', []))[0] ?? '', /\(bash\)/, 'a second denial: its own note');
+  // dsh's own Auto review text (dsh-experimental-auto-review denied(), review 4): a note too.
+  push('damon', 'tool/call', { name: 'chat_send', callId: 'c6', arguments: '{}' });
+  push('damon', 'tool/result', result('c6', 'Error: Auto review rejected tool "chat_send"; its body was not executed', true));
+  assert.match(notesOf(await step('damon', []))[0] ?? '', /\(chat_send\)/, "dsh's own denial text: a note");
   push('damon', 'turn/end', { reason: { kind: 'completed' } });
   push('damon', 'turn/start', { turn: 10 });
   push('damon', 'tool/call', { name: 'bash', callId: 'c5', arguments: '{}' });
