@@ -11,10 +11,16 @@ main'e alınıp push edilsin (canlı değil)". Base: origin/main e1343314. No li
   guessNote() in index.js; tests in test/assistant-guards.test.mjs item 5.
 - Final review rounds of origin/main...HEAD: round 1 P2 1 P3 2; round 2 P2 2 P3 1 P4 3; round 3 P4 2 (fixed in f5eb3c75);
   round 4 (after the merge of origin/main 4b3a3d25 in b8b29a49) P1 0 P2 0 P3 0 P4 1 (this plan section, fixed here).
-- Last checkpoint: this commit on top of b8b29a49. Last passing test command: `npm test` (exit 0),
-  `node test/assistant-guards.test.mjs` (ok).
+- Merge 9c533c17 (origin/main ee06f990, quiet turns): conflicts in index.js (guess-word code kept; main's AUTO_DENIED
+  regex and its .test() call kept), docs/features.json (assistant llms: main's sentences and the branch's clause (4)
+  together), llms.txt (regenerated), this file (both sections). `npm test` exit 0 after the merge.
+- Last checkpoint: 9c533c17 plus this plan commit. Last passing test command: `npm test` (exit 0).
 - Known limit: the link-target pattern cuts two nested parenthesis levels; a guess word inside a third level counts.
-- Open step: merge into main with --no-ff and push main (approval of 2026-11-27). Keep the branch and its folder.
+- Open steps:
+  1. Review-guard round 5 of origin/main...HEAD (the merge 9c533c17 changed index.js). Not started: Auto review denied the
+     review subagent on 2026-11-27 about 09:25. Reason: the quoted approval was not found in the human messages.
+  2. When round 5 is clean: fetch, merge origin/main if it moved, `npm test`, merge into main with --no-ff, push main,
+     check the CI run. Keep the branch and its folder.
 
 # Quiet turns leave no card, and small tasks start quietly (branch fix/hide-quiet-only-turns, 2026-11-27)
 
