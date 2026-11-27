@@ -5084,3 +5084,15 @@ review. Not in scope: live copy (after Furkan's "tamam" on the screenshots), rel
   - Not verified: whether Tether's mdInline shows exactly the alt text (Apple's parser gives the alt text as a run with
     an imageURL; checked with a Swift script, not in the app UI); the screenshots in kart-resim-20261126/ are of the
     20:4x code (before reviews 3-10; the card look did not change, the fixes are parse rules and the canvas redraw).
+- 2026-11-27 04:2x (new chat): steps 1 and 2 above are done.
+  - Merge of origin/main 7593f3f8 in cd2136c3 (docs only; `git diff bbf729f1 cd2136c3 -- client.js index.js` is empty).
+    Conflicts resolved, both sides kept: docs/features.json (main's llms + this branch's image sentence), the 13 READMEs
+    (main's limits bullet + this branch's image sentence), llms.txt (`npm run build:readme`), tether/FEATURES.md (main's
+    Load earlier row; one Images row: Mac text of this branch, State text of main + this branch's alt-text and title-rule
+    sentences).
+  - Last passing (cd2136c3): `npm test` exit 0; browser-reply-images, -pages, -order, status-canvas PASS on 0.2.0-rc.2,
+    0.2.1-rc.2, 0.2.2-rc.5 (command as in the 03:5x checkpoint).
+  - Review 11 (review-guard-r11, origin/main...cd2136c3): P1 0, P2 0, P3 0, P4 1 (this checkpoint was stale) -> fixed here.
+  - Open steps: review round 12 (separate subagent) until clean; then merge into main --no-ff, npm test on main, push;
+    then new screenshots of the merged main commit in kart-resim-20261126/ (names with the merge short SHA, keep the old
+    files). No live copy, no release, Tether app unchanged, no DSH restart.
