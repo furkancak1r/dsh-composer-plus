@@ -3016,8 +3016,8 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
      * result ("I gave it to a subagent"), so it stays hidden, as in a hushed turn without a denial. dsh's tool-call node
      * holds the call's result as its `root` (kind `tool-result`, `seq`, the message `content`) and the turn in its location
      * (dsh 0.2.0-0.2.2). */
-    const deniedQuietTurns = (chat) => {
-      const hushed = hushedTurns(chat); const out = new Map();
+    const deniedQuietTurns = (chat, hushed = hushedTurns(chat)) => {
+      const out = new Map();
       if (hushed.size === 0) return out;
       for (const n of chat?.nodes?.values?.() ?? []) {
         const r = n?.kind === 'tool-call' ? n.data?.root : undefined; const turn = n?.location?.turn?.turn;
@@ -3028,6 +3028,16 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
     };
     /** A step of a hushed turn that comes after its first denied result (deniedQuietTurns). */
     const afterDenial = (denied, n) => n.data.finalNode?.seq > denied.get(n.data.turn);
+    /** The texts sent with a tool call in a hushed turn that are no card (Furkan, 2026-11-27: "sessiz turda Damon sohbetindeki
+     * 'alt ajana verdim' gibi ara satırlar da gizlensin"): dsh's default foldedReplies: all draws each of them. The denial
+     * line (afterDenial) and a text that asks you (asksYou) stay, as their cards do; Tether's botLines has the same rule (one
+     * table: test/fixtures/quiet-replies.json `hushed`). A running turn is not hushed: its rows show until it ends. */
+    const hushedRowKeys = (chat, hushed = hushedTurns(chat)) => {
+      if (hushed.size === 0) return [];
+      const denied = deniedQuietTurns(chat, hushed);
+      return [...(chat?.nodes?.values?.() ?? [])].filter((n) => n?.kind === 'assistant-step' && Array.isArray(n.data?.blocks) && hushed.has(n.data.turn)
+        && n.data.blocks.some((b) => b?.kind === 'tool-call') && hasText(n) && !quietStep(n) && !afterDenial(denied, n) && !asksYou(answerText(n.data.blocks))).map((n) => n.key);
+    };
     /** Also a text sent with a tool call after a denial in a hushed turn (afterDenial). */
     const answerRowKeys = (chat) => {
       const steps = [...(chat?.nodes?.values?.() ?? [])].filter((n) => n?.kind === 'assistant-step' && Array.isArray(n.data?.blocks));
@@ -3142,9 +3152,9 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
         const same = (keys) => (prev) => (prev.length === keys.length && prev.every((k, i) => k === keys[i]) ? prev : keys);
         if (source === undefined) { setQuiet(same([])); setAnswers(same([])); setQuietTails(same([])); setQuietTurns(same([])); return undefined; }
         const read = () => {
-          const chat = source.getSnapshot(); const turnsQuiet = quietTurnSet(chat);
-          setQuiet(same([...subagentRowKeys(chat), ...quietRowKeys(chat), ...newsRowKeys(chat, turnsQuiet)])); setAnswers(same(answerRowKeys(chat)));
-          setQuietTails(same([...hushedTurns(chat)])); setQuietTurns(same([...turnsQuiet].sort()));
+          const chat = source.getSnapshot(); const turnsQuiet = quietTurnSet(chat); const hushed = hushedTurns(chat);
+          setQuiet(same([...subagentRowKeys(chat), ...quietRowKeys(chat), ...newsRowKeys(chat, turnsQuiet), ...hushedRowKeys(chat, hushed)])); setAnswers(same(answerRowKeys(chat)));
+          setQuietTails(same([...hushed])); setQuietTurns(same([...turnsQuiet].sort()));
         };
         read();
         return source.subscribe(read);
