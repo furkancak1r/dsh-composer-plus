@@ -21,7 +21,7 @@ globalThis.document = { body: { tag: 'body' }, querySelector: () => null, addEve
 const ANCHOR = '/** Feature switches, in Settings order.';
 const src = read('client.js');
 assert.ok(src.includes(ANCHOR));
-eval(src.replace(ANCHOR, `globalThis.__rc = { failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, ReplyFeed, replySections, sideReadId, replyPage, REPLY_PAGE, REPLY_READ_KEY, REPLY_SHOWN_KEY, REPLY_CSS, REPLY_MAX };\n    ${ANCHOR}`));
+eval(src.replace(ANCHOR, `globalThis.__rc = { replyImageUrl, pathImagesOf, mdLabelsOf, failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, ReplyFeed, replySections, sideReadId, replyPage, REPLY_PAGE, REPLY_READ_KEY, REPLY_SHOWN_KEY, REPLY_CSS, REPLY_MAX };\n    ${ANCHOR}`));
 const h = (t, p, ...c) => ({ t, p: p ?? {}, c });
 // A small hook runtime (by call order) for ReplyFeed: state, refs and effects with deps (run after each draw).
 let hooks = []; let hi = 0; let pending = [];
@@ -31,7 +31,7 @@ const React = { createElement: h, Fragment: 'F', useState: (v) => { const i = hi
   useLayoutEffect: (f, deps) => { const i = hi++; const old = hooks[i]; if (old === undefined || changed(old.deps, deps)) pending.push(() => { old?.off?.(); hooks[i] = { deps, off: f() }; }); } };
 React.useEffect = React.useLayoutEffect;
 mod.factory((n) => (n === 'react' ? React : n === 'react-dom' ? { createPortal: (el, host, key) => ({ portal: el, host, key }) } : {}));
-const { failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, ReplyFeed, replySections, sideReadId, replyPage, REPLY_PAGE, REPLY_READ_KEY, REPLY_SHOWN_KEY, REPLY_CSS, REPLY_MAX } = globalThis.__rc;
+const { replyImageUrl, pathImagesOf, mdLabelsOf, failureTextOf, replyCardsOf, replyParts, readReplyMarks, markReplies, replyUnread, replyOrder, createReplyRead, replySig, chatStateKey, ReplyCard, ReplyFeed, replySections, sideReadId, replyPage, REPLY_PAGE, REPLY_READ_KEY, REPLY_SHOWN_KEY, REPLY_CSS, REPLY_MAX } = globalThis.__rc;
 const find = (n, pred) => { if (n === null || typeof n !== 'object') return []; if (Array.isArray(n)) return n.flatMap((c) => find(c, pred)); return [...(pred(n) ? [n] : []), ...(n.c ?? []).flat(Infinity).flatMap((c) => find(c, pred))]; };
 const text = (n) => (typeof n === 'string' ? n : Array.isArray(n) ? n.map(text).join('') : n?.c ? text(n.c) : '');
 
@@ -72,6 +72,9 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
     step(1, 4, 14, [txt('Bitti.')]), tail(1, 14),
   ]);
   assert.deepEqual(replyCardsOf(ask).map((c) => c.seq), [11, 12, 13, 14], 'an approval, options or a Senden line next to a tool call is a card');
+  // Review 5: a Senden line with an image (it stays in the body, review 4) still asks you: a card next to a tool call.
+  const askImg = chatOf([step(1, 0, 10, [txt('Senden: şu ekrana bak ![Ekran](</a/b.png>)'), tool]), step(1, 1, 12, [txt('Bitti.')]), tail(1, 12)]);
+  assert.deepEqual(replyCardsOf(askImg).map((c) => c.seq), [10, 12], 'a Senden line with an image next to a tool call is a card');
 }
 
 // replyParts.
@@ -347,10 +350,26 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   const core = read('tether/ios/Sources/Core.swift'), ui = read('tether/ios/Sources/UI.swift');
   assert.match(core, /func replyHead\(_ text: String\) -> ReplyHead/, 'the Swift port');
   assert.match(ui, /if damon, l\.kind == \.assistant \{\s*let parts = replySections\(l\.text\)/, 'Tether: the Damon chat draws one card per topic of a reply');
-  assert.match(ui, /\} else if damon, l\.kind == \.error \{ replyCard \{/, 'Tether: a failed turn is a card');
+  assert.match(ui, /\} else if damon, l\.kind == \.error \{\n\s*replyCard\(/, 'Tether: a failed turn is a card');
   assert.match(core, /func replySections\(_ text: String\) -> \[String\]/, 'Tether: the split port (testReplySectionsMatchTheMac)');
-  assert.match(ui, /if last, l\.kind == \.assistant, let o = c\.optionOffer/, 'Tether: the options under the last topic');
-  assert.match(ui, /if card \{ cardHead\(title: head\.title, forYou: head\.forYou\) \}/, 'Tether: the card shows the title and the For you line');
+  assert.match(ui, /let options = last && l\.kind == \.assistant && c\.optionOffer/, 'Tether: the options under the last topic');
+  assert.match(ui, /if card \{ cardHead\(title: head\.title, forYou: head\.forYou, unread: unread\) \}/, 'Tether: the card shows the title and the For you line');
+  // Tether (2026-11-26, parity): the read marks (New, N unread, Mark all as read; this phone keeps them per Mac) and
+  // Load earlier (replyPage, 8 replies per tap) use the ports of the shared table above.
+  assert.match(core, /func markReplies\(_ m: ReplyMark/, 'Tether: the read port'); assert.match(core, /func replyPage\(_ cards: \[ReplyCardID\]/, 'Tether: the page port');
+  assert.match(ui, /replyPage\(cards, floor: replyFloor, unread: \{ replyUnread\(mark, \$0\) \}\)/, 'Tether: the Damon chat pages its cards');
+  assert.match(core, /max cap: Int = \.max\) -> ReplyPage/, 'Tether: no 40 cap by default'); assert.match(ui, /let cards = damon \? cardCache\.cards\(all\)/, 'Tether: the cards of the shown rows (review 3)');
+  assert.match(ui, /let more = page\.map \{ p in firstCardSeq\(rows\)\.map \{ replyPage\(cards, floor: \$0\) \} \?\? p \}/, 'Tether: Load earlier counts from the oldest card that shows (review 5)');
+  assert.match(ui, /\.simultaneousGesture\(TapGesture\(\)\.onEnded \{ readCard\(id, read\) \}\)/, 'Tether: a tap reads the card');
+  // Review 2: an unread card below the first page holds the cut also on the first draw; VoiceOver's Mark as read only on
+  // a New card; Open message scrolls after the page change without a fixed wait.
+  assert.match(ui, /\.onChange\(of: page\?\.held == true \? page\?\.cut : nil, initial: true\)/, 'Tether: the held cut from the first draw');
+  assert.match(ui, /\.accessibilityActions \{ if unread \{ Button\(String\(localized: "replies\.markRead"/, 'Tether: Mark as read only on a New card');
+  assert.equal((ui.match(/"replies\.markRead"/g) || []).length, 1, 'Tether: one Mark as read action for both card kinds');
+  const jump = ui.slice(ui.indexOf('private func jump('), ui.indexOf('func secretBar('));
+  assert.ok(jump.includes('scrollAfterPage = (target, .center, nil); replyFloor = need') && !/milliseconds\(100\)/.test(jump), 'Tether: the scroll waits for the new page (no fixed wait)');
+  assert.match(ui, /\.onChange\(of: scrollAfterPage == nil \? nil : rows\.first\?\.id\) \{\n\s*guard let s = scrollAfterPage/, 'Tether: the pending scroll runs when the new page is in the list');
+  assert.match(core, /forKey: key\("replyRead"\)/, 'Tether: the marks are kept per Mac');
   assert.match(ui, /Text\(verbatim: title\)[^\n]*\.textSelection\(\.enabled\)/, 'Tether: the title can be selected');
   assert.match(ui, /private var shown: String \{ line\.kind == \.assistant \? part \?\? line\.text : line\.text \}/, 'Tether: a long press on a topic card uses its topic (review 7)');
   for (const use of ['string = [shown, line.output]', 'ShareLink(item: shown)', 'onQuote(shown)', 'SelectableText(text: shown)']) assert.ok(ui.includes(use), `Tether menu: ${use}`);
@@ -463,6 +482,73 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   assert.match(src, /follow\.current = false; \/\/ the cards that come above must not move the feed to its bottom\n\s*setFloor\(page\.next\);/, 'structure: Load earlier stops the follow');
 }
 
+// Images in a card (Furkan, 2026-11-26: "kartlara görüntüler gelmiyor düzelt"): dsh's Markdown asks `pathImages` for a
+// local destination; the card answers dsh's own file route (api/file?path=), as dsh's chat view does, for an image file only.
+{
+  const base = 'http://127.0.0.1:52053/';
+  const abs = '/Users/demo/Damon/Belgeler/Composer Plus/guncellemeler/ilk görünüm 3.png'; // spaces, written in angle brackets
+  const url = new URL(replyImageUrl(abs, '/Users/demo/Assistant', base));
+  assert.deepEqual([url.origin + url.pathname, url.searchParams.get('path'), [...url.searchParams.keys()]], ['http://127.0.0.1:52053/api/file', abs, ['path']], 'an absolute path with spaces: dsh\'s file route');
+  assert.equal(new URL(replyImageUrl('/a/b%20c.png?x=1#y', undefined, base)).searchParams.get('path'), '/a/b c.png', 'decoded once, without ?query and #fragment (as dsh)');
+  assert.equal(new URL(replyImageUrl('resim/a.png', '/Users/demo/Assistant/', base)).searchParams.get('path'), '/Users/demo/Assistant/resim/a.png', 'a relative path: in the chat\'s folder');
+  assert.equal(new URL(replyImageUrl('./b.JPG', 'C:\\work\\damon', base)).searchParams.get('path'), 'C:\\work\\damon\\b.JPG', 'a Windows folder keeps its separator');
+  assert.equal(replyImageUrl('/a/b.webp', '/x', 'dsh-app://app/'), 'dsh-app://app/api/file?path=%2Fa%2Fb.webp', 'the Desktop app\'s base');
+  for (const ext of ['png', 'jpg', 'jpeg', 'webp', 'gif']) assert.ok(replyImageUrl(`/a/b.${ext}`, '/x', base), `.${ext} is an image`);
+  for (const [value, cwd, why] of [['/a/rapor.pdf', '/x', 'a .pdf'], ['/Users/demo/.ssh/id_rsa', '/x', 'a key file'], ['/a/notes.md', '/x', 'a .md'], ['/a/x.svg', '/x', 'an .svg'],
+    ['resim/a.png', undefined, 'a relative path without a folder'], ['//server/share/a.png', '/x', 'a // network path'], ['/a/b\nc.png', '/x', 'a control character'], ['/a/%E0%A4.png', '/x', 'a broken escape'],
+    ['file:///a/b.png', '/x', 'a file: URL (review 10)'], ['smb://h/a.png', '/x', 'an smb: URL'], ['data:image/png;base64,AA.png', '/x', 'a data: URL'], ['x:y.png', '/x', 'another scheme']]) {
+    assert.equal(replyImageUrl(value, cwd, base), undefined, `no image: ${why}`);
+  }
+  assert.equal(replyImageUrl('/a/b.png', '/x', 'file:///index.html'), undefined, 'no file route on another base');
+  // The card gives dsh's MarkdownText the resolver of its chat's folder (one object per folder: MarkdownText memoizes by it).
+  const own = pathImagesOf('/Users/demo/Assistant');
+  assert.equal(own, pathImagesOf('/Users/demo/Assistant'), 'the same object at the next draw');
+  globalThis.document.baseURI = base;
+  assert.equal(new URL(own.resolve(abs)).searchParams.get('path'), abs, 'the resolver reads the page\'s base');
+  assert.equal(new URL(own.resolve('resim/a.png')).searchParams.get('path'), '/Users/demo/Assistant/resim/a.png', 'and the chat\'s folder');
+  assert.equal(own.resolve('/a/rapor.pdf'), undefined, 'a .pdf stays its alt text');
+  delete globalThis.document.baseURI;
+  assert.match(src, /React\.createElement\(primitives\.MarkdownText, \{ text, pathImages: pathImagesOf\(cwd\), labels: mdLabelsOf\(t\) \}\)/, 'structure: the card passes the resolver and the stable labels to dsh\'s Markdown');
+  assert.equal(replyParts(`**Resim.** Bak:\n\n![İlk görünüm](<${abs}>)`).body, `Bak:\n\n![İlk görünüm](<${abs}>)`, 'the image line stays in the card body');
+  // Review 1: a reply (or a topic) that starts with an image keeps the image; it is no title ("!İlk görünüm" before).
+  // Review 2: also an image after text on the first line (a sentence, a heading, a plain line).
+  // Review 3: alt text with ". ", "! " or "? " (the first sentence ends inside the image).
+  for (const first of [`![İlk görünüm](<${abs}>)`, `![İlk görünüm](<${abs}>) Sonra metin.`, `Ekran görüntüsü: ![a](</a/b.png>)`, `# Durum ![x](</a/b.png>)`, `Görünüm ![x](</a/b.png>) hazır.`,
+    '![Adım 1. Giriş ekranı](</a/b.png>)', '![Dikkat! Hata](</a/b.png>)', 'Bak: ![Neden? Bu](</a/b.png>)']) {
+    const p = replyParts(`${first}\n\nMetin burada.`);
+    assert.deepEqual([p.title, p.body], ['', `${first}\n\nMetin burada.`], `an image in the first line: no title, the image in the body (${first})`);
+  }
+  const boldFirst = replyParts('**Başlık** ![x](</a/b.png>)\n\nMetin.');
+  assert.deepEqual([boldFirst.title, boldFirst.body], ['Başlık', '![x](</a/b.png>)\n\nMetin.'], 'a bold title keeps its title; the image goes to the body');
+  // Review 4: an image on the "Senden:" line or in a [!DETAILS] summary is not lost in plain text.
+  const youImg = replyParts('**Başlık**\n\nSenden: şu ekrana bak ![Ekran](</a/b.png>)\n\nMetin.');
+  assert.deepEqual([youImg.forYou, youImg.body], ['', 'Senden: şu ekrana bak ![Ekran](</a/b.png>)\n\nMetin.'], 'a Senden line with an image stays in the body');
+  assert.equal(replyParts('**Başlık**\n\nSenden: rapora bak.').forYou, 'rapora bak.', 'a Senden line without an image is still the action line');
+  const boldYou = replyParts('**Senden:** şu ekrana bak ![x](</a/b.png>)\n\nMetin.');
+  // (The next line is the title, as for the same reply without the image on origin/main: "**Senden:** bak\n\nMetin." gives "Metin.")
+  assert.deepEqual([boldYou.title, boldYou.forYou, boldYou.asks, boldYou.body], ['Metin.', '', true, '**Senden:** şu ekrana bak ![x](</a/b.png>)'], 'a bold Senden line with an image is no title (review 5)');
+  // Review 6: a title after a Senden line with an image is still the title, as without the image.
+  const youFirst = replyParts('Senden: bak ![x](</a/b.png>)\n\n**Başlık**\n\nMetin.');
+  assert.deepEqual([youFirst.title, youFirst.body], ['Başlık', 'Senden: bak ![x](</a/b.png>)\n\nMetin.'], 'the title after a Senden line with an image');
+  assert.equal(replyParts('Senden: bak\n\n**Başlık**\n\nMetin.').title, 'Başlık', 'the same reply without the image');
+  // Review 7: only the first Senden line counts (a second one stays in the body), and "![" in inline code is no image.
+  const twoYou = replyParts('**Rapor hazır.**\n\nSenden: şu ekrana bak ![a](</a/a.png>)\nSenden: sonra raporu onayla.');
+  assert.deepEqual([twoYou.forYou, twoYou.body], ['', 'Senden: şu ekrana bak ![a](</a/a.png>)\nSenden: sonra raporu onayla.'], 'a second Senden line is no action line');
+  assert.equal(replyParts('**Kartlarda `![alt](<yol>)` görüntüleri görünüyor.** Test geçti.').title, 'Kartlarda !alt görüntüleri görünüyor.', '"![" in inline code keeps the title');
+  assert.equal(replyParts('**Başlık**\n\nSenden: `![alt](<yol>)` biçimiyle yaz.').forYou, '!alt biçimiyle yaz.', '"![" in inline code keeps the action line');
+  // Review 8: a code span between "!" and "[" makes no "![" (origin/main's title); backtick runs pair by length.
+  assert.equal(replyParts('Bitti!`npm test`[log](u)').title, 'Bitti!npm testlog', 'no "![" in the text: the title as before');
+  assert.equal(replyParts('Bak `` ![a](</p.png>) `y` tamam').title, '', 'a real image between unequal backtick runs: no title');
+  assert.equal(replyParts('``a ` ![x](y)`` tamam').title, 'a  !x tamam', 'one code span with "![" inside: the title stays');
+  assert.equal(replyParts('\\`![x](</a/b.png>)\\` sonra').title, '', 'an escaped backtick opens no code span: the image is no title (review 9)');
+  assert.deepEqual(replyParts('**Başlık**\n\n> [!DETAILS] ![x](</a/b.png>)\n> gövde').details, [{ summary: '', body: '![x](</a/b.png>)\n\ngövde' }], 'an image in a DETAILS summary goes to its text');
+  const l1 = mdLabelsOf((k) => `tr:${k}`); const l2 = mdLabelsOf((k) => `de:${k}`);
+  assert.ok(l1 !== l2 && l2.code.copyLabel === 'de:board.copy' && l2.footnotes === 'de:board.footnotes', 'a new language: a new labels object with its texts');
+  assert.equal(mdLabelsOf((k) => k), mdLabelsOf((k) => k), 'one labels object per language (MarkdownText memoizes by it)');
+  assert.equal(replyImageUrl('/a/b.png', '/x', undefined), undefined, 'no base: no image, no throw (review 1)');
+  for (const re of [/ReplyCard, \{ key: card\.key, card, sessionId, cwd,/, /ReplyCard, \{ card: rc, sessionId, cwd,/]) assert.match(src, re, 'structure: the feed and the canvas give the card the chat folder');
+}
+
 // The texts: replies.loadEarlier is our language packs' copy of dsh's chat.loadOlder (the label when dsh has no text).
 for (const f of ['de', 'es', 'fr', 'hi', 'id', 'ja', 'ko', 'pt-BR', 'ru', 'tr', 'vi']) {
   const pack = JSON.parse(read(`locales/${f}.json`));
@@ -475,4 +561,17 @@ assert.match(src, /loadOlder: \(\) => chatTextOf\(ctx\.locale, 'chat\.loadOlder'
 assert.match(src, /const FEATURES = \[[^\]]*'assistantReplyCards'/, 'its own switch'); assert.match(src, /const SHOT_OF = \{[^}]*assistantReplyCards: 'assistantReplyCards'/, 'its screenshot');
 assert.match(src, /assistant: \[[^\]]*'assistantReplyCards'\]/, 'in the Assistant category'); assert.ok(!/const OFF_BY_DEFAULT = \[[^\]]*'assistantReplyCards'/.test(src), 'on by default');
 assert.equal(REPLY_SHOWN_KEY, 'dsh-composer-plus.assistant-chat-shown');
+// One table for the read marks and the pages, the Mac and Tether (test/fixtures/reply-read.json; Tether:
+// testReplyReadMatchesTheMac). Tether's port reads the same cases; this side checks that the table is the Mac's rule.
+{
+  const table = JSON.parse(read('test/fixtures/reply-read.json'));
+  for (const c of table.read) assert.deepEqual(markReplies(c.mark, c.ids, c.cards), c.want, `read table: ${c.name}`);
+  for (const c of table.unread) assert.equal(replyUnread(c.mark ?? undefined, c.card), c.want, `unread table: ${c.name}`);
+  for (const c of table.pages) {
+    const p = replyPage(c.seqs.map((seq) => ({ seq })), c.floor, (x) => c.unread.includes(x.seq));
+    assert.deepEqual({ ...(Number.isFinite(p.cut) ? { cut: p.cut } : {}), shown: p.shown.length, held: p.held, older: p.older, next: p.next, more: p.more }, c.want, `page table: ${c.name}`);
+  }
+  assert.ok(table.read.length >= 6 && table.unread.length >= 6 && table.pages.length >= 8, 'the table covers topics, floors, caps and held cards');
+}
+
 console.log('reply-cards: ok');

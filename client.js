@@ -4498,7 +4498,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
     function chatTextOf(locale, key) {
       try { const text = locale?.bind?.('chat')?.(key); return typeof text === 'string' && text !== key ? text : ''; } catch { return ''; }
     }
-    const asksYou = (text) => { const p = replyParts(text); return p.approvals.length > 0 || p.options.length > 0 || p.forYou !== ''; };
+    const asksYou = (text) => { const p = replyParts(text); return p.approvals.length > 0 || p.options.length > 0 || p.asks; };
     function replyCardsOf(chat, withdrawn = NO_SPANS, inherited = 0) {
       if (typeof chat !== 'object' || chat === null) return [];
       const hit = replyMemo.get(chat);
@@ -4546,9 +4546,38 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       return parts.length === 0 ? [String(text ?? '')] : parts;
     }
     const plainText = (s) => String(s ?? '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\*\*|__|`/g, '').trim();
-    /** A reply as a card: `{ title, forYou, body, details: [{ summary, body }], approvals, options }`. The title is the
+    // "![" outside inline code (review 7): a code span opens and closes with backtick runs of the same length (CommonMark),
+    // and it becomes a space, so "!`x`[" is no "![" (review 8); an escaped "\`" opens no code span (review 9).
+    const hasImage = (s) => String(s).replace(/(?<![`\\])(`+)(?!`).*?(?<!`)\1(?!`)/g, ' ').includes('![');
+    /** A local image in a reply card, read as dsh's own chat reads it (Furkan, 2026-11-26: "kartlara görüntüler gelmiyor"):
+     * the destination, decoded once and without its ?query or #fragment (dsh-client-ui-chat `localPathMediaUrl`), is
+     * resolved against the chat's folder when it is relative (ChatView `fileImages`, dsh-util-workspace-path
+     * `resolveWorkspacePath`) and read through dsh's authenticated file route (`fileMediaUrl`: `api/file?path=`). Only png,
+     * jpg, jpeg, webp and gif files: for any other destination it gives undefined and dsh's Markdown shows the alt text, as it
+     * does for an image that does not load. An http(s) image never comes here: dsh's Markdown loads it before. */
+    function replyImageUrl(value, cwd, base = globalThis.document?.baseURI) {
+      let path; try { path = decodeURIComponent(String(value).split(/[?#]/)[0]); } catch { return undefined; }
+      const at = String(base ?? '');
+      if (!/\.(?:png|jpe?g|webp|gif)$/i.test(path) || /[\u0000-\u001f\u007f]/.test(path) || !(/^https?:/.test(at) || at.startsWith('dsh-app://app/'))) return undefined;
+      if (/^[a-z][a-z\d+.-]*:/i.test(path) && !/^[a-z]:[\\/]/i.test(path)) return undefined; // file:, data:, smb:: no request, as in dsh (review 10)
+      if (!/^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(path)) {
+        if (typeof cwd !== 'string' || cwd === '') return undefined;
+        const sep = /^[A-Za-z]:[/\\]/.test(cwd) && cwd.includes('\\') ? '\\' : '/'; // a Windows folder keeps its own separator, as in dsh
+        path = `${cwd.replace(/[/\\]+$/, '')}${sep}${path.replace(/^(?:\.?[/\\])+/, '')}`;
+      }
+      return /^[/\\]{2}/.test(path) ? undefined : new URL(`api/file?path=${encodeURIComponent(path)}`, at).href;
+    }
+    // One `pathImages` object per chat folder and one `labels` object per language: dsh's MarkdownText memoizes its parse
+    // by their identity (as dsh's AssistantMarkdown keeps them stable), so a card is not parsed again at each draw.
+    const replyImages = new Map(); const replyLabels = new Map();
+    const pathImagesOf = (cwd) => { let p = replyImages.get(cwd); if (p === undefined) { p = { resolve: (value) => replyImageUrl(value, cwd) }; replyImages.set(cwd, p); } return p; };
+    const mdLabelsOf = (t) => {
+      const [copyLabel, copiedLabel, footnotes] = [t('board.copy'), t('board.copied'), t('board.footnotes')]; const key = `${copyLabel}\0${copiedLabel}\0${footnotes}`;
+      let l = replyLabels.get(key); if (l === undefined) { l = { code: { copyLabel, copiedLabel }, footnotes }; replyLabels.set(key, l); } return l;
+    };
+    /** A reply as a card: `{ title, forYou, asks, body, details: [{ summary, body }], approvals, options }`. The title is the
      * first line when it is a heading or starts bold, else its first sentence; a "Senden:" / "For you:" line is the action
-     * line; `onay` blocks are the approval sentences (onayBlocks); the option list at the end (parseOptions) leaves the
+     * line (one with an image stays in the body, so the image shows; `asks` is true for either); `onay` blocks are the approval sentences (onayBlocks); the option list at the end (parseOptions) leaves the
      * body; a `> [!DETAILS] <summary>` quote stays closed; another callout keeps its label (`labels`: kind → label). */
     function replyParts(text, labels = {}) {
       const approvals = onayBlocks(text);
@@ -4572,7 +4601,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         while (at >= 0 && (lines[at].trim() === '' || /^[ \t]/.test(lines[at]) || OPTION_ITEM.test(lines[at]))) at--;
         lines = lines.slice(0, at); // the heading and the list are the option buttons
       }
-      const body = []; const details = []; let forYou = ''; let title = ''; let code = false;
+      const body = []; const details = []; let forYou = ''; let title = ''; let code = false; let asks = false; let youAt = -1;
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         if (/^ {0,3}(```|~~~)/.test(line)) code = !code;
@@ -4580,27 +4609,40 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
           let j = i; const quote = [];
           while (j < lines.length && /^ {0,3}>/.test(lines[j])) { quote.push(lines[j].replace(/^ {0,3}> ?/, '')); j++; }
           const box = calloutOf(quote.join('\n'));
-          if (box?.kind === 'details') details.push({ summary: plainText(box.title), body: box.rest.trim() });
+          // An image in the summary line goes to the section's text (a summary is plain text; review 4 of the card images).
+          if (box?.kind === 'details') details.push(hasImage(box.title) ? { summary: '', body: `${box.title}\n\n${box.rest.trim()}`.trim() } : { summary: plainText(box.title), body: box.rest.trim() });
           else if (box !== undefined) body.push(`> **${labels[box.kind] ?? box.kind}**`, ...box.rest.split('\n').map((l) => `> ${l}`));
           else body.push(...lines.slice(i, j));
           i = j - 1; continue;
         }
         const you = code ? null : /^\s*(?:[-*+]\s+)?(?:\*\*|__)?(?:senden|for you)(?:\*\*|__)?\s*:\s*(?:\*\*|__)?\s*(.*?)\s*$/iu.exec(line);
-        if (you !== null && forYou === '' && plainText(you[1]) !== '') { forYou = plainText(you[1]); continue; }
+        // A "Senden:" line with an image stays in the body, so the image shows (the action line is plain text; review 4); it
+        // still asks you (`asks`: a card next to a tool call, review 5), is no title, and a title after it stays a title
+        // (`youAt`, review 6), as without the image.
+        if (you !== null && !asks && plainText(you[1]) !== '') { // only the first Senden line (review 7)
+          asks = true; if (!hasImage(you[1])) forYou = plainText(you[1]); else youAt = body.push(line) - 1;
+          continue;
+        }
         // A list line is no title ("1. Run the tests." would give "1." and break the list's numbering): it stays in the body.
-        if (title === '' && !code && line.trim() !== '' && body.every((l) => l.trim() === '') && !/^\s*(?:[-*+]|\d{1,9}[.)])\s/.test(line)) {
+        if (title === '' && !code && line.trim() !== '' && body.every((l, k) => k === youAt || l.trim() === '') && !/^\s*(?:[-*+]|\d{1,9}[.)])\s/.test(line)) {
           const heading = /^#{1,6}\s+(.+?)\s*#*\s*$/.exec(line);
           const bold = /^\s*(\*\*|__)(.+?)\1\s*(.*)$/.exec(line);
           const sentence = /^(.+?[.!?…])(?=\s|$)\s*(.*)$/u.exec(line.trim());
-          if (heading !== null) title = plainText(heading[1]);
-          else if (bold !== null) { title = plainText(bold[2]); if (bold[3].trim() !== '') body.push(bold[3]); }
-          else if (sentence !== null && sentence[1].length <= 200) { title = plainText(sentence[1]); if (sentence[2] !== '') body.push(sentence[2]); }
-          else { const one = plainText(line); title = one.length > 160 ? `${one.slice(0, 159)}…` : one; }
-          if (title !== '') continue;
+          // A title that would hold an image is no title: the line and its image stay in the body (reviews 1 and 2 of the
+          // card images); "**Title** ![x](…)" keeps its bold title and the image goes to the body. Only "![" is tested: the first
+          // sentence can end inside the alt text ("![Step 1. Login](…)", review 3).
+          const pick = heading !== null ? heading[1] : bold !== null ? bold[2] : sentence !== null && sentence[1].length <= 200 ? sentence[1] : line;
+          if (!hasImage(pick)) {
+            if (heading !== null) title = plainText(heading[1]);
+            else if (bold !== null) { title = plainText(bold[2]); if (bold[3].trim() !== '') body.push(bold[3]); }
+            else if (sentence !== null && sentence[1].length <= 200) { title = plainText(sentence[1]); if (sentence[2] !== '') body.push(sentence[2]); }
+            else { const one = plainText(line); title = one.length > 160 ? `${one.slice(0, 159)}…` : one; }
+            if (title !== '') continue;
+          }
         }
         body.push(line);
       }
-      return { title, forYou, body: body.join('\n').replace(/\n{3,}/g, '\n\n').trim(), details, approvals, options };
+      return { title, forYou, asks, body: body.join('\n').replace(/\n{3,}/g, '\n\n').trim(), details, approvals, options };
     }
     /** The read marks that this browser keeps (REPLY_READ_KEY): `{ [chat id]: { floor, read: [read id] } }`, a read id is a
      * reply's seq or "seq:i" for a part of a split reply (replyCardsOf `id`); junk reads as empty. */
@@ -4737,7 +4779,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
      * each while the message box is empty, through Option picks' store (`picks.pick`: one send per chat). An older card
      * shows the same sentences and options as text. A click, Enter or a button marks it read (`onRead`). */
     const partsMemo = new WeakMap(); // card → { labels, parts }: a card is parsed once per language, not at each draw
-    function ReplyCard({ card, sessionId, unread = false, newest = false, offerNow, choiceNow, picks, t, lang, onRead, focusable = true, failure }) {
+    function ReplyCard({ card, sessionId, cwd, unread = false, newest = false, offerNow, choiceNow, picks, t, lang, onRead, focusable = true, failure }) {
       const labels = JSON.stringify(calloutLabels(t)); let memo = partsMemo.get(card);
       if (card.kind !== 'error' && memo?.labels !== labels) { memo = { labels, parts: replyParts(card.text, JSON.parse(labels)) }; partsMemo.set(card, memo); }
       // A failed turn: dsh's own text for a known code (`failure`: dsh's `chat` dictionary), else the node's message.
@@ -4746,7 +4788,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const approve = offerNow?.offer?.options?.[0]?.from === card.seq && offerNow.empty === true ? offerNow : undefined;
       const choice = choiceNow?.offer?.seq === card.seq && card.last !== false && choiceNow.empty === true ? choiceNow : undefined; // the options end the reply
       const md = (text) => (primitives.MarkdownText === undefined ? React.createElement('div', { style: { whiteSpace: 'pre-wrap' } }, text)
-        : React.createElement(primitives.MarkdownText, { text, labels: { code: { copyLabel: t('board.copy'), copiedLabel: t('board.copied') }, footnotes: t('board.footnotes') } }));
+        : React.createElement(primitives.MarkdownText, { text, pathImages: pathImagesOf(cwd), labels: mdLabelsOf(t) }));
       const read = () => onRead?.(card.id ?? card.seq);
       // A mouse drag that selects text of the card is no click on it: the card stays unread.
       const onClick = (ev) => { const s = globalThis.getSelection?.(); if (s != null && !s.isCollapsed && ev?.currentTarget?.contains?.(s.anchorNode)) return; read(); };
@@ -4787,8 +4829,9 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
      * göster" flag). The chat under the cards is hidden, not removed (dsh's history
      * loader reads its rows' boxes; its scroll stays). When the chat shows and no status panel has the toggle, a pill
      * "Sohbeti gizle" hides it again. */
-    function ReplyFeed({ sessionId, host, replies, shown, statusSeats, offers, picks, locale, t, failure, loadOlder }) {
+    function ReplyFeed({ sessionId, host, replies, shown, statusSeats, offers, picks, locale, t, failure, loadOlder, useSessions }) {
       const chatShown = React.useSyncExternalStore(shown.subscribe, shown.getSnapshot);
+      const cwd = typeof useSessions === 'function' ? useSessions((s) => s?.byId?.[sessionId]?.cwd) : undefined; // a relative image's folder
       const panel = React.useSyncExternalStore(statusSeats.subscribe, () => statusSeats.getSnapshot().has(sessionId));
       const offerNow = React.useSyncExternalStore(offers.subscribe, () => offers.of(sessionId));
       const choiceNow = React.useSyncExternalStore(offers.subscribe, () => offers.choiceOf(sessionId));
@@ -4877,7 +4920,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
           cards.length === 0 ? React.createElement('p', { className: 'cp-rf-note' }, t('replies.none')) : null,
           page.older ? React.createElement('div', { className: 'cp-rf-older' }, React.createElement('button', { type: 'button', 'data-reply-older': String(shownCards.length), onClick: loadEarlier },
             loadOlder?.() || t('replies.loadEarlier'))) : null,
-          shownCards.map((card) => React.createElement(ReplyCard, { key: card.key, card, sessionId, unread: replyUnread(mark, card), newest: card.key === lastUnread,
+          shownCards.map((card) => React.createElement(ReplyCard, { key: card.key, card, sessionId, cwd, unread: replyUnread(mark, card), newest: card.key === lastUnread,
             offerNow, choiceNow, picks, t, lang, failure, onRead: (id) => read([id]) }))));
     }
     /** The card stack in the Damon chat (the Durum panel's data, statusCards' groups): the count bar (Get summary,
@@ -4977,6 +5020,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const shownAt = React.useRef({ key: null, at: 0 }); // the active item and when it became active (the key guard)
       const choiceNow = React.useSyncExternalStore(offers.subscribe, () => offers.choiceOf?.(sessionId));
       const kids = typeof useSessions === 'function' ? useSessions((list) => childIdsOf(list, sessionId).join(' ')) : '';
+      const cwd = typeof useSessions === 'function' ? useSessions((list) => list?.byId?.[sessionId]?.cwd) : undefined; // a relative image's folder (reply cards)
       // The delegated chats (chat_new, chat_send) too: their turns and waits change their rows (2026-11-16: a live deploy
       // chat did not show). A row that runs without a turn (a background job) is read again every STATUS_POLL_MS.
       const chats = state.tasks.filter((task) => task.chat === true && typeof task.id === 'string').map((task) => task.id);
@@ -5423,7 +5467,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         const cardOf = (c) => ({ key: `${c.group}|${c.key}`, label: `${t(`cards.${c.group}`)}${qn(`senden|${c.key}`)}: ${c.title}`, el: ul(card(c)), side: () => ul(card(c, '-side')), mine: c.group === 'senden', run: runs.includes(c) });
         const replies = replyOn ? replyOrder(replyCards.cards, replyCards.mark) : [];
         const unreadReplies = replies.filter((rc) => replyUnread(replyCards.mark, rc));
-        const replyEl = (rc) => React.createElement(ReplyCard, { card: rc, sessionId, unread: replyUnread(replyCards.mark, rc), offerNow, choiceNow: choice, picks, t, lang, failure, focusable: false, onRead: (id) => replyCards.read([id]) });
+        const replyEl = (rc) => React.createElement(ReplyCard, { card: rc, sessionId, cwd, unread: replyUnread(replyCards.mark, rc), offerNow, choiceNow: choice, picks, t, lang, failure, focusable: false, onRead: (id) => replyCards.read([id]) });
         // A reply card opened in the side panel counts as read (only that card: each part of a split reply on its own).
         const onSelCard = (key) => { setSel(key); const id = sideReadId(replies, key); if (id !== undefined) replyCards.read([id]); };
         const islands = [
@@ -5548,6 +5592,15 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         }
         if (svg.innerHTML !== out) svg.innerHTML = out;
       });
+      // A reply card's image (dsh's <img loading="lazy">) loads or fails after the measure above: draw again, so that the
+      // islands and the lines take its height (review 3 of the card images). `load` and `error` do not bubble: capture.
+      React.useEffect(() => {
+        const el = viewRef.current;
+        if (typeof el?.addEventListener !== 'function') return undefined;
+        const again = (ev) => { if (ev.target?.tagName === 'IMG') setBox((b) => ({ ...b })); };
+        el.addEventListener('load', again, true); el.addEventListener('error', again, true);
+        return () => { el.removeEventListener('load', again, true); el.removeEventListener('error', again, true); };
+      }, []);
       // Wheel: zoom at the pointer (a trackpad pinch comes as Ctrl+wheel); Shift or a sideways wheel moves the canvas. Not
       // passive: the page and the browser's own zoom must not move. The side panel scrolls as a page.
       React.useEffect(() => {

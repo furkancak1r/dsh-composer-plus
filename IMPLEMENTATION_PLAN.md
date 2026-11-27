@@ -17,6 +17,59 @@ main'e alınıp push edilsin (canlı değil)". Base: origin/main e1343314. No li
      (2026-11-27 ~02:05, reason: the quoted approval was not found in the human messages).
   2. When round 4 is clean: merge origin/main into the branch, `npm test`, merge into main, push main. Keep the branch.
 
+# Tether = Composer Plus Damon parity (branch feat/sync-tether-damon-features, 2026-11-26)
+
+Source: Furkan, 2026-11-26: "tether da güncel tut her zaman yarın yükleriz güncelini telefonuma". Base: main e1343314.
+Scope: Tether only (and shared tables, docs). No phone install, no signing, no live copy, no release.
+
+## Differences found (Composer Plus Damon chat vs Tether, verified in code)
+1. Read marks (New, N unread, Mark all as read, one per topic card): Mac yes (client.js createReplyRead), Tether no -> ported.
+2. Load earlier for cards (replyPage, 8 per page, unread held, focus after last keyboard click): Mac yes, Tether no -> ported
+   (no 40 cap on the phone; after loaded history -> Client.loadOlder).
+3. Card order newest at the bottom: already in Tether (b3d67832).
+4. Option list hidden while option buttons show (Mac optionPicks 2026-11-23) and plain list on an older card: Tether no ->
+   ported (dropOptionList, ReplyHead.options).
+5. liveApproval "canlı değil" rule: Tether old rule -> ported; case added to test/fixtures/status-queue.json.
+6. Markdown images in reply cards: Mac only on branch fix/reply-card-markdown-images (not in main at 18:xx). Tether needs a
+   gateway route to read Mac files (dsh /api/file is not in RPC/PLUS): security decision for Furkan -> stopped, reported.
+7. Kararlar dialog, canvas, Show the chat toggle, memory import card: phone does not have them by earlier decisions
+   (tether/FEATURES.md rows) -> unchanged.
+
+## Checks
+- `npm test` (exit 0 at e07dc223).
+- iOS: `cd tether/ios && xcodebuild -project DSHMobile.xcodeproj -scheme DSHMobile -destination 'platform=iOS Simulator,id=A5766181-4A27-457E-81C2-DFDE4A0F018F' -derivedDataPath ../build/DerivedData test CODE_SIGNING_ALLOWED=NO` (128 tests, 0 failures, 2 skipped at e07dc223).
+- Build: `cd tether && xcodebuild -project ios/DSHMobile.xcodeproj -scheme DSHMobile -configuration Debug -destination 'platform=iOS Simulator,id=A5766181-4A27-457E-81C2-DFDE4A0F018F' -derivedDataPath build/DerivedData build CODE_SIGNING_ALLOWED=NO` (BUILD SUCCEEDED at a1a0769f).
+- Screenshots: boot the simulator first (`xcrun simctl boot A5766181-…`), then `TEST_RUNNER_SHOT_DIR=<dir> TEST_RUNNER_SHOT_NAME=<f> TEST_RUNNER_SHOT_STATE=read|pages xcodebuild … test-without-building -only-testing:DSHMobileTests/AgentboxIdeasTests/testDamonChatScreen`.
+  Out: /Users/furkancakir/Damon/Belgeler/Composer Plus/tether-esitleme-20261126/ (new names for each set; keep all).
+
+## Last checkpoint
+- 2026-11-27 02:0x (second chat). HEAD e07dc223 + this plan commit. origin/main still e1343314 (fetched 01:1x).
+  - Review loop (each round a separate review-guard subagent on `git diff origin/main...HEAD`; the counts and fixes are
+    in each commit message): 1 (759df990) P2 2, P3 4, P4 5 -> b0109d88; 2 P3 2, P4 3 -> 7847b9d6; 3 P3 2, P4 5 ->
+    a1a0769f; 4 P3 2, P4 1 -> 6c73c00d; 5 P3 1 -> 91a47a7a; 6 P3 1, P4 1 -> e07dc223; 7 (e07dc223) P4 1 (this stale
+    checkpoint) -> this commit. Next: one more round; merge only after a round with no finding.
+  - Last passing (e07dc223): `npm test` exit 0; iOS 128 tests, 0 failures. Simulator build BUILD SUCCEEDED (a1a0769f;
+    later commits changed only Swift logic and tests, built by the iOS test run).
+  - Note: an `npm test` run at 00:04 failed once in test/assistant-todos-client.test.mjs ("Bugün bitti" count 1, not 2):
+    the test's task end times are `Date.now()` minus minutes, so near midnight one of them falls on the day before. The
+    branch does not change that test or client.js. The same run passed at 00:05.
+  - Markdown images in Tether: not in this branch (a gateway route that reads Mac files is a security decision for
+    Furkan); the gap row is the last row of tether/FEATURES.md. The Mac part is branch fix/reply-card-markdown-images,
+    not in main. Its merge conflicts with this branch in the 13 READMEs, `docs/features.json`, `llms.txt` and
+    `tether/FEATURES.md` (`git merge-tree`, review 8). Keep this branch's Tether text (read marks per Mac, Load earlier
+    done) and add only that branch's new sentences; keep one Images row (the Mac text from that branch, the State text
+    from this branch); edit `docs/features.json`, run `npm run build:readme` (no hand merge of the generated blocks),
+    then `npm test`.
+  - Screenshots (keep all, never delete under Belgeler): /Users/furkancakir/Damon/Belgeler/Composer Plus/tether-esitleme-20261126/
+    tether-damon-read.png, tether-damon-pages.png (759df990), tether-damon-read-b0109d88.png, tether-damon-pages-b0109d88.png.
+- Open steps, in order:
+  1. A review round with no finding (separate subagent).
+  2. `git fetch`; if origin/main moved, merge it (keep both sides in tether/FEATURES.md and this plan); if a new Damon
+     feature came, add its Tether part or its gap row; npm test, simulator build, iOS tests again.
+  3. Screenshots of the merged code with new names (read and pages states), into the folder above.
+  4. In the main worktree: `git merge --no-ff feat/sync-tether-damon-features`, `npm test`, `git push origin main`.
+     No signing, no iPhone install, no live copy, no release, no DSH restart.
+
 # Damon reply cards: time order, text cursor, chat toggle icon, Tether cards (branch fix/chat-card-order-tether, 2026-11-26)
 
 Source: Furkan in the Assistant chat, 2026-11-26 (relayed by Damon): "yeni gelen kart en altta gözüksün", "yeni kart
@@ -69,7 +122,8 @@ Not in scope: live copy, release, npm publish, DSH restart, iPhone install.
    - Tether has no read state for reply cards: no read mark, no New label, no Mark all as read (grep of
      replyRead/reply-cards-read/cardRead in tether/ios/Sources: 0 hits; UI.swift cardHead shows only time, title and the
      For you line). So Tether has nothing to split: write that in tether/FEATURES.md (no change), do not add a phone
-     read store without a new request.
+     read store without a new request. (Superseded 2026-11-26 evening: Furkan asked for Tether at the level of Composer
+     Plus; branch feat/sync-tether-damon-features adds the phone's own read store.)
    Plan (smallest change): a card's read id is its seq for a reply without `---` (stored data stays valid) and its key
    "seq:i" for a part of a split reply; readReplyMarks also keeps strings /^\d{1,15}:\d{1,3}$/; replyUnread(mark, seq,
    key) is unread when seq > floor and neither seq nor key is in `read` (an old whole-reply mark still reads all parts);
@@ -4917,3 +4971,147 @@ Source: Furkan in the Assistant chat, 2026-11-26 (relayed by Damon): "kararlara 
 - Merges of origin/main into the branch: e63d69f4 (b3d67832) and 94d9d3bc (2308766c). Conflicts only in generated files (rebuilt), tether/FEATURES.md (each side's row kept) and this plan.
 - Last passing (on 94d9d3bc): `npm test` exit 0; `PLAYWRIGHT=<Mergen playwright> node test/browser-card-stack.mjs <0.2.2-rc.5> <0.2.0-rc.2> <0.2.1-rc.2>` PASS ×3; `git diff --check` clean.
 - Next: merge --no-ff into main, push (Furkan's approval 2026-11-26). No live copy, no release.
+
+# Images in Damon reply cards (branch fix/reply-card-markdown-images, 2026-11-26)
+
+Source: Furkan, 2026-11-26: "kartlara görüntüler gelmiyor düzelt" (the 17:56 Damon reply showed only the italic alt texts
+"İlk görünüm" and "Bir tıklamadan sonra"). Base: origin/main e1343314. Standing approval: merge into main after a clean
+review. Not in scope: live copy (after Furkan's "tamam" on the screenshots), release, Tether app (gap row only).
+- Root cause (verified): client.js ReplyCard `md` gave dsh's MarkdownText no `pathImages` (and the card is outside dsh's
+  ChatView, so no `fileImages` provider). dsh's image renderer (dsh-web-frontend bundle: `aK`/`XW`) then loads only
+  http(s) URLs and shows the alt text (`imageAlt`, italic) for a local path. dsh's own chat passes
+  `pathImages = { resolve: localPathMediaUrl(document.baseURI, value) }` (dsh-client-ui-chat AssistantMarkdown.tsx:66-68)
+  and ChatView `fileImages.resolve = fileMediaUrl(document.baseURI, resolveWorkspacePath(cwd, path))` (ChatView.tsx:102-110);
+  `fileMediaUrl` = `api/file?path=` (dsh-util-workspace-path index.ts:120-124); the route is dsh's authenticated
+  GET/HEAD /api/file (dsh-api-session-controller media-references.ts:73-84). Same in 0.2.0-rc.2 and 0.2.1-rc.2 (bundles).
+- Fix: client.js `replyImageUrl` + `pathImagesOf(cwd)` (one object per folder); ReplyCard passes `pathImages` to
+  MarkdownText; ReplyFeed and StatusPanel (canvas) give the card the chat's folder (`useSessions`). Only png, jpg, jpeg,
+  webp, gif; other files and failed loads keep the alt text. No new route, no wider access: the same dsh route as dsh's chat.
+- Tests: test/reply-cards.test.mjs (absolute path with spaces, relative path, .pdf/.svg/key file/no folder/control
+  char/broken escape -> no image, Desktop base); test/browser-reply-images.mjs (new; naturalWidth > 0 via /api/file).
+- Screenshots: /Users/furkancakir/Damon/Belgeler/Composer Plus/kart-resim-20261126/ kart-resim-once.png,
+  kart-resim-kenar-once.png (main e1343314), kart-resim-sonra.png, kart-resim-kenar-sonra.png (this branch, 0.2.2-rc.5).
+- Last passing: `npm test` exit 0; `TMPDIR=$PWD/build/t PLAYWRIGHT=$HOME/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright
+  node test/browser-reply-images.mjs <bins>` PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5; browser-reply-pages,
+  browser-reply-order, browser-status-canvas PASS on the same three.
+- Open steps: review-guard (separate subagent) on origin/main...HEAD; fix findings; update from origin/main; tests;
+  merge into main --no-ff; push main. No live copy, no release.
+- 2026-11-26 19:5x: review-guard round 1 (review-guard-r1, origin/main...2bef2037): P1 0, P2 0, P3 1, P4 3, no security
+  finding. Fixed: P3 a reply or topic that starts with an image kept "!alt" as its title and lost the image (replyParts: a
+  line that starts with `![` is no title; unit test; Tether's replyHead keeps the old rule, gap noted in tether/FEATURES.md,
+  no shared-table case until the port); P4 replyImageUrl with no base returned a throw (now undefined; test); P4 labels
+  object stable per language (mdLabelsOf), so MarkdownText does not parse again at each draw; P4 docs/features.json llms
+  sentence on images + `npm run build:readme`.
+- After the fixes: `npm test` exit 0 (one run with TMPDIR inside the repo failed turn-rollback.test.mjs:232: its "outside a
+  repository" folder was inside this worktree; without that TMPDIR it passes, alone 3/3 and in the full run);
+  browser-reply-images, browser-reply-pages, browser-reply-order, browser-status-canvas PASS on 0.2.0-rc.2, 0.2.1-rc.2,
+  0.2.2-rc.5. Next: review-guard round 2.
+- 2026-11-26 20:4x: review-guard round 2 (review-guard-r2, origin/main...eaf047fa): P1 0, P2 0, P3 0, P4 3.
+  Fixed: (1) an image anywhere in the title text of the first line (sentence, heading, plain line) is no title, the line
+  stays in the body; a bold title keeps its title and the image goes to the body (unit cases); tether/FEATURES.md wording;
+  (2) the structure regex now checks `labels: mdLabelsOf(t)`, plus a test that a new language gives a new labels object.
+  OPEN (not done in this chat): (3) README.md:325 limits bullet + the same sentence in the 12 translated README.<id>.md
+  (zh + 11 locales), each in its own language: "only png, jpg, jpeg, webp and gif images show in the cards; another file
+  or an image that does not load shows its alt text; Tether shows only the alt text." Then `npm run build:readme`
+  (check), npm test.
+- Checkpoint (2026-11-26 ~20:55, about 145 tool calls in this chat): branch fix/reply-card-markdown-images, commit below.
+  Last passing: `npm test` exit 0 (do NOT set TMPDIR inside the repo for npm test: turn-rollback.test.mjs:232 then finds a
+  git repo above its "plain" folder); `TMPDIR=$PWD/build/t PLAYWRIGHT=$HOME/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright
+  node test/browser-reply-images.mjs <3 bins>` and browser-reply-order PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5 (after
+  the review-2 fixes); browser-reply-pages and browser-status-canvas PASS x3 at eaf047fa (review-2 fixes touch only the
+  title rule and the labels object). Bins: ~/Documents/testdeepseekharness/work/dsh-0.2.0-rc.2|dsh-0.2.1-rc.2/node_modules/@deepseek-ai/dsh/lib/bin.js,
+  ~/ai-maintenance/dsh-composer-plus/dsh/0.2.2-rc.5/node_modules/@deepseek-ai/dsh/lib/bin.js.
+- ((a) and (b) done in the next chat, see the entries below; (c) and (d) open.) Open steps: (a) the README limits sentence in 13 READMEs (item 3 above); (b) review-guard round 3 in a separate subagent
+  on origin/main...HEAD (the diff is > 100 lines and > 3 files: repeat until a round has no P1/P2; fix every finding and
+  run review-guard again before the merge); (c) git fetch, merge origin/main, npm test, browser tests; (d) merge into main
+  --no-ff, npm test on main, push main. No live copy (Furkan must say "tamam" to the screenshots first), no release,
+  Tether app unchanged.
+- 2026-11-26 21:5x (new chat): (a) done in 3f4aaf80 (README limits sentence, 13 languages; `npm test` exit 0).
+  Review-guard round 3 (review-guard-r3, origin/main...3f4aaf80): P1 0, P2 0, P3 2, P4 2; the security points (request
+  target, base check, relative join, React hooks) check out. Fixed in the next commit:
+  - P3 title rule: the first sentence can end inside the alt text ("![Adım 1. Giriş](…)" gave the title "![Adım 1.");
+    now any "![" in the title text keeps the line in the body. Unit cases red before the fix.
+  - P3 canvas: an image that loads after the canvas measured its islands made the Updates island grow over the Damon hub
+    until the next draw. StatusCanvas now draws again on a capture `load`/`error` of an img. browser-reply-images step 3
+    (close zoom, the file route answers 3 s late): red without the listener (island bottom 1237 > hub top 763), green with it.
+  - P4 README sentence: scoped to an image from a file path (an http(s) image loads in DSH before pathImages), 13 languages.
+  - P4 this checkpoint.
+  - Last passing (13dd627d): `npm test` exit 0; browser-reply-images, -pages, -order, status-canvas PASS on 0.2.0-rc.2,
+    0.2.1-rc.2, 0.2.2-rc.5.
+- 2026-11-26 22:5x: review-guard round 4 (review-guard-r4, origin/main...13dd627d): P1 0, P2 0, P3 1, P4 1. Fixed in the
+  next commit: P3 an image on a "Senden:" line (and in a [!DETAILS] summary) was lost in the plain action line (summary);
+  now that line stays in the body (the summary's image goes to the section's text); unit cases red on 13dd627d;
+  tether/FEATURES.md gap row names it (Tether keeps the old rule, no shared-table case). P4 this checkpoint.
+  Open: review round 5 (separate subagent) until clean; then (c) and (d).
+- 2026-11-26 23:3x: review-guard round 5 (review-guard-r5, origin/main...2f003580): P1 0, P2 0, P3 1, P4 1. Fixed in the
+  next commit: P3 (a side effect of the round 4 fix) a "Senden:" line with an image set no forYou, so a reply next to a
+  tool call was no card any more (asksYou), and "**Senden:** … ![x](…)" became the title "Senden:"; now replyParts gives
+  `asks` (true for any Senden line), asksYou uses it, and the Senden line skips the title rule (unit cases red on
+  2f003580). P4 an image in an option item shows as alt text on the option button (shared parseOptions, unchanged):
+  named in the limits sentence (docs/features.json llms + build:readme, 13 READMEs).
+  Open: review round 6 (separate subagent) until clean; then (c) update from origin/main and tests, (d) merge and push.
+- 2026-11-27 00:0x: review-guard round 6 (review-guard-r6, origin/main...96789752): P1 0, P2 0, P3 1, P4 1. Fixed in the
+  next commit: P3 a "Senden:" line with an image at the top kept the next bold line from being the title (the line was in
+  `body`); now the title check skips that line (`youAt`), so the title is the same as without the image (checked against
+  origin/main's replyParts in node: "Senden: bak\n\n**Başlık**" -> "Başlık", "**Senden:** bak\n\nMetin." -> "Metin.").
+  Unit case red on 96789752. P4 the replyParts doc comment names `asks`. tether/FEATURES.md row: one clause.
+  Open: review round 7 (separate subagent) until clean; then (c) update from origin/main and tests, (d) merge and push.
+- 2026-11-27 00:4x: review-guard round 7 (review-guard-r7, origin/main...11320071): P1 0, P2 0, P3 1, P4 1 (it also
+  fuzzed 200,000 replies without "![" against origin/main: 0 differences). Fixed in the next commit: P3 after a first
+  Senden line with an image, a second Senden line became the action line (guard `!asks` instead of `forYou === ''`);
+  P4 "![" inside inline code counted as an image (`hasImage` drops code spans first, in the title, Senden and DETAILS
+  checks). Unit cases red on 11320071. The Tether order is in this chat's task text ("Do not touch the Tether app").
+  Open: review round 8 (separate subagent) until clean; then (c) update from origin/main and tests, (d) merge and push.
+- 2026-11-27 01:3x: review-guard round 8 (review-guard-r8, origin/main...4910c350): P1 0, P2 0, P3 1, P4 1, both in
+  `hasImage`. Fixed in the next commit: a code span between "!" and "[" read as "![" (a reply without "![" lost its
+  title; the reviewer's fuzz: 145 differences in 195,905 replies), and backtick runs of different lengths were paired.
+  Now a code span is a same-length backtick run pair (CommonMark) and becomes a space. The reviewer checked this regex in
+  memory: 0 differences on the 195,905 replies. Unit cases red on 4910c350.
+  Open: review round 9 (separate subagent) until clean; then (c) update from origin/main and tests, (d) merge and push.
+- 2026-11-27 02:3x: review-guard round 9 (review-guard-r9, origin/main...88240a11): P1 0, P2 0, P3 0, P4 1 (an escaped
+  "\`" opened a code span in hasImage). Fixed in the next commit (lookbehind `(?<![`\\])`, unit case red on 88240a11).
+  The reviewer's fuzz: 150,000 replies without "![" and 30,000 tool-call chats: 0 differences against origin/main;
+  hasImage worst case 95 ms at 128 KB (not reported). Open: review round 10 (separate subagent) until clean; then (c)
+  update from origin/main and tests, (d) merge into main --no-ff and push. No live copy, no release, Tether unchanged.
+- 2026-11-27 03:2x: review-guard round 10 (review-guard-r10, origin/main...046fa2c9): P1 0, P2 0, P3 0, P4 1: a
+  destination with a URL scheme (file:, smb:, data:, x:y.png) was joined to the chat folder and requested from
+  /api/file, which dsh's chat does not do. Fixed in the next commit (dsh 0.2.0's scheme rule; unit cases red on 046fa2c9).
+  Open: review round 11 (separate subagent) until clean; then (c) update from origin/main and tests, (d) merge into main
+  --no-ff and push. No live copy, no release, Tether unchanged.
+- Checkpoint (2026-11-27 03:5x, about 147 tool calls in this chat: handover). Branch head 5b784134 (review 10 fix) + this
+  plan commit. Review rounds of this chat: 3 (P3 2, P4 2) -> 13dd627d; 4 (P3 1, P4 1) -> 2f003580; 5 (P3 1, P4 1) ->
+  96789752; 6 (P3 1, P4 1) -> 11320071; 7 (P3 1, P4 1) -> 4910c350; 8 (P3 1, P4 1) -> 88240a11; 9 (P4 1) -> 046fa2c9;
+  10 (P4 1) -> 5b784134. No round had a P1 or P2. No clean round yet: the next round reviews 5b784134 + the merge below.
+  - Last passing (5b784134): `npm test` exit 0; `TMPDIR=$PWD/build/t PLAYWRIGHT=$HOME/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright
+    node test/browser-<t>.mjs <0.2.0-rc.2 bin> <0.2.1-rc.2 bin> <0.2.2-rc.5 bin>` PASS x3 for t = reply-images, reply-pages,
+    reply-order, status-canvas (bins: see the 20:55 checkpoint above). Do not set TMPDIR inside the repo for npm test.
+  - origin/main MOVED: 7593f3f8 (merge of feat/sync-tether-damon-features: Tether = Damon chat parity, read marks, Load
+    earlier, option list, liveApproval; 28 files). `git merge-tree --write-tree --name-only HEAD origin/main` lists 16
+    conflicting files: the 13 READMEs, docs/features.json, llms.txt, tether/FEATURES.md (and IMPLEMENTATION_PLAN.md merges
+    by itself). main's own plan (top section, "Last checkpoint") says how: keep main's Tether text (read marks per Mac,
+    Load earlier done) and add only this branch's new sentences; keep ONE Images row in tether/FEATURES.md (the Mac text
+    from this branch, the State text from main); edit docs/features.json by hand, then `npm run build:readme` (no hand
+    merge of generated blocks), then `npm test`. test/reply-cards.test.mjs also changed on main (auto-merges: check it).
+  - Open steps, in order:
+    1. `git fetch`; `git merge origin/main` into this branch; resolve the 16 files as above, keep the content of both
+       sides; `npm run build:readme`; `npm test`; the four browser tests on the three dsh versions.
+    2. review-guard (separate subagent) on the final `git diff origin/main...HEAD`; fix every finding (P1-P4), tests
+       after each fix; repeat until a round has no finding.
+    3. In the main worktree: fast-forward local main to origin/main, `git merge --no-ff fix/reply-card-markdown-images`,
+       `npm test`, `git push origin main`. No live copy (Furkan's "tamam" on kart-resim-20261126 screenshots first), no
+       release, no npm publish, Tether app unchanged, no DSH restart.
+  - Not verified: whether Tether's mdInline shows exactly the alt text (Apple's parser gives the alt text as a run with
+    an imageURL; checked with a Swift script, not in the app UI); the screenshots in kart-resim-20261126/ are of the
+    20:4x code (before reviews 3-10; the card look did not change, the fixes are parse rules and the canvas redraw).
+- 2026-11-27 04:2x (new chat): steps 1 and 2 above are done.
+  - Merge of origin/main 7593f3f8 in cd2136c3 (docs only; `git diff bbf729f1 cd2136c3 -- client.js index.js` is empty).
+    Conflicts resolved, both sides kept: docs/features.json (main's llms + this branch's image sentence), the 13 READMEs
+    (main's limits bullet + this branch's image sentence), llms.txt (`npm run build:readme`), tether/FEATURES.md (main's
+    Load earlier row; one Images row: Mac text of this branch, State text of main + this branch's alt-text and title-rule
+    sentences).
+  - Last passing (cd2136c3): `npm test` exit 0; browser-reply-images, -pages, -order, status-canvas PASS on 0.2.0-rc.2,
+    0.2.1-rc.2, 0.2.2-rc.5 (command as in the 03:5x checkpoint).
+  - Review 11 (review-guard-r11, origin/main...cd2136c3): P1 0, P2 0, P3 0, P4 1 (this checkpoint was stale) -> fixed here.
+  - Open steps: review round 12 (separate subagent) until clean; then merge into main --no-ff, npm test on main, push;
+    then new screenshots of the merged main commit in kart-resim-20261126/ (names with the merge short SHA, keep the old
+    files). No live copy, no release, Tether app unchanged, no DSH restart.
