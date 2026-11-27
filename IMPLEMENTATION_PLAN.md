@@ -6,7 +6,7 @@ açılsın, canlı kopya yedekle release commit'ine eşitlensin (yalnız bu Mac)
 files. Out of scope: code changes, Tether builds and iPhone installs, a DSH restart.
 
 ## Verified facts (2026-11-27)
-- Branch base ee06f990 = origin/main = local main at the start. v1.32.0 is the newest release (tag on f498e87f, GitHub
+- Branch base ee06f990 = origin/main = local main at 11:10 (main moved later: see "Main moved"). v1.32.0 is the newest release (tag on f498e87f, GitHub
   Latest 2026-11-25); npm dist-tags latest 1.32.0, registry.npmjs.org/dsh-composer-plus/1.33.0 gives 404.
   dsh npm dist-tags: latest 0.2.2-rc.5, alpha 0.2.3-alpha.2.
 - Bump: minor. docs/features.json has 88 ids at ee06f990 and 87 at v1.32.0 (new: assistantReplyCards); changed docs:
@@ -20,13 +20,26 @@ files. Out of scope: code changes, Tether builds and iPhone installs, a DSH rest
   2308766c (Load earlier), e1343314 (Decisions dialog), 7593f3f8 (Tether parity), 4b3a3d25 (card images), ee06f990 (quiet
   small tasks, denial reason).
 
+## Review
+- Round 1 (review-guard-1, aa8a938b): P1 0, P2 0, P3 4, P4 3. All fixed in 0bfea124 (notes text, 13 languages).
+- Round 2 (review-guard-2, 0bfea124): P1 0, P2 1, P3 0, P4 0: this Phase 2 assumed that main stays at ee06f990. Fixed here.
+
+## Main moved (verified 2026-11-27 12:57)
+- origin/main and local main are 189fc00c (merge of fix/error-review-20261126, 12:00; parents ee06f990 and f53b7ecb;
+  33 files, index.js +122/-26). Furkan did not see it, so it is not in 1.33.0.
+- A --no-ff merge of this branch into 189fc00c conflicts only in IMPLEMENTATION_PLAN.md (keep both sections).
+
 ## Phase 2 (after a clean review)
-1. Merge into main with --no-ff, push, wait for CI on main.
-2. `gh release create v1.33.0 assets/active.txt assets/installed.txt --target <sha> --latest --notes "$(node -p
-   "require('./release-notes.json').notes.en")"`; watch release.yml; check releases/latest and the npm exact-version URL.
+1. Merge into main with --no-ff (only the version files can conflict), run `npm test` on the merge, push, wait for CI on
+   main. The merge commit has the code of 189fc00c: it is not the release commit.
+2. Release commit = the head of this branch (ee06f990 plus the version files). Run `npm test` on that exact commit.
+   `gh release create v1.33.0 assets/active.txt assets/installed.txt --target <branch head sha> --latest --notes "$(node
+   -p "require('./release-notes.json').notes.en")"`. Never tag the merge commit or main. Watch release.yml; check
+   releases/latest and https://registry.npmjs.org/dsh-composer-plus/1.33.0.
 3. awesome-dsh-plugin PR (only data/plugins/furkancak1r__dsh-composer-plus.yml).
-4. Live copy: backup dsh-composer-history-backup-before-v1.33.0-<YYYYMMDD-HHMM>, whole files of the release commit, keep
-   the local package name and the client.js line 12 id, `node scripts/live-copy-check.mjs` must print MATCH. No DSH restart.
+4. Live copy: BLOCKED until Furkan decides. scripts/live-copy-check.mjs checks only first-parent commits of main; no such
+   commit has the release commit's files (189fc00c code differs, the merge has 189fc00c code), so after a copy of the
+   release commit it prints MIXED, not MATCH. AGENTS.md: stop and report, do not patch. No backup, no copy, no DSH restart.
 
 # Quiet turns leave no card, and small tasks start quietly (branch fix/hide-quiet-only-turns, 2026-11-27)
 
