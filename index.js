@@ -12166,14 +12166,15 @@ const SELF_QUOTE = [
 const quoteFold = (s) => String(s ?? '').normalize('NFC').replace(/[*_`]/g, '').replace(/[‘’]/g, "'").replace(/\s+/g, ' ').trim()
   .replace(/[.,;:!?]+$/, '').trimEnd().toLocaleLowerCase('tr');
 /** `text` with each line of a fenced code block (``` or ~~~, its fence lines too) as spaces: the same length, so a match
- * keeps its place. An open fence runs to the end. `fenceAt`: the opening fence line (CommonMark: 0-3 spaces). */
+ * keeps its place. An open fence runs to the end. `fenceAt`: the opening fence line (CommonMark: 0-3 spaces). The closing
+ * fence has at most 3 more spaces than the opening one (CommonMark §4.5), so an indented ``` line in the block is text. */
 const blankFences = (text, fenceAt = /^ {0,3}(`{3,}|~{3,})/) => {
-  let fence = null;
+  let fence = null; let indent = 0;
   return text.split('\n').map((line) => {
-    const mark = fenceAt.exec(line)?.[1];
+    const found = fenceAt.exec(line); const mark = found?.[1]; const at = found ? found[0].length - mark.length : 0;
     if (fence === null && mark === undefined) return line;
-    if (fence === null) fence = mark;
-    else if (mark !== undefined && mark[0] === fence[0] && mark.length >= fence.length && line.trim() === mark) fence = null;
+    if (fence === null) { fence = mark; indent = at; }
+    else if (mark !== undefined && mark[0] === fence[0] && mark.length >= fence.length && line.trim() === mark && at <= indent + 3) fence = null;
     return ' '.repeat(line.length);
   }).join('\n');
 };
@@ -12216,8 +12217,9 @@ const blankOut = (m) => ' '.repeat(m.length);
  * inside a callout box) become spaces, the same length (a nested line becomes an empty line in the box). A callout box
  * (`> [!DETAILS] …` and its `>` lines) is Damon's own text: each of its lines loses its `> ` prefix (so the line is
  * shorter, and an indented fence is found), and the body goes through blankFences on its own. A fence with any indent
- * counts (ANY_FENCE), so a code block in a list item (`10. ` or a nested `- `) is code too (review 5). */
-const ANY_FENCE = /^[ \t]*(`{3,}|~{3,})/;
+ * counts (ANY_FENCE), so a code block in a list item (`10. ` or a nested `- `) is code too (review 5). A backtick fence has
+ * no backtick after it (CommonMark §4.5), so "```kod``` tamam" is inline code, not a fence (review 6). */
+const ANY_FENCE = /^[ \t]*(`{3,}(?=[^`]*$)|~{3,})/;
 const guessText = (raw) => {
   const lines = blankFences(raw, ANY_FENCE).split('\n'); const out = []; let box = []; let quote = false; // quote: the line before is a `>` line
   // A for loop, not push(...rows): a callout of 150k lines would overflow the call stack.
@@ -12241,7 +12243,8 @@ const guessText = (raw) => {
  * and counts. A text without a guess word returns at once (one pattern test); only a line that has one is cleaned.
  * ponytail: Turkish words with their Turkish letters only ("Sanirim", "Buyuk olasılikla" are not found), and only these
  * words; a guess in another form ("olabilir", "gibi görünüyor") is not found. A 4-space indented code block without a
- * fence counts as text. Upgrade: a model check of the answer. */
+ * fence counts as text. A ``` line with 4 or more spaces opens a code block also outside a list item (no list context).
+ * Upgrade: a model check of the answer. */
 export function guessWords(text) {
   const raw = String(text ?? '').normalize('NFC');
   if (!GUESS_LOOSE.test(raw.toLocaleLowerCase('tr'))) return { words: [], context: undefined };

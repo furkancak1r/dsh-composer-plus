@@ -329,6 +329,10 @@ await check('item 5: a guess word in an answer', async () => {
   for (const text of ['10. Adım:\n    ```\n    muhtemelen log\n    ```\nBitti.', '- a\n  - b\n    ```text\n    galiba\n    ```\nSon.',
     '> [!DETAILS] Log\n> 1. Adım\n>     ```\n>     muhtemelen log\n>     ```\nBitti.']) assert.deepEqual(host.guessWords(text).words, [], `code in a list item: ${JSON.stringify(text)}`);
   assert.deepEqual(host.guessWords('10. Adım:\n    ```\n    log\n    ```\n    Sonuç: galiba doğru.').words, ['galiba'], 'the list text after its code block counts');
+  // Final review round 6 (P4): an indented ``` line inside a block does not close it; "```kod``` tamam" is no fence.
+  assert.deepEqual(host.guessWords('```md\n1. Adım\n    ```\n    muhtemelen log\n    ```\n```\nBitti.').words, [], 'an indented fence inside a block is code');
+  assert.deepEqual(host.guessWords('```md\n1. Adım\n    ```bash\n    npm test\n    ```\n```\nSonuç: galiba doğru.').words, ['galiba'], 'the text after such a block counts');
+  for (const text of ['```kod``` tamam\nSonuç: galiba doğru.', '1. a\n    ```kod``` tamam\nSonuç: galiba doğru.']) assert.deepEqual(host.guessWords(text).words, ['galiba'], `inline code is no fence: ${JSON.stringify(text)}`);
   // The limit of ponytail: the ASCII spelling is not a word of the list.
   assert.deepEqual(host.guessWords('Sanirim, buyuk olasilikla ve galibA yok.').words, ['galiba'], 'only the Turkish spelling');
   assert.deepEqual(host.guessWords('Sanirim, buyuk olasilikla.').words, [], 'the ASCII spelling is not found');
