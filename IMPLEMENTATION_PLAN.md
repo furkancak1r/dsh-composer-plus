@@ -27,10 +27,14 @@ main'e alınıp push edilsin (canlı değil)". Base: origin/main e1343314. No li
   stop of 4 columns (CommonMark §2.2, `indentOf`). Test rows red on 31e76018 (2 of 2); selfQuotes 0 differences.
   review-guard-7 left its scratch folder ~/Library/Caches/cp-review7 (Auto review denied its delete: it needs Furkan's
   written approval that names cp-review7 and the delete).
-- Last checkpoint: the round-7 fix commit. Last passing test command: `npm test` (exit 0, 2026-11-27 11:0x).
+- Round 8 (review-guard-8, head 834ea6e1): P1 0, P2 0, P3 0, P4 1. Fixed: a fence or a `>` quote right after list markers
+  on the same line (`- ```bash`, `1. > alıntı`) is code or a quote (LIST_LEAD, ANY_FENCE, LIST_QUOTE). The ponytail
+  comment names the general limit (the check reads lines, not the Markdown tree). Test rows red on 834ea6e1 (5 of 5);
+  selfQuotes 0 differences on 20,000 random texts.
+- Last checkpoint: the round-8 fix commit. Last passing test command: `npm test` (exit 0, 2026-11-27 11:3x).
 - Known limit: the link-target pattern cuts two nested parenthesis levels; a guess word inside a third level counts.
 - Open steps:
-  1. Review-guard round 8 of origin/main...HEAD (separate subagent). Merge only on a clean round.
+  1. Review-guard round 9 of origin/main...HEAD (separate subagent). Merge only on a clean round.
   2. When the round is clean: fetch, merge origin/main if it moved, `npm test`, merge into main with --no-ff, push main,
      check the CI run. Keep the branch and its folder.
 

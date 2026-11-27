@@ -12220,15 +12220,19 @@ const blankOut = (m) => ' '.repeat(m.length);
  * (`> [!DETAILS] …` and its `>` lines) is Damon's own text: each of its lines loses its `> ` prefix (so the line is
  * shorter, and an indented fence is found), and the body goes through blankFences on its own. A fence with any indent
  * counts (ANY_FENCE), so a code block in a list item (`10. ` or a nested `- `) is code too (review 5). A backtick fence has
- * no backtick after it (CommonMark §4.5), so "```kod``` tamam" is inline code, not a fence (review 6). */
-const ANY_FENCE = /^[ \t]*(`{3,}(?=[^`]*$)|~{3,})/;
+ * no backtick after it (CommonMark §4.5), so "```kod``` tamam" is inline code, not a fence (review 6). A fence or a `>`
+ * quote can follow list markers on the same line (`- ```bash`, `1. > alıntı`: LIST_LEAD, review 8); such a quote line
+ * becomes spaces and ends a callout box. */
+const LIST_LEAD = String.raw`^[ \t]*(?:(?:[-*+]|\d{1,9}[.)])[ \t]+)*`;
+const ANY_FENCE = new RegExp(String.raw`${LIST_LEAD}(\`{3,}(?=[^\`]*$)|~{3,})`);
+const LIST_QUOTE = new RegExp(`${LIST_LEAD}>`);
 const guessText = (raw) => {
   const lines = blankFences(raw, ANY_FENCE).split('\n'); const out = []; let box = []; let quote = false; // quote: the line before is a `>` line
   // A for loop, not push(...rows): a callout of 150k lines would overflow the call stack.
   const close = () => { if (box.length > 0) for (const row of blankFences(box.join('\n'), ANY_FENCE).split('\n')) out.push(row); box = []; };
   let callout = false;
   for (const line of lines) {
-    if (!/^ {0,3}>/.test(line)) { close(); callout = false; quote = false; out.push(line); continue; }
+    if (!/^ {0,3}>/.test(line)) { close(); callout = false; quote = false; out.push(LIST_QUOTE.test(line) ? ' '.repeat(line.length) : line); continue; }
     // The client marks a quote as a callout only when its first line is the marker (client.js CALLOUT_MARK and calloutOf).
     if (!quote && /^ {0,3}>\s*\[![A-Za-z]+\]/.test(line)) { close(); callout = true; }
     quote = true;
@@ -12246,7 +12250,8 @@ const guessText = (raw) => {
  * ponytail: Turkish words with their Turkish letters only ("Sanirim", "Buyuk olasılikla" are not found), and only these
  * words; a guess in another form ("olabilir", "gibi görünüyor") is not found. A 4-space indented code block without a
  * fence counts as text. A ``` line with 4 or more spaces opens a code block also outside a list item (no list context).
- * Upgrade: a model check of the answer. */
+ * The check reads lines, not the Markdown tree: a rare form (a lazy continuation line, a fence or a quote inside a
+ * quote of a list item) can count wrong; the note is only advice. Upgrade: a model check of the answer. */
 export function guessWords(text) {
   const raw = String(text ?? '').normalize('NFC');
   if (!GUESS_LOOSE.test(raw.toLocaleLowerCase('tr'))) return { words: [], context: undefined };

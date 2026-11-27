@@ -336,6 +336,15 @@ await check('item 5: a guess word in an answer', async () => {
   // Final review round 7 (P4): a tab indent goes to the next tab stop of 4 columns, as 4 spaces.
   assert.deepEqual(host.guessWords('```md\n1. Adım\n\t```\n\tmuhtemelen log\n\t```\n```\nBitti.').words, [], 'a tab-indented fence inside a block is code');
   assert.deepEqual(host.guessWords('1. a\n\t```\n\tmuhtemelen\n     ```\nSonuç: galiba.').words, ['galiba'], 'a tab-indented fence closes at 5 spaces');
+  // Final review round 8 (P4): a fence or a quote right after list markers is code or a quote; the text after it counts.
+  for (const text of ['- ```bash\n  muhtemelen log\n  ```\nBitti.', '- > Ali Bey: muhtemelen yarın gelirim.\nBitti.', '10. Not:\n    > muhtemelen yarın\nBitti.',
+    '1. ```bash\n   npm test\n   ```\n2. Ek:\n```\nmuhtemelen\n```']) assert.deepEqual(host.guessWords(text).words, [], `after list markers: ${JSON.stringify(text)}`);
+  assert.deepEqual(host.guessWords('1. ```bash\n   npm test\n   ```\nSonuç: galiba doğru.').words, ['galiba'], 'the text after a list-marker fence counts');
+  for (const text of ['- ```kod``` tamam, galiba.', '- Galiba doğru.', '- -> galiba', '5 > 3, galiba.']) assert.deepEqual(host.guessWords(text).words, ['galiba'], `Damon's own text: ${JSON.stringify(text)}`);
+  for (const big of [`${'- '.repeat(150000)}x\ngaliba`, `${'1. '.repeat(100000)}x\ngaliba`]) {
+    const t = performance.now(); assert.deepEqual(host.guessWords(big).words, ['galiba']);
+    assert.ok(performance.now() - t < 300, `long list-marker runs are fast (${Math.round(performance.now() - t)} ms)`);
+  }
   // The limit of ponytail: the ASCII spelling is not a word of the list.
   assert.deepEqual(host.guessWords('Sanirim, buyuk olasilikla ve galibA yok.').words, ['galiba'], 'only the Turkish spelling');
   assert.deepEqual(host.guessWords('Sanirim, buyuk olasilikla.').words, [], 'the ASCII spelling is not found');
