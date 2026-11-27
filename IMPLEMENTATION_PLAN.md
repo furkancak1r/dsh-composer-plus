@@ -5498,7 +5498,7 @@ client.js:4951). Two cards need two dsh nodes with the same seq; dsh keys its no
   origin, so the first view counts every card as read (client.js:4721) and the first card would not show "Yeni". The
   desktop app uses `dsh-app://app/` (client.js:4587), a fixed origin. Which window Furkan used is not verified.
 
-## Phase 1 (done, 2026-11-27 16:5x; Furkan's approval 2026-11-27: items 1-3 below, no code for a and d)
+## Phase 1 (done, 2026-11-27 16:4x; Furkan's approval 2026-11-27: items 1-3 below, no code for a and d)
 1. b (Tether): a cut text (`interrupted: true`) is `Line.interrupted`, a plain row with **Stopped** (as dsh's chat), no
    card (`isCardLine`); the resumed reply is the one card. Mac unchanged (settled steps only), guarded by a reply-cards test.
 2. c1: damonPushWords / damonWords: a part whose first text starts with `[quiet]` and whose last text is real pushes that
@@ -5529,9 +5529,12 @@ client.js:4951). Two cards need two dsh nodes with the same seq; dsh keys its no
   FEATURES.md row name the result line; assistantReplyCards llms order; testDuplicateCardScreen asserts; Tether's Stopped
   caption only in the Damon messages-only view). npm test exit 0; iOS 132 tests, 2 skipped, 0 failures.
 - Review 3 (review-guard-3, head 2bc30fcb): P1 0, P2 0, P3 0, P4 2 (testDuplicateCardScreen comment; this checkpoint).
-  Fixed in the next commit. Next: review round 4 (must be clean), fetch, merge into main, push, CI, after screenshots.
+  Fixed in 3be3f820.
+- Rounds 4 and later: only P4 findings in this plan text; each round's counts and fixes are in its commit message
+  (`git log origin/main..HEAD`), not here. Next: a clean review round, fetch, merge into main, push, CI, after
+  screenshots.
 
-## Checkpoint 2026-11-27 17:1x (first chat, about 150 tool calls; its open steps 1-2 are done, see above)
+## Checkpoint 2026-11-27 17:0x (first chat, about 150 tool calls; its open steps 1-2 are done, see above)
 - Head: 102d799d (merge of origin/main cd1ff110 into the branch) + this plan commit. Branch commits after the plan:
   d10992d8 (fix), 1738d3ce (review 1 fixes), 102d799d (merge).
 - `gh release view v1.33.0`: the release exists (checked 16:4x). origin/main was cd1ff110 at 16:5x.
