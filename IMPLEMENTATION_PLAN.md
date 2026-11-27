@@ -1,3 +1,32 @@
+# Release 1.33.0 (branch chore/release-1-33-0, 2026-11-27)
+
+Approval (Furkan, Assistant chat, 2026-11-27): "Onaylıyorum: Composer Plus canlı kopyadaki ee06f990 için 1.33.0 sürümü
+yapılsın: sürüm dalı review sonrası main'e alınıp push edilsin, GitHub release ve npm yayını yapılsın, eklenti listesine PR
+açılsın, canlı kopya yedekle release commit'ine eşitlensin (yalnız bu Mac); …". Content: exactly ee06f990 plus the version
+files. Out of scope: code changes, Tether builds and iPhone installs, a DSH restart.
+
+## Verified facts (2026-11-27)
+- Branch base ee06f990 = origin/main = local main at the start. v1.32.0 is the newest release (tag on f498e87f, GitHub
+  Latest 2026-11-25); npm dist-tags latest 1.32.0, registry.npmjs.org/dsh-composer-plus/1.33.0 gives 404.
+  dsh npm dist-tags: latest 0.2.2-rc.5, alpha 0.2.3-alpha.2.
+- Bump: minor. docs/features.json has 88 ids at ee06f990 and 87 at v1.32.0 (new: assistantReplyCards); changed docs:
+  assistant, assistantChatView, assistantFree, assistantTodos (canvas, Decisions), optionPicks.
+
+## Phase 1 (version files)
+- package.json 1.33.0; 26 README notes (2 per README × 13); release-notes.json (1.33.0, 13 languages; bold names are labels
+  from client.js en/zh and locales/<id>.json; Load earlier is dsh's chat.loadOlder text, the same as replies.loadEarlier).
+- Notes cover the merges after v1.32.0: f86a0a4c (canvas islands, reply cards), b3d67832 (order, `---` topic cards),
+  2308766c (Load earlier), e1343314 (Decisions dialog), 7593f3f8 (Tether parity), 4b3a3d25 (card images), ee06f990 (quiet
+  small tasks, denial reason).
+
+## Phase 2 (after a clean review)
+1. Merge into main with --no-ff, push, wait for CI on main.
+2. `gh release create v1.33.0 assets/active.txt assets/installed.txt --target <sha> --latest --notes "$(node -p
+   "require('./release-notes.json').notes.en")"`; watch release.yml; check releases/latest and the npm exact-version URL.
+3. awesome-dsh-plugin PR (only data/plugins/furkancak1r__dsh-composer-plus.yml).
+4. Live copy: backup dsh-composer-history-backup-before-v1.33.0-<YYYYMMDD-HHMM>, whole files of the release commit, keep
+   the local package name and the client.js line 12 id, `node scripts/live-copy-check.mjs` must print MATCH. No DSH restart.
+
 # Quiet turns leave no card, and small tasks start quietly (branch fix/hide-quiet-only-turns, 2026-11-27)
 
 Source: Furkan in the Assistant chat, 2026-11-27 (relayed by Damon): "Yalnız `[quiet]` dönen bir turda Composer Damon
