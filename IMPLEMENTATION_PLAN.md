@@ -18,14 +18,40 @@ restart, iPhone install.
   no Turn finished push), test/quiet-replies.test.mjs, test/tether-push-words.test.mjs, Tether damonWords (Core.swift).
 
 ## Phase 2 (fix, done)
-- client.js answerRowKeys and replyCardsOf: in a turn whose closing text is `[quiet]` (quietTurnsOf), a text with a tool
+- client.js answerRowKeys and replyCardsOf: in an ended turn whose closing text is `[quiet]` (hushedTurns), a text with a tool
   call shows and is a card. Tether already showed it (botLines).
 - Tether quietStart + LiveTail: no live row while the stream can still become `[quiet]` (Damon chat, Assistant messages only).
 - Prompt (index.js): ASSISTANT_SECTION "Talk like a friend" line, ASSISTANT_FREE_SECTION, FREE_REASON: a small task ends
   with only `[quiet]`; other work keeps the one-line note; a denial, a user step and a live error or risk always show.
   Docs: docs/features.json (13 languages, llms), build:readme. tether/FEATURES.md rows assistantChatView, assistantReplyCards.
 
-## Last checkpoint (2026-11-27 02:1x)
+## Review
+- Round 1 (review-guard-1, head 840fe5df): P1 0, P2 0, P3 3, P4 4. All fixed in 950b0430: `hushedTurns` (turn-tail
+  `closing`, so a running turn is not hushed) replaced `quietTurnsOf` in answerRowKeys/replyCardsOf; the mandatory line
+  goes in the turn's last reply (prompt and deniedNote); always-free repeats the exception; llms texts; "until the result
+  comes" in 13 languages; tests 18:1, 19:1, running-turn card test (mutation red); Tether `Client.liveReply` test.
+- Round 2 (review-guard-2, head 950b0430): P1 0, P2 0, P3 0, P4 6. OPEN (fix all, then round 3 on the merged diff):
+  1. client.js readAll (~4707): use the newest card seq (`cards.at(-1)?.seq ?? top`), not the chat top; test: Mark all as
+     read during a running turn, then turn/end with `[quiet]` closing: the denial card is unread.
+  2. client.js: delete `quietTurnsOf`; `setQuietTails(same([...hushedTurns(chat)]))`.
+  3. Core.swift ~1261: move `quietStart` and its comment below `quietReply` (the `///` comment of quietReply).
+  4. docs/features.json assistant/assistantFree `how` (13) and `llms` (2): add "a denial, a step for you, or a live error
+     or risk still gets one line (in the turn's last reply)"; `npm run build:readme`.
+  5. tether/FEATURES.md assistantFree row (~79): a small task shows no reply until its result comes; the exception line.
+  6. This plan: done here.
+
+## Last checkpoint (2026-11-27 03:5x, about 150 tool calls: the chat stops here)
+- Head 950b0430 (+ this plan commit). origin/main moved to 7593f3f8 (feat/sync-tether-damon-features merge). `git
+  merge-tree origin/main HEAD`: conflicts in IMPLEMENTATION_PLAN.md, docs/features.json, llms.txt, tether/FEATURES.md
+  (keep both sides; regenerate llms/READMEs with `npm run build:readme` after docs/features.json).
+- Open steps: review-2 fixes 1-5; `git fetch`, merge origin/main; tests; review-guard round 3 (separate subagent) on
+  `git diff origin/main...HEAD`; fix; clean round; merge into main; push main. No live copy, release, npm publish, restart.
+- Last passing (950b0430): `npm test` exit 0; iOS `cd tether/ios && xcodebuild -project DSHMobile.xcodeproj -scheme DSHMobile -destination 'platform=iOS Simulator,id=787CAECE-7075-4681-B0CE-7FBE5A5DFD49' test CODE_SIGNING_ALLOWED=NO`
+  125 tests, 2 skipped, 0 failures (boot it first: `xcrun simctl bootstatus <id> -b`; id A5766181 gave "Busy");
+  `TMPDIR=~/Library/Caches/cp-quiet-tests PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-assistant-answers.mjs <0.2.0-rc.2> <0.2.1-rc.2> <0.2.2-rc.5 bin.js>`
+  PASS x3, and FOLDED_REPLIES=all PASS on 0.2.2-rc.5.
+
+## Checkpoint before review (2026-11-27 02:1x)
 - Last passing: `npm test` exit 0; iOS `xcodebuild … -destination 'platform=iOS Simulator,id=787CAECE-7075-4681-B0CE-7FBE5A5DFD49' test CODE_SIGNING_ALLOWED=NO`
   125 tests, 2 skipped, 0 failures; `TMPDIR=~/Library/Caches/cp-quiet-tests PLAYWRIGHT=… node test/browser-assistant-answers.mjs`
   PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5 (also FOLDED_REPLIES=all). TMPDIR must have no "." in its path (dsh's
