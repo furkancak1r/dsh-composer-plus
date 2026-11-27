@@ -481,7 +481,7 @@ try {
     assert.deepEqual((await rowsOf('s-stale')).map((t) => [t.state, t.started, t.ended]), [['stopped', clock - 3000, clock - 500]], 'stopped: the time of its last turn');
     children['s-stale'].log = [];
     assert.deepEqual((await rowsOf('s-stale')).map((t) => [t.state, t.started, t.ended]), [['stopped', clock - 3000, clock - 500]], 'the saved log is read once');
-    // A saved log whose last turn failed (an AIProxy 429/503): failed, not stopped.
+    // A saved log whose last turn failed (an AIProxy 429, 500, 503 or 504): failed, not stopped.
     for (const fn of listeners.get('session/event')) fn({ id: 's-stale' }, { type: 'turn/start' }); // its next turn: read again
     children['s-stale'].log = [...log, ev(2, 'turn/start', {}, clock - 3000), ev(3, 'turn/end', { reason: { kind: 'error', error: { message: 'aiproxy API error (429)' } } }, clock - 500)];
     assert.deepEqual((await rowsOf('s-stale')).map((t) => [t.state, t.ended]), [['failed', clock - 500]], 'its last turn failed: failed');
@@ -548,7 +548,7 @@ try {
   // Its time is the time of its last turn (from that turn's start, NOW - 1000), not from the task's start.
   assert.deepEqual((await rowsOf('s-kept')).map((t) => [t.state, t.started, t.ended, t.chat]), [['stopped', NOW - 1000, clock, true]], 'stopped by dsh: not running');
   turnEnd('s-kept', { kind: 'error', error: { message: 'outage' } }, ev(0, 'turn/start', {}));
-  // Its last turn ended with an error (an AIProxy outage, 429 or 503) while the outage feature waits: failed, not stopped.
+  // Its last turn ended with an error (an AIProxy outage, 429, 500, 503 or 504) while the outage feature waits: failed, not stopped.
   assert.deepEqual((await rowsOf('s-kept')).map((t) => [t.state, t.chat]), [['failed', true]], 'kept for the outage: its last turn failed');
   assert.equal(assistant.tasks.has('s-kept'), true);
   assert.equal(assistant.endedTasks.has('s-kept'), false);

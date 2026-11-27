@@ -143,7 +143,12 @@ view.unmount(); assert.equal(observers.size, 0, 'unmount stops both watchers');
 // Quiet turns (every text only [quiet]: dsh's chat nodes, quietTurnSet) take no place of the 8: 9 real turns and 6 quiet
 // news turns after them still show the newest 8 real turns, and the button counts only real turns.
 const quietChat = new Map(); for (const n of [50, 51, 52, 53, 54, 55, 56, 57, 58]) quietChat.set(`${n}:s`, { key: `${n}:s`, kind: 'assistant-step', data: { turn: n, step: 1, blocks: [{ kind: 'text', text: `Real ${n}.` }] } });
-for (const n of [59, 60, 61, 62, 63, 64]) quietChat.set(`${n}:s`, { key: `${n}:s`, kind: 'assistant-step', data: { turn: n, step: 1, blocks: [{ kind: 'text', text: '[quiet]' }] } });
+for (const n of [59, 60, 61, 62, 63]) quietChat.set(`${n}:s`, { key: `${n}:s`, kind: 'assistant-step', data: { turn: n, step: 1, blocks: [{ kind: 'text', text: '[quiet]' }] } });
+// Turn 64 ends hushed (review 1, 2026-11-27): its "gave it to a subagent" line goes (hushedRowKeys), then only [quiet], so
+// it shows nothing and takes no place of the 8 either.
+quietChat.set('64:a', { key: '64:a', kind: 'assistant-step', data: { turn: 64, step: 1, finalNode: { seq: 6400 }, blocks: [{ kind: 'text', text: 'Gave it to a subagent.' }, { kind: 'tool-call', callId: 'c', name: 'subagent' }] } });
+quietChat.set('64:b', { key: '64:b', kind: 'assistant-step', data: { turn: 64, step: 2, finalNode: { seq: 6401 }, blocks: [{ kind: 'text', text: '[quiet]' }] } });
+quietChat.set('64:tail', { key: '64:tail', kind: 'turn-tail', data: { turn: 64, closing: { finalNode: { seq: 6401 } } } });
 const store = { getSnapshot: () => ({ nodes: quietChat }), subscribe: () => () => {} };
 id = 's-quiet';
 // dsh's turn rail with its tooltip for a pointed quiet turn: the response line says only [quiet].

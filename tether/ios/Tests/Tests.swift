@@ -2949,6 +2949,11 @@ final class QuietReplyTests: XCTestCase {
             }
             lines.append(Line(kind: .turn, text: "Completed"))
             XCTAssertEqual(botLines(lines).map(\.text), t["shown"] as? [String], "\(t["steps"] ?? "")")
+            // The chat rows (Furkan, 2026-11-27: "sessiz turda ara satırlar da gizlensin"): only the shown texts, as the
+            // Mac's chat (hushedRowKeys, test/assistant-subagent-rows.test.mjs reads this table). botLines drops the turn
+            // line, so nothing folds.
+            let rows = chatRows(botLines(lines), open: [], running: false).compactMap { r -> String? in if case .line(let l) = r, l.kind == .assistant { l.text } else { nil } }
+            XCTAssertEqual(rows, t["shown"] as? [String], "chat rows: \(t["steps"] ?? "")")
         }
         // Review 5: in the running turn (no `.turn` line yet) a text sent with a tool call that asks nothing waits for the
         // turn's end, as on the Mac (client.js replyCardsOf, "a running turn: no card for its denial line yet"); a text that
