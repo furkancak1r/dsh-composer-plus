@@ -30,6 +30,8 @@ files. Out of scope: code changes, Tether builds and iPhone installs, a DSH rest
   45949596957), and the full local `npm test` runs on the reviewed head.
 - Round 4 (review-guard-4, 5e3edf7a): P1 0, P2 0, P3 1, P4 1, in this Phase 2 text. Fixed in the next commit (order of
   the R checks, a manual merge without push-branch or merge-main, the full awesome-dsh-plugin rule).
+- Round 5 (review-guard-5, 2b5812c5): P1 0, P2 0, P3 0, P4 2, in the Phase 2 merge step (push-branch reason, the merge
+  commit after the conflict). Fixed in the next commit.
 
 ## Main moved (verified 2026-11-27 12:57, again 13:31)
 - origin/main and local main are 189fc00c (merge of fix/error-review-20261126, 12:00; parents ee06f990 and f53b7ecb;
@@ -41,9 +43,10 @@ files. Out of scope: code changes, Tether builds and iPhone installs, a DSH rest
    files. Add no commit to the branch until the v1.33.0 tag exists. Run the full `npm test` and `npm pack --dry-run` on R
    (version 1.33.0; from tether/ only gateway/{server.mjs,admin.html,qr.swift}).
 2. `git fetch`; if origin/main is not 189fc00c, stop and run `git merge-tree` again. Merge by hand in the main worktree:
-   `git -C <repo root> merge --no-ff chore/release-1-33-0`. Do not use push-branch or merge-main: they push the release
-   branch (not in the approval) and delete this branch and worktree. Keep both sections in IMPLEMENTATION_PLAN.md, run
-   `npm test` on the merge, check `git rev-parse HEAD^2` = R, run `git push origin main`, wait for CI on main. The merge
+   `git -C <repo root> merge --no-ff chore/release-1-33-0`. Do not use push-branch or merge-main: both push the release
+   branch (not in the approval), and merge-main also deletes this branch and worktree. Keep both sections in
+   IMPLEMENTATION_PLAN.md, run `git add IMPLEMENTATION_PLAN.md` and `git commit --no-edit`, run `npm test` on the merge
+   commit, check `git rev-parse HEAD^2` = R, run `git push origin main`, wait for CI on main. The merge
    commit has the code of 189fc00c: it is not the release commit. Keep this branch and worktree until the release exists.
 3. `gh release create v1.33.0 assets/active.txt assets/installed.txt --target R --latest --notes "$(node -p
    "require('./release-notes.json').notes.en")"`. Never tag the merge commit or main. Watch release.yml; check
