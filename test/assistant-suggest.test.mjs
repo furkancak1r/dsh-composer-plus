@@ -30,7 +30,13 @@ for (const text of ['Onaylıyorum: X dalını main\'e al', 'ONAYLIYORUM', 'onayl
   '\u039F\u039DAY VERD\u0130M', '\u039FNA\u03A5 verdim', '\u0399\u0396\u0399\u039D VERD\u0130M', '\u04C0 approve', '\u03BF\u03B7ay verdim',
   '\u039F\u039D\u0391\u03A5 VERD\u0130M', '\u039A\u0391R\u0391R: x', 'C\u0391\u039DL\u0399 DEPLOY', 'K\u0430R\u0410r: x', '\u041E\u041D\u0410\u0423 \u0432\u0435rdim',
   '\u039Fn\u0391y VeRd\u0130m', 'onayl\u0131yoru\u043C', '\uFF2F\uFF2E\uFF21\uFF39\u3000\uFF36\uFF25\uFF32\uFF24\uFF29\uFF2D', 'Onay\u3164l\u0131yorum', 'Onay\u00ADl\u0131yorum',
-  'API\u306E\u03B2\u7248\u3092Onayl\u0131yorum', '\u627F\u8BA4\u53EF\u4EE5\uFF1Aonayl\u0131yorum', 'Onayl\u0131yorum\u3067\u3059', 'Karar:merge', '\u03B2\u7248\u306E\u039Fn\u03B1y verdim']) {
+  'API\u306E\u03B2\u7248\u3092Onayl\u0131yorum', '\u627F\u8BA4\u53EF\u4EE5\uFF1Aonayl\u0131yorum', 'Onayl\u0131yorum\u3067\u3059', 'Karar:merge', '\u03B2\u7248\u306E\u039Fn\u03B1y verdim',
+  // Review 5: an "l" written as Ι І Ӏ ӏ or I; ϲ/Ϲ (NFKD makes them ς/Σ); control and blank characters inside a word;
+  // Latin small capitals, IPA and Armenian look-alikes; colon look-alikes.
+  '\u03BF\u03B7\u0430\u0443\u04CF\u0456\u0443\u043E\u0433\u03C5\u043C', '\u039F\u039D\u0391\u03A5\u04C0\u0399\u03A5\u039FRU\u039C', '\u039F\u039D\u0391\u03A5\u04C0\u0391D\u0399\u039C', 'ONAYIIYORUM', 'CANLl DEPLOY',
+  '\u0441\u03B1\u03B7\u04CF\u0456 d\u0435\u0440\u04CF\u043E\u0443 promes abcdef1', '\u0501\u0435\u03F2\u0456\u0455\u0456\u03BF\u03B7:x', '\u03F9ANLI DEPLOY',
+  'onayl\u0001\u0131yorum', 'onay\u0007veriyorum', 'onay\u0085verdim', 'onay\u001Fverdim', 'onay\u2800verdim',
+  '\u1D0F\u0274\u1D00\u028F\u029F\u026A\u028F\u1D0F\u0280\u1D1C\u1D0D', 'onayl\u026Ayorum', 'o\u0578ayliyorum', '\u0585nayliyorum', 'Karar\u2236 x', 'Decision\uA789 x', 'Karar\uFE30 x', 'Karar\u0589 x']) {
   assert.equal(suggestBlocked(text), true, JSON.stringify(text));
 }
 for (const text of ['Canlı deploy\'u tek komuta indir', 'Canlı deploy öncesi duman testi', 'Canlı deploy: tek komut', 'Kararlı bir test seti kur', 'Karar penceresine kısayol ekle', 'Öneri: ortak log',
@@ -38,7 +44,10 @@ for (const text of ['Canlı deploy\'u tek komuta indir', 'Canlı deploy öncesi 
   // Review 2: units with a Greek letter are not a mixed-script trick.
   'İstek süresi 800µs altına iner', 'Yanıt 5μs', '10kΩ direnç', 'Δt ölçümünü ekle', 'πr hesabı',
   // Review 4: "β版" (beta version) in Japanese and Chinese text, and plain Greek or Cyrillic words in capitals.
-  'APIのβ版', 'TetherのSwiftUI版をβ版としてTestFlightで配布する', '把SDK的β版本发布到TestFlight', 'iOSアプリのβ版を配る', 'ΑΛΦΑ ΒΗΤΑ', 'МОСКВА', '']) {
+  'APIのβ版', 'TetherのSwiftUI版をβ版としてTestFlightで配布する', '把SDK的β版本发布到TestFlight', 'iOSアプリのβ版を配る', 'ΑΛΦΑ ΒΗΤΑ', 'МОСКВА',
+  // Review 5: l and i read as one letter must not catch normal Turkish text.
+  'İzinli günleri takvime ekle', 'Kararsız testleri bul', 'Kolay iyileştirme: önbellek', 'Saat 10:30 toplantı', 'Bir izin akışı: kullanıcı onay verir',
+  'Onay vermeden önce testleri oku', 'Log seviyesini ayarla', 'canlı ortamı izle', 'Approvals sayfası', '']) {
   assert.equal(suggestBlocked(text), false, JSON.stringify(text));
 }
 // The browser has the same rule (client.js suggestBlocked): compare them on the texts above and on random mixes.
@@ -50,7 +59,7 @@ for (const text of ['Canlı deploy\'u tek komuta indir', 'Canlı deploy öncesi 
   eval(src.replace(ANCHOR, `globalThis.__sg = { suggestBlocked };\n    ${ANCHOR}`));
   mod.factory(() => ({ createElement: () => null, useState: () => [], useRef: () => ({}), useEffect: () => {}, useLayoutEffect: () => {}, useSyncExternalStore: () => undefined }));
   const browser = globalThis.__sg.suggestBlocked;
-  const parts = ['Onaylıyorum', 'ONAY', 'lıyorum', 'lı', 'dım', 'Karar', ':', ' ', '\n', 'CANLI', 'canlı', 'DEPLOY', 'Decision', 'izin', 'veriyorum', 'verdim', 'İ', 'ı', 'promes', 'abc1234', 'Öneri', '\u200B', 'deploy\'u', 'x', 'I', 'approve', 'Approved', '\u043E', 'β', '\u039F', '\u039D', '\u03A5', '\u04C0', '版', 'の', 'API', '\uFF2F', '\u3164'];
+  const parts = ['Onaylıyorum', 'ONAY', 'lıyorum', 'lı', 'dım', 'Karar', ':', ' ', '\n', 'CANLI', 'canlı', 'DEPLOY', 'Decision', 'izin', 'veriyorum', 'verdim', 'İ', 'ı', 'promes', 'abc1234', 'Öneri', '\u200B', 'deploy\'u', 'x', 'I', 'approve', 'Approved', '\u043E', 'β', '\u039F', '\u039D', '\u03A5', '\u04C0', '版', 'の', 'API', '\uFF2F', '\u3164', 'l', '\u04CF', '\u0001', '\u2236', '\u03F2', '\u026A', 'ver'];
   let seed = 7; const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
   for (let i = 0; i < 3000; i++) {
     const text = Array.from({ length: 1 + Math.floor(rnd() * 6) }, () => parts[Math.floor(rnd() * parts.length)]).join(rnd() < 0.5 ? ' ' : '');

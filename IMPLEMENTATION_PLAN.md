@@ -166,10 +166,33 @@ IMPLEMENTATION_PLAN.md. Screenshots only to the folder above.
      sandbox; glob, grep over a folder and a subagent's shell can still reach a file). Change the README Limits sentence
      (13 files) and llms: Protected files narrows dsh's own file tools only (see its limit), so keep that folder outside
      the assistant folder or use dsh's sandbox modes. Then `npm run build:readme`.
-- Open steps: fix 1-3; `npm test`; review round 5 (separate subagent, review-guard) on `git diff ee06f990..HEAD`; when
+- 2026-11-27 17:0x (new chat) Review 4 fixed in f53cfa23:
+  1. suggestBlocked (index.js ~13088-13110, client.js ~4200-4215, same code): NFKD, \p{M}, \p{Cf} and
+     \p{Default_Ignorable_Code_Point} out; LOOK_FROM/LOOK_TO (114 pairs: Unicode confusables.txt 18.0.0, each Greek or
+     Cyrillic letter whose prototype is one ASCII letter after NFKD, Ι І Ӏ ӏ as I, plus the old к м т н в κ τ ε) map
+     before toLocaleLowerCase('tr'), so both cases are caught. The hand list is no longer the only source.
+  2. Word = run of [\p{sc=Latn}\p{sc=Grek}\p{sc=Cyrl}] (SUGGEST_MIXED) and \p{sc=Latn} lookarounds (SUGGEST_BLOCKED,
+     SUGGEST_LIVE): "APIのβ版", "把SDK的β版本发布到TestFlight" pass; "APIのβ版をOnaylıyorum", "Onaylıyorumです" are refused.
+     "Karar:x" (no space) is refused too. ponytail: "SDKβ版" (Latin glued to β) is still a mixed word.
+  3. Docs: Protected files is no hard rule (index.js protectedHit 5166-5190 checks only the path argument of read,
+     read_image, grep, write, edit, str_replace_editor: PROTECT_READS/WRITES 5085-5086; probe: `grep {path: "."}`, glob
+     and bash with a Gizli path pass). README Limits sentence in 13 files, features.json llms, build:readme, --check ok.
+  Red check: the new test rows fail on the old code ("ΟΝAY VERDİM"). UI texts did not change (no locales change).
+- Merge of origin/main cd1ff110 (0f4bf39a): conflicts IMPLEMENTATION_PLAN.md (both sections), docs/features.json
+  (this branch's assistantTodos llms + main's "429, 500, 503 or 504"), client.js LANGUAGE_PACKS (build:locales; keys of
+  both sides present) and llms.txt (build:readme). npm test exit 0; browser-card-stack PASS on 0.2.2-rc.5, 0.2.0-rc.2,
+  0.2.1-rc.2.
+- Review 5 (review-guard-5, head 0f4bf39a): P1 0, P2 0, P3 3, P4 3. Fixed: P3-1 Ι І Ӏ ӏ / I for "l" (the folded text
+  reads l and ı as i, so "οηауӏіуогυм", "ONAYIIYORUM" match; CANLI DEPLOY reads l, ı, İ as I); P3-2 ϲ/Ϲ (the pairs run
+  before and after NFKD); P3-3 control characters, NEL and U+2800 (unhide); P4-1 and P4-2 by the wider pair list
+  (confusables.txt latest 2026-08-06: Latin small capitals and IPA, Greek, Cyrillic, Armenian, Cherokee, Lisu, Coptic,
+  colon look-alikes; 406 pairs). P4-3 (a Greek letter glued to a Latin word, "µops") stays: the documented ponytail
+  limit, and the tool result names the rule. Tests red on the old code ("οηауӏіуогυм"). npm test exit 0.
+- Open steps: review round 6 (separate subagent) on `git diff $(git merge-base origin/main HEAD)..HEAD`; when clean:
+  merge into main (--no-ff), npm test on main, push, CI. Earlier wording: fix 1-3; `npm test`; review round 5 on `git diff ee06f990..HEAD`; when
   clean: `git fetch`, merge origin/main into the branch if it moved (the release branch chore/release-1-33-0 is not
   touched), `npm test`, merge into main, push main. No live copy, no new release, no DSH or AIProxy restart.
-- Open for Furkan: Tether parity of this row (tether/FEATURES.md, Kararlar row: Status sheet cards vs Mac only).
+- Tether parity: decided by Damon (2026-11-27): nothing in Tether (no decisions window there); tether/FEATURES.md stays.
 - Last passing: `npm test` exit 0 at 466b8218; browser `TMPDIR=~/Library/Caches/cp-suggest-tests PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-card-stack.mjs <bin.js>`
   PASS on 0.2.0-rc.2, 0.2.1-rc.2 (~/Documents/testdeepseekharness/work/dsh-0.2.{0,1}-rc.2/node_modules/@deepseek-ai/dsh/lib/bin.js)
   and 0.2.2-rc.5 (~/ai-maintenance/dsh-composer-plus/dsh/0.2.2-rc.5/node_modules/@deepseek-ai/dsh/lib/bin.js) at f1405ca2

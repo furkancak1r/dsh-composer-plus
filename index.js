@@ -13162,26 +13162,35 @@ const suggestMessage = () => Object.freeze({ id: randomUUID(), role: 'user', con
  * the strict live-deploy line ("canlı deploy <product> <sha>", any case) and a text or line that starts with "CANLI DEPLOY"
  * in capitals (Furkan, 2026-11-27); a word with 3 or more Latin letters and a Cyrillic or Greek letter (an "о" that looks
  * like "o"; a unit such as "µs" or "kΩ" passes).
- * The text is folded first: NFKD (full-width letters and ligatures become plain ones), marks, format and invisible
- * characters out, look-alike letters to Latin, then Turkish lower case and ı → i. A word is a run of Latin, Greek and
+ * The text is folded first: look-alike letters to Latin (before and after NFKD), NFKD (full-width letters and ligatures
+ * become plain ones), marks, format, invisible and control characters out, then Turkish lower case, ı and l → i (review 5:
+ * "l" and "I" look alike, so the rule reads them as one letter). A word is a run of Latin, Greek and
  * Cyrillic letters, not of any letter: Japanese and Chinese text has no spaces ("APIのβ版" passes, "APIのβ版をonaylıyorum"
  * does not; review 4). ponytail: a Latin word glued to a Greek letter ("SDKβ版") is still a mixed word; "SDK β版" or
  * "SDKのβ版" passes, and the tool result names the rule. The same rule is in client.js (suggestBlocked;
  * test/assistant-suggest.test.mjs compares them). */
-// Greek and Cyrillic letters that look like a Latin letter become it before the lower case, so "Каrаr:", "ΟΝAY VERDİM" and
-// "Ӏ approve" still match (reviews 3 and 4). The pairs: Unicode confusables.txt (UTS #39, 18.0.0), each Greek or Cyrillic
-// letter whose prototype is one ASCII letter after NFKD (Ι І Ӏ ӏ as I), plus к м т н в κ τ ε (prototype: a small capital).
-// ponytail: Greek and Cyrillic only; another script (Cherokee, Lisu, Armenian) needs its pairs here and in SUGGEST_MIXED.
-const LOOK_FROM = 'αаΑАЬΒВБҍҌѣѢсᲃСҫҪԁеҽΕЕҿϜԌһҺΗНꚕҢћӉӇιіꙇϳјͿЈΚКҚҞΙІӏӀΜϺМӍΝηοσоᲂΟОөѳθΘӨѲρϸрΡРԛԚᴦгғѕЅΤТꚌҬυџνѵѴѡшԝԜѽхΧХҲγуүΥУҮұҰΖкмтнвκτε';
-const LOOK_TO = 'aaAAbBBbbbbbccCcCdeeEEeFGhhHHhHhHHiiijjJJKKKKIIIIMMMMNnooooOOooOOOOpppPPqQrrrsSTTTTuuvvVwwwWwxXXXyyyYYYyYZkmthbkte';
+// Letters that look like a Latin letter become it before the lower case, so "Каrаr:", "ΟΝAY VERDİM", "Ӏ approve" and
+// "ᴏɴᴀʏʟɪʏᴏʀᴜᴍ" still match (reviews 3 to 5). The pairs: Unicode confusables.txt (UTS #39, latest of 2026-08-06), each
+// letter of the Latin, Greek, Cyrillic, Armenian, Cherokee, Lisu or Coptic script (BMP, not ASCII) whose prototype is one
+// ASCII letter after NFKD, and each colon look-alike as ":"; plus the small capitals ᴀ…ᴛ ꜰ ᴋ ᴍ ꞯ and в н т к κ м ε τ
+// (prototype: a small capital or another non-ASCII letter). ponytail: only SUGGEST_MIXED (Latin with Greek or Cyrillic)
+// catches a pair that is not in the list; a new look-alike needs its pair here and in client.js.
+const LOOK_FROM = '։܃܄࠱፡᛬︰᠃᠉⁚׃˸᎓꞉∶ːꓽɑꭤαаΑАᎪꓮƄЬᏏꞴΒⲂВᏴꓐꚝɓƃƂБƀҍҌѣѢᴄϲⲥсᲃꮯϹⲤСᏟꓚȼҫҪԁᏧꓒᎠꓓɗɖƌƋđĐÐƉꬲеҽΕЕᎬꓰɇɆҿꬵꞙƒʄẝքꞘϜꓝƑᵮɡᶃƍցԌᏀᏳꓖᶢɠǥǤһҺհᏂΗⲎНᎻꓧᵸɦꚕᏲⱧҢħћĦӉӇıɪɩιⲓіꙇւꭵᎥɨᵻᵼȷϳјյꞲͿЈᎫꓙɉɟɈΚⲔКᏦꓗƙⱩҚꝀҞꞮꟾƖꞁǀΙⲒІӏӀꓲⳐᏞꓡłŁɭƗƚɫΜϺⲘМᎷꓟӍոռΝⲚꓠɳƞŋηղɲƝᵰᴏᴑꬽοσⲟϭоᲂօΟⲞОՕꓳøꬾØɵꝋⲑөѳꮎꮻƟꝊθϑΘϴⲐӨѲᎾᏫꭴᎤþƿρϱϸⲣⳏрΡⲢⳎРᏢꓑƥᵽԛգզԚʠꭇꭈᴦⲅгꮁƦɌᎡᏒꓣɽɼɍғᵲꜱƽѕꮪЅՏᏕᏚꓢʂꟅᵴΤⲦТᎢꓔƭȾƮꚌҬŧŦƫᎿᵵꞟᴜꭎꭒʋυսՍꓴџᵾꮜɄᏌᴠνѵꮩѴᏙꓦɯꟺᴡⲽѡшԝաꮃꮤԜᎳᏔꓪѽꝡхꞳΧⲬХꓫҲɣᶌʏỿꭚγⲩуүΥϒⲨУҮᎩᎽꓬƴɏұɎҰᴢⱬⲍꮓⱫΖⲌᏃꓜʐƶƵȥȤᵶᴀʙᴅᴇɢʜᴊʟɴᴘʀᴛꜰᴋᴍꞯвнткκмετ';
+const LOOK_TO = ':::::::::::::::::aaaaAAAAbbbBBBBBBbbbbbbbbbbccccccCCCCCccCdddDDdddddDDDeeeEEEEeEeffffffFFFFfggggGGGGgggGhhhhHHHHHHhhhHHhhHHHiiiiiiiiiiiiijjjjJJJJJjjJKKKKKkKKKKlllllllllllLLLlLllllMMMMMMMnnNNNnnnnnnNnooooooooooOOOOOooOoooooooOOOOOOOOOOOoOppppppppPPPPPPppqqqQqrrrrrrRRRRRrrrrrssssSSSSSsSsTTTTTtTTTTtTtttuuuuuuuUUuuuUUvvvvVVVwwwwwwwwwwWWWWwwxXXXXXXyyyyyyyyyYYYYYYYYyyyYYzzzzZZZZZzzZzZzabdeghjlnprtfkmqbhtkkmet';
 const LOOK_ALIKE = new RegExp(`[${LOOK_FROM}]`, 'gu');
-const SUGGEST_BLOCKED = /(?<![\p{sc=Latn}\p{N}])(?:(?:onayl(?:i|idir|iyorum|iyoruz|adim)|onay\s+ver(?:iyorum|dim)|izin\s+ver(?:iyorum|dim)|i\s+approve)(?![\p{sc=Latn}\p{N}])|(?:approved|karar|decision)\s*:)|canli\s+deploy\s+\S+\s+[0-9a-f]{7,40}(?![\p{sc=Latn}\p{N}])/u;
+const lookLatin = (s) => s.replace(LOOK_ALIKE, (c) => LOOK_TO[LOOK_FROM.indexOf(c)]);
+// NFKD, then marks, format, invisible and control characters out (NEL is a line break; tab and newline stay).
+const unhide = (s) => s.normalize('NFKD').replace(/\x85/g, '\n').replace(/[\p{M}\p{Cf}\p{Default_Ignorable_Code_Point}\0-\x08\x0E-\x1F\x7F-\x9F\u2800]/gu, '');
+// "l" is written "i": the folded text reads l and i as one letter (Ι І Ӏ ӏ ı I l look alike; "ONAYIIYORUM" matches,
+// review 5). CANLI DEPLOY: I for l, ı and İ.
+const SUGGEST_BLOCKED = /(?<![\p{sc=Latn}\p{N}])(?:(?:onayi(?:i|idir|iyorum|iyoruz|adim)|onay\s*ver(?:iyorum|dim)|izin\s*ver(?:iyorum|dim)|i\s*approve)(?![\p{sc=Latn}\p{N}])|(?:approved|karar|decision)\s*:)|canii\s*depioy\s+\S+\s+[0-9a-f]{7,40}(?![\p{sc=Latn}\p{N}])/u;
 const SUGGEST_LIVE = /^\s*CANLI\s+DEPLOY(?![\p{sc=Latn}\p{N}])/mu;
 const SUGGEST_MIXED = /(?<![\p{sc=Latn}\p{sc=Grek}\p{sc=Cyrl}])(?=(?:[\p{sc=Latn}\p{sc=Grek}\p{sc=Cyrl}]*?\p{sc=Latn}){3})(?=[\p{sc=Latn}\p{sc=Grek}\p{sc=Cyrl}]*[\p{sc=Grek}\p{sc=Cyrl}])/u;
 export const suggestBlocked = (text) => {
-  const plain = String(text ?? '').normalize('NFKD').replace(/[\p{M}\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, '');
-  const latin = plain.replace(LOOK_ALIKE, (c) => LOOK_TO[LOOK_FROM.indexOf(c)]);
-  return SUGGEST_LIVE.test(latin) || SUGGEST_MIXED.test(plain) || SUGGEST_BLOCKED.test(latin.toLocaleLowerCase('tr').replace(/ı/g, 'i'));
+  const raw = String(text ?? '');
+  // The pairs before NFKD too: NFKD turns ϲ into ς, which looks like no Latin letter.
+  const latin = lookLatin(unhide(lookLatin(raw)));
+  return SUGGEST_LIVE.test(latin.replace(/[lı]/g, 'I').replace(/İ/g, 'I')) || SUGGEST_MIXED.test(unhide(raw)) || SUGGEST_BLOCKED.test(latin.toLocaleLowerCase('tr').replace(/[ıl]/g, 'i'));
 };
 /** status_suggestions_set's items, cleaned and bounded: `{items, blocked}` (blocked: the items that the safety rule left
  * out). An item without title, text, why or source, or with a field over its limit, is left out. */
