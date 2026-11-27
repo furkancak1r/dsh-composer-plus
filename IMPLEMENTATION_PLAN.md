@@ -154,7 +154,26 @@ IMPLEMENTATION_PLAN.md. Screenshots only to the folder above.
   user ("when this turn has no other reply, reply with only [quiet]"); the docs say that the Gizli rule is an instruction
   to the model, not a guard (13 `how`, llms, a README Limits sentence that names Protected files). Last passing:
   `npm test` exit 0 (2026-11-27 15:3x).
-- Open: a clean review-guard round (round 4); merge into main only after `gh release view v1.33.0` shows the release.
+- 2026-11-27 16:0x `gh release view v1.33.0` shows the release (tagName v1.33.0): the merge gate on the release is open.
+- Review 4 (P1 0, P2 0, P3 3), NOT fixed yet (checkpoint at about 150 tool calls; the next chat continues here):
+  1. suggestFold (index.js and client.js, same code): map capital look-alikes before toLocaleLowerCase('tr') (Greek
+     Α Β Ε Ζ Η Ι Κ Μ Ν Ο Ρ Τ Υ Χ, Cyrillic А В Е К М Н О Р С Т У Х І Ј Ѕ Ӏ) and add η/Η → n/H, Ӏ/ӏ → I/l. Blocked-list
+     tests: "ΟΝAY VERDİM", "ΟNAΥ verdim", "ΙΖΙΝ VERDİM", "Ӏ approve", "οηay verdim" (test/assistant-suggest.test.mjs).
+  2. SUGGEST_MIXED (both files): use [\p{Script=Latin}\p{Script=Cyrillic}\p{Script=Greek}] in place of \p{L} for the
+     word and the lookbehind, so Japanese/Chinese text next to "β版" passes. Pass-list tests: "APIのβ版",
+     "TetherのSwiftUI版をβ版としてTestFlightで配布する", "把SDK的β版本发布到TestFlight".
+  3. Docs: "for a hard rule, use Protected files" is wrong (README.md:308: Protected files is a guard rail, not a
+     sandbox; glob, grep over a folder and a subagent's shell can still reach a file). Change the README Limits sentence
+     (13 files) and llms: Protected files narrows dsh's own file tools only (see its limit), so keep that folder outside
+     the assistant folder or use dsh's sandbox modes. Then `npm run build:readme`.
+- Open steps: fix 1-3; `npm test`; review round 5 (separate subagent, review-guard) on `git diff ee06f990..HEAD`; when
+  clean: `git fetch`, merge origin/main into the branch if it moved (the release branch chore/release-1-33-0 is not
+  touched), `npm test`, merge into main, push main. No live copy, no new release, no DSH or AIProxy restart.
+- Open for Furkan: Tether parity of this row (tether/FEATURES.md, Kararlar row: Status sheet cards vs Mac only).
+- Last passing: `npm test` exit 0 at 466b8218; browser `TMPDIR=~/Library/Caches/cp-suggest-tests PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-card-stack.mjs <bin.js>`
+  PASS on 0.2.0-rc.2, 0.2.1-rc.2 (~/Documents/testdeepseekharness/work/dsh-0.2.{0,1}-rc.2/node_modules/@deepseek-ai/dsh/lib/bin.js)
+  and 0.2.2-rc.5 (~/ai-maintenance/dsh-composer-plus/dsh/0.2.2-rc.5/node_modules/@deepseek-ai/dsh/lib/bin.js) at f1405ca2
+  (mkdir the TMPDIR folder first; macOS has no `timeout` command).
 
 # Quiet turns leave no card, and small tasks start quietly (branch fix/hide-quiet-only-turns, 2026-11-27)
 
