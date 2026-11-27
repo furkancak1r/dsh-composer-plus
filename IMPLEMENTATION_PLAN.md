@@ -199,8 +199,13 @@ IMPLEMENTATION_PLAN.md. Screenshots only to the folder above.
   pair at every position: 0 misses); P3 the line start of SUGGEST_LIVE is [^\S\r\n\u2028\u2029]* (100000 blank lines:
   4505 ms on the old code, about 2 ms now; test with a 500 ms bound); P4 the ponytail comment and llms name the limit
   (another script, an astral letter, 1, 0 or |). npm test exit 0. Round 7 had a P2: the loop needs one more round.
-- Open steps: review round 8 (separate subagent) on `git diff $(git merge-base origin/main HEAD)..HEAD`; when clean:
-  merge into main (--no-ff), npm test on main, push, CI. Earlier wording: fix 1-3; `npm test`; review round 5 on `git diff ee06f990..HEAD`; when
+- a596cfcc: test that index.js and client.js have the same rule code lines (red when one copy changes). npm test exit 0;
+  browser-card-stack PASS on 0.2.2-rc.5, 0.2.0-rc.2, 0.2.1-rc.2.
+- Review 8 (review-guard-8, head a596cfcc, with a written threat model: the deny list is best effort, a new look-alike
+  inside the documented limits is P4): P1 0, P2 0, P3 0, P4 1 ("ΔCPU" is a mixed word: the documented limit; no change).
+  CLEAN. Performance: 1M-character inputs linear (max 135 ms), 16 items x 5 fields x 2M characters 593 ms.
+- Open steps: `git fetch`; merge origin/main if it moved (tests again); merge into main (--no-ff), npm test on main, push,
+  CI. No live copy, no release, no npm, no DSH or AIProxy restart. Earlier wording: fix 1-3; `npm test`; review round 5 on `git diff ee06f990..HEAD`; when
   clean: `git fetch`, merge origin/main into the branch if it moved (the release branch chore/release-1-33-0 is not
   touched), `npm test`, merge into main, push main. No live copy, no new release, no DSH or AIProxy restart.
 - Tether parity: decided by Damon (2026-11-27): nothing in Tether (no decisions window there); tether/FEATURES.md stays.
