@@ -5517,7 +5517,21 @@ client.js:4951). Two cards need two dsh nodes with the same seq; dsh keys its no
   damon-kartlar-once.png, tether-damon-once.png. After: same names with -<merge short sha>.
 - a (6 copies of one subagent failure note) and d: no code path found, no code change (see Phase 0). Not verified.
 
-## Last checkpoint (2026-11-27 17:1x, about 150 tool calls: this chat stops here)
+## Checkpoint 2026-11-27 19:0x (second chat)
+- Browser after the merge (b9e32d9d): browser-assistant-answers PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5 and
+  FOLDED_REPLIES=all PASS on 0.2.2-rc.5.
+- Flake check (assistant-bot "a quiet reply with a denied step is news", 3 s wait): full `npm test` 3 times on the branch
+  (b9e32d9d) and 3 times on origin/main (cd1ff110, detached worktree), interleaved: 6 of 6 exit 0 (142-177 s, load 5-10).
+  Stress: test/assistant-bot.test.mjs 6 in parallel x 5 rounds on each side: 0 of 30 failed on the branch, 0 of 30 on
+  main. The branch does not touch assistant-bot or the code that it tests (no pushWords/hushed use in it). Not
+  reproduced: recorded as a load flake, not caused by the branch.
+- Review 2 (review-guard-2, head b9e32d9d): P1 0, P2 0, P3 1, P4 3. Fixed in 2bc30fcb (how texts in 13 languages and
+  FEATURES.md row name the result line; assistantReplyCards llms order; testDuplicateCardScreen asserts; Tether's Stopped
+  caption only in the Damon messages-only view). npm test exit 0; iOS 132 tests, 2 skipped, 0 failures.
+- Review 3 (review-guard-3, head 2bc30fcb): P1 0, P2 0, P3 0, P4 2 (testDuplicateCardScreen comment; this checkpoint).
+  Fixed in the next commit. Next: review round 4 (must be clean), fetch, merge into main, push, CI, after screenshots.
+
+## Last checkpoint (2026-11-27 17:1x, about 150 tool calls: the first chat stopped here)
 - Head: 102d799d (merge of origin/main cd1ff110 into the branch) + this plan commit. Branch commits after the plan:
   d10992d8 (fix), 1738d3ce (review 1 fixes), 102d799d (merge).
 - `gh release view v1.33.0`: the release exists (checked 16:4x). origin/main was cd1ff110 at 16:5x.

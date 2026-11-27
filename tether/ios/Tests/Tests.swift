@@ -1887,9 +1887,9 @@ final class AgentboxIdeasTests: XCTestCase {
         try XCTUnwrap(img.pngData()).write(to: URL(fileURLWithPath: dir).appendingPathComponent(ProcessInfo.processInfo.environment["SHOT_NAME"] ?? "tether-damon-quiet.png"))
     }
 
-    /// Duplicate cards (2026-11-27), screenshot only (made-up data, Turkish words): a reply that a DSH quit cut, the
-    /// resumed reply, and a result line next to a tool call in a turn that ends with `[quiet]`. The checks are in
-    /// testCutTextIsNoCard and testHushedTurnsMatchTheMac. With SHOT_DIR set (TEST_RUNNER_SHOT_DIR, TEST_RUNNER_SHOT_NAME),
+    /// Duplicate cards (2026-11-27, made-up data, Turkish words): a reply that a DSH quit cut, the resumed reply, and a
+    /// result line next to a tool call in a turn that ends with `[quiet]`. It also checks botLines and replyCards on this
+    /// replay (more in testCutTextIsNoCard and testHushedTurnsMatchTheMac). With SHOT_DIR set (TEST_RUNNER_SHOT_DIR, TEST_RUNNER_SHOT_NAME),
     /// it writes the screen as a PNG.
     @MainActor func testDuplicateCardScreen() throws {
         let c = Client(), strings = uiStrings
