@@ -862,7 +862,9 @@ struct ConversationView: View {
                 .safeAreaInset(edge: .top, spacing: 0) {
                     VStack(spacing: 0) {
                         if finding != nil { findBar(proxy, hits) }
-                        if damon, !unread.isEmpty, let sid = c.current { unreadBar(sid, count: unread.count, top: c.lastSeq ?? cards.last?.seq ?? 0) }
+                        // Up to the newest card, not the chat's newest seq (the Mac's readAll, review 6): a denial line that
+                        // becomes a card when the running turn ends with `[quiet]` (botLines) is still New.
+                        if damon, !unread.isEmpty, let sid = c.current { unreadBar(sid, count: unread.count, top: cards.last?.seq ?? c.lastSeq ?? 0) }
                     }
                 }
                 .onChange(of: c.current) { finding = nil; replyFloor = nil; scrollAfterPage = nil }

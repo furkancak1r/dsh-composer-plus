@@ -394,6 +394,9 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   assert.match(core, /max cap: Int = \.max\) -> ReplyPage/, 'Tether: no 40 cap by default'); assert.match(ui, /let cards = damon \? cardCache\.cards\(all\)/, 'Tether: the cards of the shown rows (review 3)');
   assert.match(ui, /let more = page\.map \{ p in firstCardSeq\(rows\)\.map \{ replyPage\(cards, floor: \$0\) \} \?\? p \}/, 'Tether: Load earlier counts from the oldest card that shows (review 5)');
   assert.match(ui, /\.simultaneousGesture\(TapGesture\(\)\.onEnded \{ readCard\(id, read\) \}\)/, 'Tether: a tap reads the card');
+  // Review 6 (2026-11-27): Mark all as read reads up to the newest card, as the Mac's readAll (a denial card that comes when
+  // the running turn ends with [quiet] stays New).
+  assert.match(ui, /unreadBar\(sid, count: unread\.count, top: cards\.last\?\.seq \?\? c\.lastSeq \?\? 0\)/, 'Tether: Mark all as read up to the newest card');
   // Review 2: an unread card below the first page holds the cut also on the first draw; VoiceOver's Mark as read only on
   // a New card; Open message scrolls after the page change without a fixed wait.
   assert.match(ui, /\.onChange\(of: page\?\.held == true \? page\?\.cut : nil, initial: true\)/, 'Tether: the held cut from the first draw');

@@ -93,7 +93,13 @@ restart, iPhone install.
      "The same on both while Assistant messages only is on". 4. P4: client.js replyCardsOf comment on one line.
 - Last passing (round-5 fixes): `npm test` exit 0; iOS 130 tests, 2 skipped, 0 failures; browser-assistant-answers PASS
   on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5 and FOLDED_REPLIES=all on 0.2.2-rc.5.
-- Open steps (next chat): 1. review round 6 (final diff after the round-5 fixes; merge only on a clean round). Earlier: review round 5 in a separate subagent on `git diff origin/main...HEAD` (round 4 had P2, so
+- Round 6 (review-guard-6, head 7e1586fc): P1 0, P2 0, P3 0, P4 1. Fixed: Tether UI.swift unreadBar `top:` is the
+  newest card's seq (`cards.last?.seq ?? c.lastSeq ?? 0`), as the Mac's readAll (round 2): Mark all as read during a
+  running turn leaves the denial card that comes at the turn's end New. Structure test in reply-cards.test.mjs (no match
+  on the old line). Not done (YAGNI): the running-turn case in the shared `hushed` table (JS and Swift test it apart).
+- Last passing (round-6 fix): `npm test` exit 0; iOS 130 tests, 2 skipped, 0 failures; browser-assistant-answers PASS on
+  0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5 and FOLDED_REPLIES=all on 0.2.2-rc.5.
+- Open steps (next chat): 1. review round 7 on the final diff (merge only on a clean round). Earlier: review round 5 in a separate subagent on `git diff origin/main...HEAD` (round 4 had P2, so
   one more round; repeat until a round has no P1/P2, fix P3/P4 of the last round). 2. `git fetch`; if origin/main moved
   past 4b3a3d25, merge it, tests again (and a review round if client.js or Swift changed). 3. merge into main --no-ff,
   npm test on main, push main, check CI. 4. screenshots of the merge commit (TAG=<short sha>, SHOTS=<folder>, same three
