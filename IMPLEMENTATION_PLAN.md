@@ -24,8 +24,9 @@ approval: merge into main after a clean review. Not in scope: live copy, release
 ## Requirement 4: decided 2026-11-27 (option B, no code change)
 - Furkan, Assistant chat, 2026-11-27: "Karar ver: sessiz turda ara satır, tur sürerken nasıl görünsün? → Tur sürerken
   görünsün, sessiz bitince gizlensin". This is option B below: 5e3a269e stays as it is.
-- origin/main is still ee06f990 (fetched 2026-11-27 10:4x and 12:0x): no merge needed. Diff 23 files, +142/-48 at
-  1b546b1d: review loop until a round has no P1/P2, then fix the P3/P4 of the last round.
+- origin/main was ee06f990 at 10:4x; it moved to 189fc00c (fix/error-review-20261126 merge) at 12:03, which the plan
+  missed (review 3). Merged in bcc75978 (conflict only in this file, both sections kept). Review loop until a round has no
+  P1/P2, then fix the P3/P4 of the last round.
 
 ## Review (this branch)
 - Round 1 (review-guard-1, head dd49aadd): P1 0, P2 0, P3 1, P4 2. Fixed in 1b546b1d: tether/FEATURES.md said that Tether
@@ -37,6 +38,16 @@ approval: merge into main after a clean review. Not in scope: live copy, release
   browser-assistant-answers PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5 and FOLDED_REPLIES=all on 0.2.2-rc.5.
 - Round 2 (review-guard-2, head 1b546b1d): P1 0, P2 0, P3 0, P4 2. Fixed in the next commit: this plan (stale lines) and
   the `about` text of test/fixtures/quiet-replies.json (names hushedRowKeys and assistant-subagent-rows as readers).
+- Round 3 (review-guard-3, head 9f715ba0): P1 0, P2 0, P3 1, P4 2. Fixed in the next commit:
+  1. P3: the Host's quietRun still counts a hidden "gave it to a subagent" text as news (green dot, desktop notification,
+     Tether badge). Not new in this branch: main's reply cards (replyCardsOf) and Tether's botLines already hid that text.
+     Not changed (a Host rule change is outside Furkan's request); written as an accepted limit: docs/features.json
+     assistantChatView llms, tether/FEATURES.md assistantChatView row, a ponytail note at index.js runTexts.
+  2. P4: a news turn whose every text is hidden kept its news note (dsh's Verbose work details). Now newsRowKeys gets the
+     same quietTurnSet(chat, hidden) as the cap; assistant-subagent-rows turn 27 (red on 9f715ba0's client.js).
+  3. P4: origin/main moved to 189fc00c at 12:03: merged in bcc75978 (conflict only in this file, both sections kept).
+- Last passing (round-3 fixes): `npm test` exit 0; browser-assistant-answers PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5
+  and FOLDED_REPLIES=all on 0.2.2-rc.5. iOS not run again (no Swift change after 1b546b1d: 130 tests, 0 failures).
 - Open steps: one more review round on the final diff (merge only on a clean round); fetch, merge origin/main if it moved,
   tests; merge --no-ff into main, push, CI. Screen did not change in the review fixes (cap count and docs only): no new
   screenshots. No live copy, release, npm publish, DSH restart.

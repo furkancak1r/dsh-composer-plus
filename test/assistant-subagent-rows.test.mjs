@@ -255,12 +255,15 @@ stores.set('s-news', storeOf([
   news('25:note', 25), step('25:1', 25, 1, 'Checking.', 'tool'), step('25:2', 25, 2, '[quiet]'),
   // A [quiet] text sent with a tool call, then [quiet]: every text is quiet, so the note goes (quietRun says quiet too).
   news('26:note', 26), step('26:1', 26, 1, '[quiet]', 'tool'), step('26:2', 26, 2, '[quiet]'),
+  // Review 3: the same text in an ended turn whose closing answer is only [quiet] is hidden (hushedRowKeys), so the turn
+  // shows nothing and its note goes too (dsh's Verbose work details draw the note outside the hidden process).
+  news('27:note', 27), ...ended(27, step('27:1', 27, 1, 'Gave it to a subagent.', 'tool'), step('27:2', 27, 2, '[quiet]')),
 ]));
 open = 's-news'; id = 's-news';
 const newsView = mount(() => ({ status, chatOf, t: (k) => k }));
 out = newsView.render();
 const newsRule = (key) => rule(key, 's-news');
-for (const key of ['20:note', '22:trig', '20:1', '22:1', '23:2', '24:note', '25:2', '26:note', '26:1', '26:2']) assert.ok(css().includes(`${newsRule(key)},`) || css().includes(`${newsRule(key)} {`), `${key} goes with the quiet turn`);
+for (const key of ['20:note', '22:trig', '20:1', '22:1', '23:2', '24:note', '25:2', '26:note', '26:1', '26:2', '27:note', '27:1', '27:2']) assert.ok(css().includes(`${newsRule(key)},`) || css().includes(`${newsRule(key)} {`), `${key} goes with the quiet turn`);
 for (const key of ['21:note', '21:1', '20:time', '23:note', '23:1', '25:note']) assert.ok(!css().includes(`${newsRule(key)},`) && !css().includes(`${newsRule(key)} {`), `${key} stays`);
 newsView.unmount();
 console.log('assistant subagent rows: ok');

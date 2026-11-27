@@ -11648,7 +11648,10 @@ export function quietTurn(events, reply) {
 export const quietReply = (text) => /^\[quiet\]$/i.test(String(text ?? '').trim());
 /** The texts of a run (its events from index `from`: running → idle, one or more turns), oldest first, trimmed, not empty.
  * Every text counts, also one sent with a tool call: dsh's default (foldedReplies: all) shows it in the chat (measured on
- * dsh 0.2.2-rc.5). A text that a rollback withdrew does not count. */
+ * dsh 0.2.2-rc.5). A text that a rollback withdrew does not count.
+ * ponytail: in a turn that ends with only `[quiet]`, the Assistant chat view and the reply cards hide such a text that asks
+ * nothing (client.js hushedRowKeys, replyCardsOf), but it still counts here (green dot, desktop notification). Upgrade:
+ * the hushed rule (test/fixtures/quiet-replies.json `hushed`) here and in Tether, when the owner wants that run quiet. */
 const runTexts = (events, from) => {
   const own = events.slice(from); const gone = withdrawn(own);
   return own.filter((e) => e.type === 'assistant/message' && !gone(e.seq)).map((e) => textBlocks(e.data?.message?.content).trim()).filter((t) => t !== '');

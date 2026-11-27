@@ -2984,7 +2984,8 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
     /** The quiet turns of the drawn window (their numbers as text): each step with text is quiet (quietStep), and there is
      * at least one. The Host's quietRun has the same rule (also for a text sent with a tool call; test/quiet-replies.test.mjs
      * runs both on one table). No trace of such a turn stays: its rows, its news note, its place in the 8-turn cap.
-     * `hidden` (node keys, for the cap only): a step with one of these keys counts as quiet too (hushedRowKeys). */
+     * `hidden` (node keys; only AssistantChatView's cap and news note): a step with one of these keys counts as quiet too
+     * (hushedRowKeys). The Host's quietRun does not know them (docs/features.json assistantChatView). */
     const quietTurnSet = (chat, hidden) => {
       const quiet = new Map(); // turn → each of its steps with text is quiet
       for (const n of chat?.nodes?.values?.() ?? []) {
@@ -3155,9 +3156,10 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
         const same = (keys) => (prev) => (prev.length === keys.length && prev.every((k, i) => k === keys[i]) ? prev : keys);
         if (source === undefined) { setQuiet(same([])); setAnswers(same([])); setQuietTails(same([])); setQuietTurns(same([])); return undefined; }
         const read = () => {
-          const chat = source.getSnapshot(); const turnsQuiet = quietTurnSet(chat); const hushed = hushedTurns(chat); const hushedRows = hushedRowKeys(chat, hushed);
+          const chat = source.getSnapshot(); const hushed = hushedTurns(chat); const hushedRows = hushedRowKeys(chat, hushed);
+          const turnsQuiet = quietTurnSet(chat, new Set(hushedRows)); // also a hushed turn whose every text is hidden
           setQuiet(same([...subagentRowKeys(chat), ...quietRowKeys(chat), ...newsRowKeys(chat, turnsQuiet), ...hushedRows])); setAnswers(same(answerRowKeys(chat)));
-          setQuietTails(same([...hushed])); setQuietTurns(same([...quietTurnSet(chat, new Set(hushedRows))].sort()));
+          setQuietTails(same([...hushed])); setQuietTurns(same([...turnsQuiet].sort()));
         };
         read();
         return source.subscribe(read);
