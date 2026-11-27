@@ -932,7 +932,8 @@ struct ConversationView: View {
     }
 
     /// The Damon chat's rows: only your messages, the replies and errors while Assistant messages only is on.
-    private var damonLines: [Line] { c.assistantMessagesOnly && c.current != nil && c.current == c.botId ? botLines(c.transcript) : c.transcript }
+    private var damonLines: [Line] { messagesOnly ? botLines(c.transcript) : c.transcript }
+    private var messagesOnly: Bool { c.assistantMessagesOnly && c.current != nil && c.current == c.botId }
 
     /// Damon reply cards: "N unread" and Mark all as read (the Mac's feed header), above the chat while a card is New.
     private func unreadBar(_ sid: String, count: Int, top: Int) -> some View {
@@ -986,7 +987,8 @@ struct ConversationView: View {
                 // between `---` lines, `replySections`) and each failed turn is a card with its buttons, in time order (the
                 // newest at the bottom, where the chat opens and follows). A New card has a blue edge and the New label; the
                 // newest New card has a shadow; a tap on it or on one of its buttons reads it.
-                if damon, l.kind == .assistant {
+                // A text that a stop cut is a plain row with its Stopped mark, as dsh's chat draws it (no card: 2026-11-27).
+                if damon, l.kind == .assistant, !l.interrupted {
                     let parts = replySections(l.text)
                     let ids = isCardLine(l) ? l.seq.map { replyCardIDs(seq: $0, parts: parts.count) } : nil // a `[quiet]` reply is never New
                     VStack(alignment: .leading, spacing: 14) {
@@ -1033,8 +1035,9 @@ struct ConversationView: View {
     @ViewBuilder private func lineContent(_ l: Line, approval: (offer: ApprovalOffer, at: Int)?, part: String? = nil, last: Bool = true, unread: Bool = false) -> some View {
         let onay = approval.flatMap { o in o.offer.from == l.seq && o.at == l.seq ? Set(o.offer.sentences) : nil } ?? []
         let options = last && l.kind == .assistant && c.optionOffer.map { $0.seq == l.seq } == true && text.isEmpty && images.isEmpty && files.isEmpty
+        // A cut text's own Stopped mark only where botLines dropped the turn row (that row says Stopped elsewhere: review 2).
         LineView(line: l, onEdit: { put($0, focus: true) }, onQuote: { put(quoteDraft(text, $0), focus: true) }, onRollback: canRollBack(l) ? { rollingBack = l } : nil,
-                 onayButtons: onay, card: part != nil, part: part, unread: unread, optionButtons: options)
+                 onayButtons: onay, card: part != nil, part: part, unread: unread, optionButtons: options, stopped: l.interrupted && messagesOnly)
         // Option buttons (Composer Plus): under the answer that ends with an option list.
         if options, let o = c.optionOffer { OptionButtons(offer: o) }
         // Approve button (Composer Plus): under the answer with the newest `onay` block (in a split reply, its topic).
@@ -1754,6 +1757,8 @@ struct LineView: View {
     var unread = false
     /// The option buttons show under this answer: the answer hides its numbered list (Mac optionPicks, 2026-11-23).
     var optionButtons = false
+    /// A text that a stop cut, in the Damon chat with Assistant messages only (no turn row there): its Stopped mark.
+    var stopped = false
     @State private var open = false
     @State private var copied = false
     @State private var selecting = false
@@ -1815,6 +1820,7 @@ struct LineView: View {
                     VStack(alignment: .leading, spacing: 4) { ForEach(head.options, id: \.n) { o in Text(verbatim: "\(o.n). \(o.label)") } }
                         .font(.subheadline).foregroundStyle(.secondary).textSelection(.enabled)
                 }
+                if stopped { Text(String(localized: "Stopped")).font(.caption).foregroundStyle(.secondary) }
                 if !live {
                     Button {
                         UIPasteboard.general.string = part ?? line.text; UIImpactFeedbackGenerator(style: .light).impactOccurred()

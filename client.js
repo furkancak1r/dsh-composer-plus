@@ -3018,7 +3018,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
      * result ("I gave it to a subagent"), so it stays hidden, as in a hushed turn without a denial. dsh's tool-call node
      * holds the call's result as its `root` (kind `tool-result`, `seq`, the message `content`) and the turn in its location
      * (dsh 0.2.0-0.2.2). */
-    const deniedQuietTurns = (chat, hushed = hushedTurns(chat)) => {
+    const deniedQuietTurns = (chat, hushed) => {
       const out = new Map();
       if (hushed.size === 0) return out;
       for (const n of chat?.nodes?.values?.() ?? []) {
@@ -3028,26 +3028,37 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       }
       return out;
     };
-    /** A step of a hushed turn that comes after its first denied result (deniedQuietTurns). */
-    const afterDenial = (denied, n) => n.data.finalNode?.seq > denied.get(n.data.turn);
+    /** A result line (2026-11-27, Furkan: "kalın başlıklı sonuç metni kart olsun"): a text whose first line starts bold, the
+     * first line of the reply form. Tether's resultText (one table: test/fixtures/quiet-replies.json `hushed`).
+     * ponytail: bold is the only mark, so a bold progress note ("**Alt ajana verdim.**" with a tool call, against the prompt's
+     * small-task rule) is a card too; such a card gives no Tether push (damonPushWords: the turn's last text is `[quiet]`).
+     * Upgrade: a result mark of its own in the reply form, if Furkan wants these apart. */
+    const resultText = (text) => /^\s*(\*\*|__)(?=\S)(.+?)(?<=\S)\1/.test(String(text ?? ''));
+    /** The texts sent with a tool call that a hushed turn (hushedTurns) shows: one after the turn's first denied result
+     * (deniedQuietTurns), or a result line (resultText). `(n, text) => boolean` for a step node and its text. */
+    const hushedShown = (chat, hushed = hushedTurns(chat)) => {
+      const denied = deniedQuietTurns(chat, hushed);
+      return (n, text) => hushed.has(n.data.turn) && (n.data.finalNode?.seq > denied.get(n.data.turn) || resultText(text));
+    };
     /** The texts sent with a tool call in a hushed turn that are no card (Furkan, 2026-11-27: "sessiz turda Damon sohbetindeki
      * 'alt ajana verdim' gibi ara satırlar da gizlensin"): dsh's default foldedReplies: all draws each of them. The denial
-     * line (afterDenial) and a text that asks you (asksYou) stay, as their cards do; after the turn's end Tether's botLines
-     * shows the same lines (one table: test/fixtures/quiet-replies.json `hushed`). A running turn is not hushed: its rows
-     * show until it ends (Furkan, 2026-11-27). Tether hides them already while the turn runs (tether/FEATURES.md, gaps). */
+     * line and a result line (hushedShown) and a text that asks you (asksYou) stay, as their cards do; after the turn's end
+     * Tether's botLines shows the same lines (one table: test/fixtures/quiet-replies.json `hushed`). A running turn is not
+     * hushed: its rows show until it ends (Furkan, 2026-11-27). Tether hides them already while the turn runs
+     * (tether/FEATURES.md, gaps). */
     const hushedRowKeys = (chat, hushed = hushedTurns(chat)) => {
       if (hushed.size === 0) return [];
-      const denied = deniedQuietTurns(chat, hushed);
+      const shown = hushedShown(chat, hushed);
       return [...(chat?.nodes?.values?.() ?? [])].filter((n) => n?.kind === 'assistant-step' && Array.isArray(n.data?.blocks) && hushed.has(n.data.turn)
-        && n.data.blocks.some((b) => b?.kind === 'tool-call') && hasText(n) && !quietStep(n) && !afterDenial(denied, n) && !asksYou(answerText(n.data.blocks))).map((n) => n.key);
+        && n.data.blocks.some((b) => b?.kind === 'tool-call') && hasText(n) && !quietStep(n) && !shown(n, answerText(n.data.blocks)) && !asksYou(answerText(n.data.blocks))).map((n) => n.key);
     };
-    /** Also a text sent with a tool call after a denial in a hushed turn (afterDenial). */
+    /** Also a text sent with a tool call that a hushed turn shows (hushedShown). */
     const answerRowKeys = (chat) => {
       const steps = [...(chat?.nodes?.values?.() ?? [])].filter((n) => n?.kind === 'assistant-step' && Array.isArray(n.data?.blocks));
       const last = new Map(); for (const n of steps) last.set(n.data.turn, Math.max(last.get(n.data.turn) ?? -Infinity, n.data.step));
-      const denied = deniedQuietTurns(chat);
+      const shown = hushedShown(chat);
       return steps.filter((n) => n.data.step < last.get(n.data.turn) && n.data.blocks.some(replyBlock)
-        && (afterDenial(denied, n) || !n.data.blocks.some((b) => b?.kind === 'tool-call')) && !quietStep(n)).map((n) => n.key);
+        && (!n.data.blocks.some((b) => b?.kind === 'tool-call') || shown(n, answerText(n.data.blocks))) && !quietStep(n)).map((n) => n.key);
     };
     /** The assistant chat shows only its newest ASSISTANT_TURNS turns at first: the older rows that dsh drew (its window
      * can hold many turns of a long assistant chat) get `display: none`, and a button above the rows shows them all. The
@@ -4643,7 +4654,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
     const replyMemo = new WeakMap();
     /** The cards of a chat snapshot (dsh's chat nodes): `{ kind: 'reply', seq, turn, time, text }` for each settled reply
      * that the chat shows (a step with text and no tool call, its turn's closing answer, or any text in an ended turn whose
-     * closing answer is only `[quiet]`, after a result that Auto review denied: afterDenial), not only `[quiet]` and not in
+     * closing answer is only `[quiet]`, after a result that Auto review denied or a result line: hushedShown), not only `[quiet]` and not in
      * a quiet turn; `{ kind: 'error', seq, turn, time, message }` for each failed turn. In seq order. */
     const NO_SPANS = Object.freeze([]);
     /** The failure codes that dsh's chat shows with its own text (dsh-client-ui-chat MessageItem `failureMessage`, namespace
@@ -4666,7 +4677,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       if (hit !== undefined && hit.withdrawn === withdrawn && hit.inherited === inherited) return hit.cards;
       const closing = new Map(); const nodes = [...(chat?.nodes?.values?.() ?? [])];
       for (const n of nodes) if (n?.kind === 'turn-tail' && Number.isSafeInteger(n.data?.closing?.finalNode?.seq)) closing.set(n.data.turn, n.data.closing.finalNode.seq);
-      const quiet = quietTurnSet(chat); const cards = []; const denied = deniedQuietTurns(chat);
+      const quiet = quietTurnSet(chat); const cards = []; const shown = hushedShown(chat);
       const kept = (seq) => seq >= inherited && !inSpans(withdrawn, seq);
       for (const n of nodes) {
         if (n?.kind === 'assistant-step' && n.data?.status === 'settled' && Array.isArray(n.data.blocks)) {
@@ -4674,7 +4685,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
           if (!Number.isSafeInteger(seq) || text.trim() === '' || quietText(text) || quiet.has(String(n.data.turn)) || !kept(seq)) continue;
           // Text next to a tool call (not the turn's closing answer) is mostly a "looking at it" line: a card only when it
           // asks you for something (an approval, options, a "Senden:" line), which dsh 0.2.2 shows in the hidden chat (review 2).
-          if (n.data.blocks.some((b) => b?.kind === 'tool-call') && closing.get(n.data.turn) !== seq && !asksYou(text) && !afterDenial(denied, n)) continue;
+          if (n.data.blocks.some((b) => b?.kind === 'tool-call') && closing.get(n.data.turn) !== seq && !asksYou(text) && !shown(n, text)) continue;
           // One card per topic (Furkan, 2026-11-26): a `---` line splits the reply; `key` names the part, `last` holds the options.
           // `id` is the read id (Furkan, 2026-11-26: "farklı okundular gelmesi lazım"): each part of a split reply has its own
           // ("seq:i"); a reply without `---` keeps its seq, so the read marks saved before stay valid.

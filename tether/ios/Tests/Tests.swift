@@ -1887,6 +1887,46 @@ final class AgentboxIdeasTests: XCTestCase {
         try XCTUnwrap(img.pngData()).write(to: URL(fileURLWithPath: dir).appendingPathComponent(ProcessInfo.processInfo.environment["SHOT_NAME"] ?? "tether-damon-quiet.png"))
     }
 
+    /// Duplicate cards (2026-11-27, made-up data, Turkish words): a reply that a DSH quit cut, the resumed reply, and a
+    /// result line next to a tool call in a turn that ends with `[quiet]`. It also checks botLines and replyCards on this
+    /// replay (more in testCutTextIsNoCard and testHushedTurnsMatchTheMac). With SHOT_DIR set (TEST_RUNNER_SHOT_DIR, TEST_RUNNER_SHOT_NAME),
+    /// it writes the screen as a PNG.
+    @MainActor func testDuplicateCardScreen() throws {
+        let c = Client(), strings = uiStrings
+        c.macLang = "tr"; defer { c.macLang = nil; uiStrings = strings }
+        c.plus = ["assistant-todos", "assistant-status"]; c.setAssistantIdForTest("damon")
+        c.sessions = [Sess(["sessionId": "damon", "projections": ["values": ["title": "Damon"]]])!]
+        c.state = .connected; c.current = "damon"; c.path = ["damon"]
+        let say = { (seq: Int, text: String, tool: Bool, cut: Bool) -> [J] in
+            var e: [J] = [["type": "assistant/message", "seq": seq, "time": 1_764_140_000_000 + seq * 60_000, "data": ["interrupted": cut, "message": ["content": [["type": "text", "text": text]] + (tool ? [["type": "tool-call", "id": "c\(seq)", "name": "bash"]] : [])]]]]
+            if tool { e.append(["type": "tool/call", "seq": seq + 1, "data": ["callId": "c\(seq)", "name": "bash", "arguments": ["command": "ls"]]]) }
+            return e
+        }
+        let start = { (seq: Int, kind: String, text: String) -> [J] in [["type": "turn/start", "seq": seq, "data": J()], ["type": "user/message", "seq": seq + 1, "data": ["content": text, "source": ["kind": kind]]]] }
+        let end = { (seq: Int, kind: String) -> J in ["type": "turn/end", "seq": seq, "data": ["reason": ["kind": kind]]] }
+        c.replaySnapshot(turn(1, "Bugün ne var?", "**Sabah özeti hazır.** İki iş bitti.")
+            + start(10, "user", "acme-web yedeği ne durumda?") + say(12, "**acme-web yedeği bitti.** Yedek 02:10'da alın", false, true) + [end(13, "aborted")]
+            + start(20, "composer-plus-resume", "Continue.") + say(22, "**acme-web yedeği bitti.** Yedek 02:10'da alındı; senden bir şey gerekmiyor.", false, false) + [end(23, "completed")]
+            + start(30, "composer-plus-assistant-news", "news") + say(32, "[quiet]", true, false) + say(34, "**Mail gönderildi.** Haftalık rapor Ayşe'ye gitti.", true, false)
+            + say(36, "[quiet]", false, false) + [end(37, "completed")])
+        // Review 2: a real replay with tool calls and a cut text through botLines: the cut text is a row, not a card.
+        let lines = botLines(c.transcript)
+        XCTAssertEqual(lines.filter { $0.kind == .assistant }.compactMap(\.seq), [3, 12, 22, 34], "the cut text stays as a row")
+        XCTAssertEqual(lines.filter(\.interrupted).compactMap(\.seq), [12])
+        XCTAssertEqual(replyCards(lines).map(\.id), ["3", "22", "34"], "one card for the resumed reply, one for the result line")
+        c.replyMarks["damon"] = ReplyMark(floor: 3, read: [])
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let w = UIWindow(windowScene: scene)
+        defer { w.isHidden = true }
+        w.overrideUserInterfaceStyle = .light
+        w.rootViewController = UIHostingController(rootView: NavigationStack { ConversationView() }.environmentObject(c).environment(\.locale, Locale(identifier: "tr_TR")))
+        w.makeKeyAndVisible(); RunLoop.main.run(until: Date().addingTimeInterval(2))
+        guard let dir = ProcessInfo.processInfo.environment["SHOT_DIR"], !dir.isEmpty else { return }
+        let img = UIGraphicsImageRenderer(bounds: w.bounds).image { _ in _ = w.drawHierarchy(in: w.bounds, afterScreenUpdates: true) }
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        try XCTUnwrap(img.pngData()).write(to: URL(fileURLWithPath: dir).appendingPathComponent(ProcessInfo.processInfo.environment["SHOT_NAME"] ?? "tether-cift-kart.png"))
+    }
+
     /// Damon reply cards: the title and the For you line as client.js replyParts (test/fixtures/reply-titles.json); the
     /// card's body keeps the rest (the Approve and option buttons read the whole reply).
     func testReplyTitleMatchesTheMac() throws {
@@ -2899,7 +2939,7 @@ final class QuietReplyTests: XCTestCase {
         }
     }
     /// A turn that ends with only `[quiet]`: a text sent with a tool call shows only after the turn's first Auto review
-    /// denial (client.js afterDenial; one table: quiet-replies.json `hushed`, also read by test/reply-cards.test.mjs).
+    /// denial or when it is a result line (client.js hushedShown; one table: quiet-replies.json `hushed`, also read by test/reply-cards.test.mjs).
     func testHushedTurnsMatchTheMac() throws {
         let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../test/fixtures/quiet-replies.json")
         let h = try XCTUnwrap((try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? J)?["hushed"] as? J)
@@ -2927,6 +2967,24 @@ final class QuietReplyTests: XCTestCase {
         let running = done + [Line(kind: .user, text: "copy it"), Line(kind: .assistant, text: "Kopyalıyorum, alt ajana verdim."), Line(kind: .tool, text: "bash", output: denials[1], failed: true),
                               Line(kind: .assistant, text: "Senden: portu aç."), Line(kind: .tool, text: "bash"), Line(kind: .assistant, text: "Bakıyorum.")]
         XCTAssertEqual(botLines(running).map(\.text), ["news", "Bitti.", "copy it", "Senden: portu aç.", "Bakıyorum."])
+        // 2026-11-27: a result line (bold first line) with a tool call in the running turn also waits for the turn's end.
+        XCTAssertEqual(botLines(done + [Line(kind: .assistant, text: "**Mail gönderildi.** Ali'ye gitti."), Line(kind: .tool, text: "bash")]).map(\.text), ["news", "Bitti."])
+    }
+    /// Duplicate cards (2026-11-27): dsh logs the text that a stop or a DSH quit cut as `assistant/message` with
+    /// `interrupted: true`; Resume then writes the whole reply. The cut text is a plain row (the Mac's chat draws it with
+    /// its Stopped mark), not a card, so the reply has one card (client.js replyCardsOf takes only settled steps).
+    @MainActor func testCutTextIsNoCard() {
+        let c = Client(); c.setAssistantIdForTest("damon"); c.current = "damon"
+        let text = { (seq: Int, t: String, cut: Bool) -> J in
+            ["type": "assistant/message", "seq": seq, "time": 1_764_140_000_000 + seq * 1000, "data": ["message": ["content": [["type": "text", "text": t]]], "interrupted": cut]] }
+        c.replaySnapshot([["type": "turn/start", "seq": 1, "data": J()], ["type": "user/message", "seq": 2, "data": ["content": "prosogutma?", "source": ["kind": "user"]]],
+                          text(3, "**prosogutma bitti.** Rap", true), ["type": "turn/end", "seq": 4, "data": ["reason": ["kind": "aborted", "reason": ["kind": "disposed"]]]],
+                          ["type": "turn/start", "seq": 5, "data": J()], ["type": "user/message", "seq": 6, "data": ["content": "Continue.", "source": ["kind": "composer-plus-resume"]]],
+                          text(7, "**prosogutma bitti.** Rapor hazır.", false), ["type": "turn/end", "seq": 8, "data": ["reason": ["kind": "completed"]]]])
+        let lines = botLines(c.transcript)
+        XCTAssertEqual(lines.filter { $0.kind == .assistant }.compactMap(\.seq), [3, 7], "the cut text stays as a row")
+        XCTAssertEqual(replyCards(lines).map(\.id), ["7"], "one card: the resumed reply")
+        XCTAssertEqual(replyCards(chatRows(lines, open: [], running: false)).map(\.id), ["7"])
     }
     /// The push rule keeps its empty-reply case; a failed turn is never quiet.
     func testQuietTurn() {

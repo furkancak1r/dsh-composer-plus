@@ -105,6 +105,14 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
     nodes.push(tail(ti + 1, seq - 1));
     assert.deepEqual(replyCardsOf(chatOf(nodes)).map((c) => c.text), t.shown, `hushed table: ${JSON.stringify(t.steps)}`);
   }
+  // 2026-11-27 (duplicate cards): a text that a stop or a DSH quit cut (dsh's node status `interrupted`) is no card; the
+  // resumed turn's whole text is the one card (Tether's isCardLine has the same rule).
+  const cut = chatOf([step(1, 0, 10, [txt('**prosogutma bitti.** Rap')], 'interrupted'), step(2, 0, 20, [txt('**prosogutma bitti.** Rapor hazır.')]), tail(2, 20)]);
+  assert.deepEqual(replyCardsOf(cut).map((c) => c.seq), [20], 'a cut text is no card: one card for the resumed reply');
+  // A result line (bold first line) next to a tool call in a hushed turn is a card; a running turn waits for its end.
+  const mailed = chatOf([step(1, 0, 10, [txt('**Mail gönderildi.** Ali\'ye gitti.'), tool]), step(1, 1, 11, [txt('[quiet]'), tool])]);
+  assert.deepEqual(replyCardsOf(mailed).map((c) => c.seq), [], 'a running turn: no card for its result line yet');
+  assert.deepEqual(replyCardsOf(chatOf([...mailed.nodes.values(), step(1, 2, 12, [txt('[quiet]')]), tail(1, 12)])).map((c) => c.seq), [10], 'after the turn ends with [quiet]: the result line is a card');
   // Review 5: a Senden line with an image (it stays in the body, review 4) still asks you: a card next to a tool call.
   const askImg = chatOf([step(1, 0, 10, [txt('Senden: şu ekrana bak ![Ekran](</a/b.png>)'), tool]), step(1, 1, 12, [txt('Bitti.')]), tail(1, 12)]);
   assert.deepEqual(replyCardsOf(askImg).map((c) => c.seq), [10, 12], 'a Senden line with an image next to a tool call is a card');
@@ -382,7 +390,7 @@ const chatOf = (nodes) => ({ nodes: new Map(nodes.map((n) => [n.key, n])) });
   for (const c of cases) { const p = replyParts(c.text); assert.deepEqual([p.title, p.forYou], [c.title, c.forYou], c.name); }
   const core = read('tether/ios/Sources/Core.swift'), ui = read('tether/ios/Sources/UI.swift');
   assert.match(core, /func replyHead\(_ text: String\) -> ReplyHead/, 'the Swift port');
-  assert.match(ui, /if damon, l\.kind == \.assistant \{\s*let parts = replySections\(l\.text\)/, 'Tether: the Damon chat draws one card per topic of a reply');
+  assert.match(ui, /if damon, l\.kind == \.assistant, !l\.interrupted \{\s*let parts = replySections\(l\.text\)/, 'Tether: the Damon chat draws one card per topic of a reply, not for a text that a stop cut');
   assert.match(ui, /\} else if damon, l\.kind == \.error \{\n\s*replyCard\(/, 'Tether: a failed turn is a card');
   assert.match(core, /func replySections\(_ text: String\) -> \[String\]/, 'Tether: the split port (testReplySectionsMatchTheMac)');
   assert.match(ui, /let options = last && l\.kind == \.assistant && c\.optionOffer/, 'Tether: the options under the last topic');

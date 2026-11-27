@@ -187,6 +187,8 @@ stores.set('s-quiet', storeOf([
   ...ended(17, step('17:0', 17, 0, 'Copying, gave it to a subagent.', 'tool'), step('17:1', 17, 1, 'Auto review denied bash.', 'tool'), step('17:2', 17, 2, '\n[quiet] ')), denied(17, 1700),
   ...ended(18, step('18:1', 18, 1, '[quiet]', 'tool'), step('18:2', 18, 2, '[quiet]')), denied(18, 1800),
   ...ended(20, step('20:1', 20, 1, 'Gave it to a subagent.', 'tool'), step('20:2', 20, 2, '[quiet]')),
+  // 2026-11-27: a result line (its first line starts bold) with a tool call in a hushed turn shows, without a denial too.
+  ...ended(21, step('21:1', 21, 1, '**Mail sent.** It went to Ali.', 'tool'), step('21:2', 21, 2, '[quiet]')),
   // A running turn (no tail yet) whose newest text is [quiet]: its real answer can still come, so its looking line stays hidden.
   step('19:1', 19, 1, 'Checking.', 'tool'), step('19:2', 19, 2, '[quiet]', 'tool'),
 ]));
@@ -202,6 +204,7 @@ assert.ok(css().includes(`${quietRule('17:1')}:not(`), 'a text with a tool call 
 assert.ok(!css().includes(`${quietRule('17:0')}:not(`), 'the denied call\'s own text (before its result) stays folded');
 assert.ok(!css().includes(`${quietRule('18:1')}:not(`), 'a [quiet] text with a tool call in a hushed turn is not shown again');
 assert.ok(!css().includes(`${quietRule('20:1')}:not(`), 'a looking line in a hushed turn without a denial stays hidden');
+assert.ok(css().includes(`${quietRule('21:1')}:not(`), 'a result line (bold first line) with a tool call in a hushed turn shows');
 assert.ok(!css().includes(`${quietRule('19:1')}:not(`), 'a running turn: its looking line stays hidden until the turn ends');
 assert.ok(css().includes(`${quietRule('13:2')},`) || css().includes(`${quietRule('13:2')} {`), 'the quiet last step is hidden');
 // The tail of a turn that ends quiet: only its Copy/time row goes (the tail keeps the Approve and option buttons).
@@ -233,7 +236,9 @@ for (const [chat, done] of [['s-table', true], ['s-table-running', false]]) {
   const tableView = mount(() => ({ status, chatOf, t: (k) => k })); out = tableView.render();
   const hidden = hiddenKeys(chat);
   table.turns.forEach((t, ti) => t.steps.forEach(([text], i) => {
-    const want = done ? !t.shown.includes(text) : /^\[quiet\]$/i.test(text.trim());
+    // A turn of the table that ends with a real answer is not hushed: this view hides only its [quiet] texts (dsh folds the rest).
+    const hushedTurn = /^\[quiet\]$/i.test(t.steps.at(-1)[0].trim());
+    const want = done && hushedTurn ? !t.shown.includes(text) : /^\[quiet\]$/i.test(text.trim());
     assert.equal(hidden.has(`${30 + ti}:${i}`), want, `${done ? 'ended' : 'running'} hushed table: ${JSON.stringify(text)} in ${JSON.stringify(t.steps)}`);
   }));
   tableView.unmount();

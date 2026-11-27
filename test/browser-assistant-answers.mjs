@@ -27,7 +27,7 @@ const REPLIES = ['Promes is fine.', 'GIB has no code.', 'Second result.'];
 const HIDDEN = ['RELAY-ONE from the subagent', 'RELAY-TWO from the subagent', 'chats_list'];
 const QUIET = '[quiet]'; // turn 3: a news turn whose reply is only [quiet] (the assistant has nothing to say): hidden
 // Turn 3's news note goes with its quiet reply; turn 4 is a news turn with a real reply: its note and reply stay as dsh draws them.
-const NEWS = ['[Composer Plus → Assistant news] QUIET-NEWS acme finished.', '[Composer Plus → Assistant news] LOUD-NEWS deploy failed.', '[Composer Plus → Assistant news] DENY-NEWS a copy ended.', '[Composer Plus → Assistant news] LOOK-NEWS a check ended.'];
+const NEWS = ['[Composer Plus → Assistant news] QUIET-NEWS acme finished.', '[Composer Plus → Assistant news] LOUD-NEWS deploy failed.', '[Composer Plus → Assistant news] DENY-NEWS a copy ended.', '[Composer Plus → Assistant news] LOOK-NEWS a check ended.', '[Composer Plus → Assistant news] RESULT-NEWS a mail task ended.'];
 const NEWS_ANSWER = 'The acme deploy failed: the login test is red.';
 // Turn 5 (2026-11-27), in the real order (review 4): a "gave it to a subagent" line with the call that Auto review denies
 // (dsh's own denial text), then the denial line with another tool call, then [quiet]: the denial line is for you and
@@ -37,6 +37,13 @@ const DENY = 'Auto review denied bash: it writes to the live server.';
 const LOOK = 'LOOK-LINE gave the check to a subagent.';
 const STARTED = 'STARTED-LINE copying, gave it to a subagent.';
 const AUTO_DENIED = 'Error: Auto review rejected tool "chats_list"; its body was not executed';
+// Duplicate cards (2026-11-27): turn 7 is cut by a DSH quit (dsh logs the partial text with `interrupted: true` and ends
+// the turn `aborted`, cause `disposed`); Resume writes turn 8 with the whole reply. The cut text shows in the chat as dsh
+// draws it (with its Stopped mark) and is no card: one card for the reply. Turn 9 ends with [quiet], and its result line
+// (bold first line) next to a tool call shows in the chat and as a card.
+const CUT = 'CUT-LINE the prosogutma check is hal';
+const RESUMED = '**RESUMED-LINE the prosogutma check is done.** The report is in the folder.';
+const RESULT = '**RESULT-LINE the mail went out.** Ali has it.';
 const SHOTS = process.env.SHOTS; const TAG = process.env.TAG ? `-${process.env.TAG}` : ''; const BEFORE = process.env.BEFORE === '1';
 /** SHOTS=<folder>: the page as `<name><TAG>.png` (damon-sohbet: the chat shown; damon-kartlar: the cards); never replaces a
  * file. BEFORE=1: only the two shots, no checks (for a client.js before the 2026-11-27 fix). */
@@ -100,6 +107,18 @@ function chatLog(sid, cwd) {
   newsTurn(4, NEWS[1], NEWS_ANSWER);
   newsTurn(5, NEWS[2], ` ${QUIET}\n`, [[STARTED, AUTO_DENIED], [DENY, ok]]);
   newsTurn(6, NEWS[3], QUIET, [[LOOK, ok]]);
+  { // turn 7: cut by a DSH quit; turn 8: Resume's hidden note and the whole reply
+    const resume = msg('The previous turn stopped before it finished. Continue the task.', { kind: 'composer-plus-resume', form: 'snapshot' });
+    const ask7 = msg('prosogutma durumu?', { kind: 'user' });
+    lines.push(ev('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [ask7] }), ev('turn/start', { turn: 7 }),
+      ev('agent/inbox/spliced', { target: 'next-turn', start: 0, removedCount: 1, inserted: [] }), ev('step/start', { turn: 7, step: 1 }), ev('user/message', ask7, { surfaceOp: 'append' }));
+    lines.push(ev('assistant/message', { turn: 7, step: 1, interrupted: true, message: { role: 'assistant', content: [{ type: 'text', text: CUT }], source: { kind: 'model', provider: 'demo', model: 'demo' }, id: randomUUID() }, stream: [] }, { surfaceOp: 'append' }),
+      ev('step/end', { turn: 7, step: 1 }), ev('turn/end', { turn: 7, reason: { kind: 'aborted', reason: { kind: 'disposed' } } }));
+    lines.push(ev('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [resume] }), ev('turn/start', { turn: 8 }),
+      ev('agent/inbox/spliced', { target: 'next-turn', start: 0, removedCount: 1, inserted: [] }), ev('step/start', { turn: 8, step: 1 }), ev('user/message', resume, { surfaceOp: 'append' }),
+      reply(8, 1, [{ type: 'text', text: RESUMED }]), ev('step/end', { turn: 8, step: 1 }), ev('turn/end', { turn: 8, reason: { kind: 'completed' } }));
+  }
+  newsTurn(9, NEWS[4], QUIET, [[RESULT, ok]]);
   // dsh wants the header line alone in the first zstd frame.
   return Buffer.concat([zlib.zstdCompressSync(Buffer.from(`${lines[0]}\n`)), zlib.zstdCompressSync(Buffer.from(`${lines.slice(1).join('\n')}\n`))]);
 }
@@ -147,7 +166,8 @@ try {
       await chat.getByText(REPLIES[2]).first().waitFor({ timeout: 30000 }); await pause(1500); // the fold has run
       // Shown: drawn with a height, not in a hidden (content-visibility) or invisible subtree.
       const shown = (text) => chat.getByText(text).evaluateAll((els) => els.filter((el) => el.checkVisibility({ visibilityProperty: true, opacityProperty: true }) && el.getBoundingClientRect().height > 0).map((el) => el.getBoundingClientRect().top));
-      await chat.getByText(NEWS_ANSWER).first().scrollIntoViewIfNeeded(); await shot(page, 'damon-sohbet');
+      // The shot shows the cut turn, the resumed reply and the result line (turns 7-9).
+      await chat.getByText('RESUMED-LINE the prosogutma check is done.').first().scrollIntoViewIfNeeded(); await shot(page, 'damon-sohbet');
       if (BEFORE) { await page.evaluate(() => { sessionStorage.setItem('cards', '1'); localStorage.removeItem('dsh-composer-plus.assistant-chat-shown'); });
         await page.reload(); await page.locator('button[aria-label="Damon"]').click(); await page.locator('[data-composer-plus-reply-feed] article.cp-rc').filter({ hasText: NEWS_ANSWER }).first().waitFor({ timeout: 30000 }); await pause(1000);
         await shot(page, 'damon-kartlar'); passed = true; console.log(`BEFORE dsh ${version}: shots only`); continue; }
@@ -156,6 +176,10 @@ try {
       // [quiet] this view hides the ones that are no card (2026-11-27, hushedRowKeys), folded or not.
       assert.equal((await shown(LOOK)).length, 0, 'a text with a tool call before [quiet], without a denial, is hidden');
       assert.equal((await shown(STARTED)).length, 0, 'the denied call\'s own text (before its result) is hidden');
+      // Duplicate cards: dsh draws the cut text once (Stopped), the whole reply once; the result line before [quiet] shows.
+      assert.equal((await chat.getByText(CUT, { exact: true }).evaluateAll((els) => els.filter((el) => el.checkVisibility() && el.getBoundingClientRect().height > 0).length)), 1, 'the cut text shows in the chat as dsh draws it');
+      assert.equal((await shown('RESUMED-LINE the prosogutma check is done.')).length, 1, 'the resumed reply shows once');
+      assert.equal((await shown('RESULT-LINE the mail went out.')).length, 1, 'a result line with a tool call before [quiet] shows');
       const tops = [];
       for (const text of REPLIES) { const at = await shown(text); assert.equal(at.length, 1, `the reply "${text}" shows`); tops.push(at[0]); }
       assert.ok(tops[0] < tops[1] && tops[1] < tops[2], `the replies are in time order (${tops.join(' < ')})`);
@@ -194,7 +218,7 @@ try {
       await cards.filter({ hasText: NEWS_ANSWER }).first().waitFor({ timeout: 30000 }); await pause(1000);
       await shot(page, 'damon-kartlar');
       const texts = await cards.evaluateAll((els) => els.map((el) => el.querySelector('h3')?.textContent.trim()));
-      assert.deepEqual(texts, [...REPLIES, NEWS_ANSWER, DENY], 'one card per reply in time order, the denial too, none for [quiet] or the looking line');
+      assert.deepEqual(texts, [...REPLIES, NEWS_ANSWER, DENY, 'RESUMED-LINE the prosogutma check is done.', 'RESULT-LINE the mail went out.'], 'one card per reply in time order, the denial and the result line too, none for [quiet], the looking line or the cut text');
       assert.equal(await page.locator('[data-composer-plus-reply-feed]').getByText(QUIET).count(), 0, 'no card shows [quiet]');
       assert.deepEqual(errors, [], 'no page errors');
       passed = true; console.log(`PASS dsh ${version}`);

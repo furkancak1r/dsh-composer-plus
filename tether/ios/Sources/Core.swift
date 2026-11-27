@@ -529,6 +529,9 @@ struct Line: Identifiable {
     var seq: Int? = nil
     /// Assistant rows only: the event's time (the Damon reply card's clock).
     var time: Date? = nil
+    /// Assistant rows only: the partial text that a stop or a DSH quit cut (dsh's `interrupted: true`). It shows with its
+    /// Stopped mark, as dsh's chat draws it, and is no Damon card: the resumed turn writes the whole reply (2026-11-27).
+    var interrupted = false
 }
 
 // MARK: - Composer Plus features (the dsh-composer-plus plugin on the Mac; see tether/FEATURES.md)
@@ -1174,8 +1177,9 @@ func replyPage(_ cards: [ReplyCardID], floor: Int? = nil, unread: (ReplyCardID) 
     let n = seqs.filter { $0 >= cut }.count
     return ReplyPage(cut: cut, held: cut < base, older: n < seqs.count, next: seqs.isEmpty ? nil : seqs[min(n + replyPageSize, seqs.count) - 1], more: all.count - seqs.count)
 }
-/// A Damon card row: a reply that is not only `[quiet]`, or an error line.
-func isCardLine(_ l: Line) -> Bool { l.kind == .error || (l.kind == .assistant && !quietReply(l.text)) }
+/// A Damon card row: a reply that is not only `[quiet]` and that no stop cut (client.js replyCardsOf: settled steps only),
+/// or an error line.
+func isCardLine(_ l: Line) -> Bool { l.kind == .error || (l.kind == .assistant && !l.interrupted && !quietReply(l.text)) }
 /// The cards of the Damon chat's lines, in time order: one per topic of a reply (`replySections`), one per error line.
 /// A line without a seq (a live session error) has no card id: it is never unread and always shows.
 func replyCards(_ t: [Line]) -> [ReplyCardID] {
@@ -1371,9 +1375,9 @@ let damonPrompts: Set<String> = ["user", "schedule", "composer-plus-assistant-ne
 /// The words of Damon's Turn finished for its newest turn, or nil for none: the Mac's damonPushWords (index.js; one table:
 /// test/fixtures/quiet-replies.json `push` and `steered`). The turn is cut into parts at each prompt that comes into the
 /// running turn. The part of a message that you typed into a turn that you did not open answers you: its newest text that
-/// does not start or end with `[quiet]`. Another part: nil when its first text starts with `[quiet]` or its last text ends
-/// with it; the turn's last text decides while its newest message has a tool call or when your next message cut it
-/// (2026-11-24). Else its newest text. A
+/// does not start or end with `[quiet]`. Another part: nil when its last text starts or ends with `[quiet]`; the turn's
+/// last text decides too while its newest message has a tool call or when your next message cut it (2026-11-24). Else its
+/// newest text: a part that starts with `[quiet]` and ends with a real answer (its card) gives that answer (2026-11-27). A
 /// partial text that a stop cut (`interrupted`) does not count. Completed: the newest part's words, else nil. Failed: nil
 /// (the DSH error alert tells it). Stopped: those words or "".
 func damonWords(_ events: [J], reason: String?) -> String? {
@@ -1395,10 +1399,10 @@ func damonWords(_ events: [J], reason: String?) -> String? {
             if !s.isEmpty { parts[parts.count - 1].texts.append(s); last = s }
         }
     }
-    let has = { (t: String, p: String) in t.range(of: p, options: [.regularExpression, .caseInsensitive]) != nil }
+    let mark = { (t: String?) in t?.range(of: #"^\[quiet\]|\[quiet\]$"#, options: [.regularExpression, .caseInsensitive]) != nil }
     let words = parts.reversed().lazy.compactMap { p -> String? in
-        p.typed ? p.texts.last { !has($0, #"^\[quiet\]|\[quiet\]$"#) }
-            : p.texts.isEmpty || has(p.texts[0], #"^\[quiet\]"#) || has((p.done ? p.texts.last : last) ?? "", #"\[quiet\]$"#) ? nil : p.texts.last
+        p.typed ? p.texts.last { !mark($0) }
+            : p.texts.isEmpty || mark(p.texts.last) || (!p.done && mark(last)) ? nil : p.texts.last
     }.first
     if reason == "completed" { return words }
     return reason == "error" ? nil : words ?? ""
@@ -1760,22 +1764,27 @@ func assistantMark(_ id: String?, sessions: [Sess], busy: Set<String>, waiting: 
 }
 /// Assistant messages only: the assistant chat shows your messages, its replies and errors (no thinking, tool or turn rows).
 /// A reply that is only `[quiet]` (the assistant's "nothing to say", `quietTurn`) shows nothing, as on the Mac (client.js
-/// quietStep). In an ended turn whose last text is only `[quiet]` (the Mac's hushedTurns), a text sent with a tool call
-/// that asks you nothing shows only after the turn's first Auto review denial (the denial line; client.js afterDenial):
-/// "I gave it to a subagent" before it goes (one table: test/fixtures/quiet-replies.json `hushed`, 2026-11-27). In the
-/// running turn (after the last `.turn` line) such a text waits for the turn's end, as the Mac's reply cards (review 5: its
-/// closing answer is not known yet; client.js replyCardsOf skips it until dsh's turn tail comes). The Mac's chat rows show
-/// it until the turn ends (Furkan, 2026-11-27; tether/FEATURES.md, "Assistant chat: gaps").
+/// quietStep). In an ended turn, a text sent with a tool call that asks you nothing shows only when it is the turn's last
+/// text, as on the Mac (client.js replyCardsOf). In an ended turn whose last text is only `[quiet]` (the Mac's
+/// hushedTurns), such a text shows only after the turn's first Auto review denial (the denial line) or when it is a result
+/// line (`resultText`; client.js hushedShown): "I gave it to a subagent" goes (one table: test/fixtures/quiet-replies.json
+/// `hushed`, 2026-11-27). In the running turn (after the last `.turn` line) such a text waits for the turn's end, as the
+/// Mac's reply cards (review 5: its closing answer is not known yet; client.js replyCardsOf skips it until dsh's turn tail
+/// comes). The Mac's chat rows show it until the turn ends (Furkan, 2026-11-27; tether/FEATURES.md, "Assistant chat: gaps").
 func botLines(_ t: [Line]) -> [Line] {
     var drop = Set<Int>(), start = 0
     let talks = { (i: Int, end: Int) in t[i].kind == .assistant && i + 1 < end && t[i + 1].kind == .tool && !asksYou(t[i].text) }
     for (end, l) in t.enumerated() where l.kind == .turn {
         let texts = (start..<end).filter { t[$0].kind == .assistant && !t[$0].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        if let last = texts.last, quietReply(t[last].text) {
+        // The Mac's replyCardsOf: only the closing answer (the turn's last text) of such texts is a card; in a turn that ends
+        // with only `[quiet]`, also one after a denial or a result line (review 1, 2026-11-27: "**X.**" next to a tool call,
+        // then "**X.** …" as the closing answer gave two cards with the same text on the phone).
+        if let last = texts.last {
+            let hushed = quietReply(t[last].text)
             var denied = false
             for i in start..<end {
                 if t[i].kind == .tool, autoDenied(t[i].output) { denied = true }
-                else if !denied, talks(i, end) { drop.insert(i) }
+                else if i != last, talks(i, end), !(hushed && (denied || resultText(t[i].text))) { drop.insert(i) }
             }
         }
         start = end + 1
@@ -1783,6 +1792,8 @@ func botLines(_ t: [Line]) -> [Line] {
     for i in start..<t.count where talks(i, t.count) { drop.insert(i) }
     return t.enumerated().filter { !drop.contains($0.offset) && ($0.element.kind == .user || $0.element.kind == .error || ($0.element.kind == .assistant && !quietReply($0.element.text))) }.map(\.element)
 }
+/// A result line (2026-11-27): a text whose first line starts bold, the first line of the reply form (client.js resultText).
+func resultText(_ text: String) -> Bool { text.range(of: #"^\s*(\*\*|__)(?=\S)(.+?)(?<=\S)\1"#, options: .regularExpression) != nil }
 /// A tool result that Auto review denied: dsh's own text or the auto-review-agent-first plugin's (client.js and index.js AUTO_DENIED).
 func autoDenied(_ output: String?) -> Bool {
     guard let o = output else { return false }
@@ -3531,7 +3542,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             let r = (content as? [J] ?? []).filter { $0["type"] as? String == "reasoning" }.compactMap { $0["text"] as? String }.joined(separator: "\n")
             if !r.isEmpty { transcript.append(Line(kind: .reasoning, text: r)) }
             let t = contentText(content)
-            if !t.isEmpty { transcript.append(Line(kind: .assistant, text: t, seq: e["seq"] as? Int, time: (e["time"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) })) }
+            if !t.isEmpty { transcript.append(Line(kind: .assistant, text: t, seq: e["seq"] as? Int, time: (e["time"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }, interrupted: d["interrupted"] as? Bool == true)) }
             if let u = d["usage"] as? J { usage = u }
         case "command/run": transcript.append(Line(kind: .command, text: "/\(d["name"] as? String ?? "") \(d["args"] as? String ?? "")".trimmingCharacters(in: .whitespaces)))
         case "command/done": if let t = d["text"] as? String, !t.isEmpty { transcript.append(Line(kind: d["kind"] as? String == "error" ? .error : .result, text: t)) }

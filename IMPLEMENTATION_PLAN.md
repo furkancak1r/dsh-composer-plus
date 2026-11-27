@@ -5626,3 +5626,156 @@ review. Not in scope: live copy (after Furkan's "tamam" on the screenshots), rel
   - Open steps: review round 12 (separate subagent) until clean; then merge into main --no-ff, npm test on main, push;
     then new screenshots of the merged main commit in kart-resim-20261126/ (names with the merge short SHA, keep the old
     files). No live copy, no release, Tether app unchanged, no DSH restart.
+
+# Duplicate Damon reply cards (branch fix/duplicate-reply-cards, 2026-11-27, base origin/main ee06f990)
+
+Source: Furkan, 2026-11-27 (relayed by Damon): "Bazen aynı şey için iki kart geliyor. İncele ve düzelt." Screenshot: two
+prosogutma cards with the same content, the second one "Yeni 11:51". Facts 1-6 come from Damon (chat_read and its own
+context). Other chats' session logs were not read (rule of the task). Standing approval: merge into main after a clean
+review, only after `gh release view v1.33.0` shows the release. Not in scope: live copy, release, DSH or AIProxy restart.
+Branch fix/hide-quiet-turn-chat-rows (1b546b1d) is NOT in origin/main (checked 2026-11-27 13:40). It changes client.js
+2986-3158 (hushedRowKeys) and Core.swift botLines (1766). The Phase 1 fixes below do not touch these lines.
+
+## Phase 0 result: the four paths (code read only, DSH 0.2.2-rc.5 app.asar = npm 0.2.2-rc.5 under ~/ai-maintenance)
+
+### a. One subagent end, several notices (fact 2): NOT REPRODUCED in code
+- DSH sends one notice per child end: `finishDisposal` calls `notifySettlement` once (dsh-subagent src/manager.ts:1105),
+  and `close` keeps one release per activation (manager.ts:752-757). The notice is a new user message with a new id
+  (continuation-messages.ts:141-175) that goes to the parent with `followup` or `steer` (manager.ts:1134, 675-687).
+- The parent logs a claimed message once, at the step's first attempt (dsh-agent-loop src/agent.ts:469-480). A provider
+  retry in the same step does not log it again (`firstAttempt`, agent.ts:484). The inbox refuses a second pending copy of
+  one id (dsh-agent-loop src/inbox.ts:207-213).
+- Composer Plus: the assistant's wrapped `followup`/`steer` (index.js:12072-12092) passes a failure notice on once
+  (`quietNotice` is only for "finished" notices that sent a message first, index.js:11589). The outage note appends a line
+  to the same message, once per child (`children.delete`, index.js:3417-3428). No other `agent/pre-step` hook copies a
+  message (index.js:2149, 3417, 6240, 10199, 11910, 12116, 12290, 12600).
+- So no code path that I read makes 6 copies. Where the copies are is not verified (see "Not verified").
+- A Composer Plus dedupe by a stable key is possible only for the same message id (an `agent/pre-step` filter on ids that
+  the session already logged as `user/message`): free of side effects. A key of child id + text is NOT safe: a continuable
+  child can fail again after send_message, with the same id and the same text. No fix until the log shows the copies.
+
+### b. A resumed turn shows text twice or an old card again: CONFIRMED for Tether only
+- dsh logs the partial text of a step that a stop or a DSH quit cuts as `assistant/message` with `interrupted: true`
+  (agent.ts:508-525; a quit is a `disposed` cancel, dsh-agent-loop src/index.ts:515). Fact 3 shows a DSH restart (the
+  Web GUI port changed 60254 → 54766).
+- Mac: dsh's node of that text has status `interrupted` (dsh-client-ui-chat conversation-nodes/assistant.ts:274-276), and
+  replyCardsOf takes only `settled` steps (client.js:4537): no card. Push words skip it too (index.js:11703).
+- Tether: the transcript adds every `assistant/message` text as a line (Core.swift:3528-3531), so the cut text is a line
+  and a card (isCardLine, Core.swift:1178). The continued turn then writes the whole text again: the same content twice.
+  damonWords already skips it (Core.swift:1390).
+- Old cards: replyCardsOf and Tether key a card by its seq (client.js:4549, Core.swift:1183). A resume makes new seqs only
+  for new text, so an old card does not come back.
+
+### c. A real card in a turn that also has `[quiet]` texts (facts 4-5): CONFIRMED, two gaps
+chat_read joins the texts of one turn with a blank line (chatTranscript, index.js:4617-4621), so the stored text of fact 4
+is several messages: three `[quiet]` texts, then the card. Checked with the real functions (scratch scripts, deleted):
+- Shape A, `[quiet]` + tool call ×3, then the card as the closing answer: the Mac shows the card (replyCardsOf) and
+  notifies with its words (quietRun false, runReply = the card; client.js:7717). Tether shows the card (botLines), but
+  damonPushWords gives no words: a part whose first text starts with `[quiet]` has no push (index.js:11711-11712; Swift
+  port Core.swift:1399-1401). So Tether sends no push for the real card. The shared table says so on purpose
+  (test/fixtures/quiet-replies.json:23 `[["[quiet]","tool"],["Found 2 issues."]] → push null`;
+  test/tether-push-words.test.mjs:91), from 76ac9f56 (2026-11-24, Furkan: "bazı [quiet] bildirimleri de ilk kısım geliyor").
+- Shape C, `[quiet]` + tool, the card + a tool call (for example todo_list_remove), then `[quiet]` as the closing
+  answer: no card on the Mac (hushed turn: client.js:4542, 3004-3009), no card on Tether (botLines, Core.swift:1768-1784),
+  no push. Only the chat row shows (and branch fix/hide-quiet-turn-chat-rows hides that row too).
+- Shape B, a notice between each `[quiet]` and the card: card and push. Correct.
+- Which shape happened is not verified. The screenshot shows both cards, so the first card was on screen at least when
+  Furkan took it: this fits shape A (card shown, no Tether push), not shape C.
+
+### d. The `---` split shows one part twice: NOT A PATH
+replySections gives each part once (client.js:4562-4573) and each card has its own key `seq:i` (client.js:4549, React key
+client.js:4951). Two cards need two dsh nodes with the same seq; dsh keys its nodes, so no.
+
+## Phase 1 plan (smallest change per confirmed path)
+1. Path b (no decision needed): Tether leaves out a cut text (`interrupted: true`) from the Damon lines and cards, as the
+   Mac. Change Core.swift transcript (3528) or isCardLine, plus a Swift test with the fact 3-4 event order (a cut text,
+   turn/end aborted, a resumed turn with the full text): one card. Mac twin: a reply-cards test that an `interrupted` node
+   is no card (already true, guards the parity).
+2. Path c, shape A (NEEDS FURKAN'S DECISION, it changes his 2026-11-24 push rule): a part that starts with `[quiet]`
+   texts but ends with a real closing answer pushes that answer. index.js damonPushWords + Core.swift damonWords + the
+   table quiet-replies.json:23 and tether-push-words.test.mjs:91.
+3. Path c, shape C (NEEDS FURKAN'S DECISION, it changes the 2026-11-27 hushed rule): a real result next to a tool call in a
+   turn that ends with `[quiet]` is hidden. Options: a) leave as is, and the prompt says "result in its own step without
+   a tool call"; b) such a text is a card when its first line is bold (the prompt's result format).
+4. Path a: no code until the Damon chat's log shows the copies. If they have one id: the id filter above. If they have
+   different ids: report to DSH (manager.ts notifySettlement) with the log lines.
+
+## Not verified
+- Where the 6 copies of fact 2 are: in the Damon chat's log (then DSH or Composer Plus) or only in the model's request
+  (AIProxy or the provider). Missing: the Damon chat's `user/message` and `agent/inbox/spliced` events with
+  `source.kind: subagent-settled` and `senderSessionId` of prosogutma-durum (count, message ids, seqs, turn), and one
+  AIProxy request of a turn that held 3 copies.
+- Which shape (A, B or C) the resumed turn of fact 4 had. Missing: the turn's `assistant/message` events (text, tool
+  calls, seq). Damon can read them with its own log tools; this chat may not.
+- Whether Furkan saw or got a notice for the first card before 11:51 (fact 6). Missing: Tether push log, desktop focus.
+- Whether the "previous turn stopped" note of fact 3 came from Resume after restart or from a Continue click: both use
+  continueMessage (index.js:96-97, 1332, 2172).
+- In a browser on the Web GUI, the read marks are in localStorage per origin; a new port after a DSH restart is a new
+  origin, so the first view counts every card as read (client.js:4721) and the first card would not show "Yeni". The
+  desktop app uses `dsh-app://app/` (client.js:4587), a fixed origin. Which window Furkan used is not verified.
+
+## Phase 1 (done, 2026-11-27 16:4x; Furkan's approval 2026-11-27: items 1-3 below, no code for a and d)
+1. b (Tether): a cut text (`interrupted: true`) is `Line.interrupted`, a plain row with **Stopped** (as dsh's chat), no
+   card (`isCardLine`); the resumed reply is the one card. Mac unchanged (settled steps only), guarded by a reply-cards test.
+2. c1: damonPushWords / damonWords: a part whose first text starts with `[quiet]` and whose last text is real pushes that
+   text; a last text that starts or ends with `[quiet]` gives none (table row 23 now pushes "Found 2 issues.").
+3. c2: in a turn that ends with `[quiet]`, a text next to a tool call whose first line starts bold (`resultText`) is a
+   row and a card (client.js hushedShown, Tether botLines). Shared table `hushed` rows.
+4. Review 1 (review-guard-1b; the first try stopped with no message): P1 0, P2 0, P3 3, P4 3. Fixed: Tether botLines uses
+   the Mac rule in ended turns that end with a real answer (only the closing text of tool-call texts is a card: the
+   phone made two cards when a result line next to a tool call was repeated as the closing answer; red on d10992d8);
+   damonPushWords/damonWords double check; unused default; this checkpoint. Kept as limits (written in FEATURES.md and a
+   `ponytail:` comment): a c2 result card gives no push (the turn's last text is `[quiet]`), and a bold progress note
+   next to a tool call is a card too.
+- Red before fix: JS reply-cards, quiet-replies, tether-push-words, assistant-subagent-rows; iOS 5 failures (QuietReply,
+  PushText, testCutTextIsNoCard); browser-assistant-answers on 0.2.2-rc.5 with the old client.js ("a result line ...").
+- Screenshots before: /Users/furkancakir/Damon/Belgeler/Composer Plus/cift-kart-20261127/ damon-sohbet-once.png,
+  damon-kartlar-once.png, tether-damon-once.png. After: same names with -<merge short sha>.
+- a (6 copies of one subagent failure note) and d: no code path found, no code change (see Phase 0). Not verified.
+
+## Last checkpoint (2026-11-27 18:5x, second chat)
+- Browser after the merge (b9e32d9d): browser-assistant-answers PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5 and
+  FOLDED_REPLIES=all PASS on 0.2.2-rc.5.
+- Flake check (assistant-bot "a quiet reply with a denied step is news", 3 s wait): full `npm test` 3 times on the branch
+  (b9e32d9d) and 3 times on origin/main (cd1ff110, detached worktree), interleaved: 6 of 6 exit 0 (142-177 s, load 5-10).
+  Stress: test/assistant-bot.test.mjs 6 in parallel x 5 rounds on each side: 0 of 30 failed on the branch, 0 of 30 on
+  main. The branch does not touch assistant-bot or the code that it tests (no pushWords/hushed use in it). Not
+  reproduced: recorded as a load flake, not caused by the branch.
+- Review 2 (review-guard-2, head b9e32d9d): P1 0, P2 0, P3 1, P4 3. Fixed in 2bc30fcb (how texts in 13 languages and
+  FEATURES.md row name the result line; assistantReplyCards llms order; testDuplicateCardScreen asserts; Tether's Stopped
+  caption only in the Damon messages-only view). npm test exit 0; iOS 132 tests, 2 skipped, 0 failures.
+- Review 3 (review-guard-3, head 2bc30fcb): P1 0, P2 0, P3 0, P4 2 (testDuplicateCardScreen comment; this checkpoint).
+  Fixed in 3be3f820.
+- Rounds 4 and later: only P4 findings in this plan text; each round's counts and fixes are in its commit message
+  (`git log origin/main..HEAD`), not here. Next: a clean review round, fetch, merge into main, push, CI, after
+  screenshots.
+
+## Checkpoint 2026-11-27 17:0x (first chat, about 150 tool calls; its open steps 1-2 are done, see above)
+- Head: 102d799d (merge of origin/main cd1ff110 into the branch) + this plan commit. Branch commits after the plan:
+  d10992d8 (fix), 1738d3ce (review 1 fixes), 102d799d (merge).
+- `gh release view v1.33.0`: the release exists (checked 16:4x). origin/main was cd1ff110 at 16:5x.
+- Merge 102d799d: main's hushedRowKeys (Mac hides "gave it to a subagent" rows in a hushed turn) now uses this branch's
+  hushedShown, so a result line (bold first line) stays shown, as its card. browser-assistant-answers keeps main's
+  assertions (LOOK and STARTED hidden in every fold mode) and this branch's turns 7-9.
+- Last passing at 102d799d: `npm test` exit 0 (one earlier full run timed out once in test/assistant-bot.test.mjs
+  "a quiet reply with a denied step is news", a 3 s wait, load average about 9; it passed alone 4 times and in the next
+  full run; origin/main passed in the same hour; not verified as a flake). iOS 132 tests, 2 skipped, 0 failures.
+  NOT run yet after the merge: browser-assistant-answers on the three dsh versions (last PASS at 1738d3ce).
+- Open steps (next chat):
+  1. browser-assistant-answers on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5 and FOLDED_REPLIES=all (command below).
+  2. Review round 2 (separate review-guard subagent, `git diff origin/main...HEAD`): the diff is > 100 lines and > 3
+     files, so repeat until a round has no P1/P2; fix P3/P4 of the last round. Before the merge into main the final
+     review must be clean (task rule). Round 1 (review-guard-1b at d10992d8): P1 0, P2 0, P3 3, P4 3, all handled in
+     1738d3ce. The first try (review-guard-1) stopped with no message.
+  3. `git fetch`; if origin/main moved, merge it (keep both sides), tests again.
+  4. In the main worktree: `git merge --no-ff fix/duplicate-reply-cards`, push main (fetch + merge again if rejected),
+     check CI of the merge commit.
+  5. After screenshots with the merge short SHA into /Users/furkancakir/Damon/Belgeler/Composer Plus/cift-kart-20261127/:
+     `SHOTS=<folder> TAG=sonra-<sha> TMPDIR=~/Library/Caches/cp-dup-tests PLAYWRIGHT=… node test/browser-assistant-answers.mjs <0.2.2-rc.5 bin>`
+     (damon-sohbet, damon-kartlar) and Tether `TEST_RUNNER_SHOT_DIR=<folder> TEST_RUNNER_SHOT_NAME=tether-damon-sonra-<sha>.png xcodebuild … test -only-testing:DSHMobileTests/AgentboxIdeasTests/testDuplicateCardScreen`.
+     Before set (kept): damon-sohbet-once.png, damon-kartlar-once.png, tether-damon-once.png.
+  6. Keep the branch and its folder. No live copy, release, npm publish, DSH restart, iPhone install.
+- Commands: iOS `cd tether/ios && xcodebuild -project DSHMobile.xcodeproj -scheme DSHMobile -destination 'platform=iOS Simulator,id=787CAECE-7075-4681-B0CE-7FBE5A5DFD49' -derivedDataPath ../../build/DerivedData test CODE_SIGNING_ALLOWED=NO`;
+  browser `TMPDIR=~/Library/Caches/cp-dup-tests PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-assistant-answers.mjs ~/Documents/testdeepseekharness/work/dsh-0.2.0-rc.2/node_modules/@deepseek-ai/dsh/lib/bin.js ~/Documents/testdeepseekharness/work/dsh-0.2.1-rc.2/node_modules/@deepseek-ai/dsh/lib/bin.js ~/ai-maintenance/dsh-composer-plus/dsh/0.2.2-rc.5/node_modules/@deepseek-ai/dsh/lib/bin.js`.
+- Temporary files: none left (build/ is ignored; build/DerivedData is the Xcode cache). ~/Library/Caches/cp-dup-tests
+  holds dsh's own spill folder only; delete the folder at the end of the task.
