@@ -1,3 +1,66 @@
+# Release 1.33.0 (branch chore/release-1-33-0, 2026-11-27)
+
+Approval (Furkan, Assistant chat, 2026-11-27): "Onaylıyorum: Composer Plus canlı kopyadaki ee06f990 için 1.33.0 sürümü
+yapılsın: sürüm dalı review sonrası main'e alınıp push edilsin, GitHub release ve npm yayını yapılsın, eklenti listesine PR
+açılsın, canlı kopya yedekle release commit'ine eşitlensin (yalnız bu Mac); …". Content: exactly ee06f990 plus the version
+files. Out of scope: code changes, Tether builds and iPhone installs, a DSH restart.
+
+## Verified facts (2026-11-27)
+- Branch base ee06f990 = origin/main = local main at 11:10 (main moved later: see "Main moved"). v1.32.0 is the newest release (tag on f498e87f, GitHub
+  Latest 2026-11-25); npm dist-tags latest 1.32.0, registry.npmjs.org/dsh-composer-plus/1.33.0 gives 404.
+  dsh npm dist-tags: latest 0.2.2-rc.5, alpha 0.2.3-alpha.2.
+- Bump: minor. docs/features.json has 88 ids at ee06f990 and 87 at v1.32.0 (new: assistantReplyCards); changed docs:
+  assistant, assistantChatView, assistantFree, assistantTodos (canvas, Decisions), optionPicks.
+
+## Phase 1 (version files)
+- package.json 1.33.0; 26 README notes (2 per README × 13); release-notes.json (1.33.0, 13 languages; bold names are labels
+  from client.js en/zh and locales/<id>.json). Load earlier: dsh's own chat.loadOlder text; en, zh, tr, pt-BR, ko, id,
+  vi, hi equal replies.loadEarlier; de, es, fr, ru, ja add dsh 0.2.2's own text in parentheses, as their READMEs do.
+- Notes cover the merges after v1.32.0: f86a0a4c (canvas islands, reply cards), b3d67832 (order, `---` topic cards),
+  2308766c (Load earlier), e1343314 (Decisions dialog), 7593f3f8 (Tether parity), 4b3a3d25 (card images), ee06f990 (quiet
+  small tasks, denial reason).
+
+## Review
+- Round 1 (review-guard-1, aa8a938b): P1 0, P2 0, P3 4, P4 3. All fixed in 0bfea124 (notes text, 13 languages).
+- Round 2 (review-guard-2, 0bfea124): P1 0, P2 1, P3 0, P4 0: this Phase 2 assumed that main stays at ee06f990. Fixed in
+  37a77ef3.
+- Round 3 (review-guard-3, 37a77ef3): P1 0, P2 1, P3 1, P4 4, all in this plan text. Fixed in the next commit. P2 (no CI
+  on the release commit): the release branch is not pushed (the approval names only the main push). The owner's task
+  allows "CI or the full local test suite" on the exact release commit when main moved; CI passed on ee06f990 (test run
+  45949596957), and the full local `npm test` runs on the reviewed head.
+- Round 4 (review-guard-4, 5e3edf7a): P1 0, P2 0, P3 1, P4 1, in this Phase 2 text. Fixed in the next commit (order of
+  the R checks, a manual merge without push-branch or merge-main, the full awesome-dsh-plugin rule).
+- Round 5 (review-guard-5, 2b5812c5): P1 0, P2 0, P3 0, P4 2, in the Phase 2 merge step (push-branch reason, the merge
+  commit after the conflict). Fixed in the next commit.
+
+## Main moved (verified 2026-11-27 12:57, again 13:31)
+- origin/main and local main are 189fc00c (merge of fix/error-review-20261126, 12:00; parents ee06f990 and f53b7ecb;
+  33 files, index.js +99/-23). The approval names ee06f990, so 189fc00c is not in 1.33.0.
+- A --no-ff merge of this branch into 189fc00c conflicts only in IMPLEMENTATION_PLAN.md (keep both sections).
+
+## Phase 2 (after a clean review)
+1. In this worktree, R = `git rev-parse HEAD` (full 40-character SHA) after the clean review: ee06f990 plus the version
+   files. Add no commit to the branch until the v1.33.0 tag exists. Run the full `npm test` and `npm pack --dry-run` on R
+   (version 1.33.0; from tether/ only gateway/{server.mjs,admin.html,qr.swift}).
+2. `git fetch`; if origin/main is not 189fc00c, stop and run `git merge-tree` again. Merge by hand in the main worktree:
+   `git -C <repo root> merge --no-ff chore/release-1-33-0`. Do not use push-branch or merge-main: both push the release
+   branch (not in the approval), and merge-main also deletes this branch and worktree. Keep both sections in
+   IMPLEMENTATION_PLAN.md, run `git add IMPLEMENTATION_PLAN.md` and `git commit --no-edit`, run `npm test` on the merge
+   commit, check `git rev-parse HEAD^2` = R, run `git push origin main`, wait for CI on main. The merge
+   commit has the code of 189fc00c: it is not the release commit. Keep this branch and worktree until the release exists.
+3. `gh release create v1.33.0 assets/active.txt assets/installed.txt --target R --latest --notes "$(node -p
+   "require('./release-notes.json').notes.en")"`. Never tag the merge commit or main. Watch release.yml; check
+   releases/latest and https://registry.npmjs.org/dsh-composer-plus/1.33.0.
+4. awesome-dsh-plugin PR: `gh repo sync furkancak1r/awesome-dsh-plugin`, a new branch of the fork, change only
+   data/plugins/furkancak1r__dsh-composer-plus.yml; the PR goes to awesome-dsh-plugin/awesome-dsh-plugin (rules: its
+   contributing.md). description.en and description.zh name the new features with the labels of README.md and
+   README.zh.md (one line in single quotes, ends with a period, no marketing words, about 700 characters at most: take
+   out a smaller feature). Each claim must be true for the code of R. If no feature name changes, tell the owner and
+   send no PR.
+5. Live copy: BLOCKED until Furkan decides. scripts/live-copy-check.mjs checks only first-parent commits of main; no such
+   commit has the release commit's files (189fc00c code differs, the merge has 189fc00c code), so after a copy of the
+   release commit it prints MIXED, not MATCH. AGENTS.md: stop and report, do not patch. No backup, no copy, no DSH restart.
+
 # Error review 2026-11-26: AIProxy 500/504 resume and guess-word note (branch fix/error-review-20261126)
 
 Source: the daily mistake review of 2026-11-26 (report: ~/Damon/Günlük/Hata-incelemesi/2026-11-26.md). Approval (Furkan,
