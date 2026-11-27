@@ -6,7 +6,7 @@
 // into the turn's process (0.2.0-0.2.1 always, 0.2.2 with foldedReplies: final, set here), and the view hides the control
 // that opens it. Every reply must show, in time order; the agent message rows and the tool row stay hidden.
 // The quiet news turn starts with a [quiet] text sent with a tool call: with FOLDED_REPLIES=all (dsh 0.2.2's default)
-// dsh shows that text, and this view hides it too.
+// dsh shows that text, and this view hides it too, and so the "gave it to a subagent" lines of turns 5 and 6.
 // PLAYWRIGHT=/path/to/playwright [FOLDED_REPLIES=all] node test/browser-assistant-answers.mjs /path/to/dsh/lib/bin.js [...]
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -152,10 +152,10 @@ try {
         await page.reload(); await page.locator('button[aria-label="Damon"]').click(); await page.locator('[data-composer-plus-reply-feed] article.cp-rc').filter({ hasText: NEWS_ANSWER }).first().waitFor({ timeout: 30000 }); await pause(1000);
         await shot(page, 'damon-kartlar'); passed = true; console.log(`BEFORE dsh ${version}: shots only`); continue; }
       assert.equal((await shown(DENY)).length, 1, 'a text with a denied tool call before [quiet] (an Auto review denial) shows');
-      // dsh 0.2.2 with foldedReplies: all shows each text sent with a tool call itself (as on main); folded, it stays hidden.
-      const unfolded = !/^0\.2\.[01]-/.test(version) && process.env.FOLDED_REPLIES === 'all';
-      assert.equal((await shown(LOOK)).length, unfolded ? 1 : 0, 'a text with a tool call before [quiet], without a denial: as dsh draws it');
-      assert.equal((await shown(STARTED)).length, unfolded ? 1 : 0, 'the denied call\'s own text (before its result): as dsh draws it');
+      // dsh 0.2.2 with foldedReplies: all draws each text sent with a tool call itself; in a turn that ends with only
+      // [quiet] this view hides the ones that are no card (2026-11-27, hushedRowKeys), folded or not.
+      assert.equal((await shown(LOOK)).length, 0, 'a text with a tool call before [quiet], without a denial, is hidden');
+      assert.equal((await shown(STARTED)).length, 0, 'the denied call\'s own text (before its result) is hidden');
       const tops = [];
       for (const text of REPLIES) { const at = await shown(text); assert.equal(at.length, 1, `the reply "${text}" shows`); tops.push(at[0]); }
       assert.ok(tops[0] < tops[1] && tops[1] < tops[2], `the replies are in time order (${tops.join(' < ')})`);

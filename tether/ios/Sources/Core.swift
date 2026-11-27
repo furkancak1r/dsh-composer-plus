@@ -1763,8 +1763,9 @@ func assistantMark(_ id: String?, sessions: [Sess], busy: Set<String>, waiting: 
 /// quietStep). In an ended turn whose last text is only `[quiet]` (the Mac's hushedTurns), a text sent with a tool call
 /// that asks you nothing shows only after the turn's first Auto review denial (the denial line; client.js afterDenial):
 /// "I gave it to a subagent" before it goes (one table: test/fixtures/quiet-replies.json `hushed`, 2026-11-27). In the
-/// running turn (after the last `.turn` line) such a text waits for the turn's end, as on the Mac (review 5: its closing
-/// answer is not known yet; client.js replyCardsOf skips it until dsh's turn tail comes).
+/// running turn (after the last `.turn` line) such a text waits for the turn's end, as the Mac's reply cards (review 5: its
+/// closing answer is not known yet; client.js replyCardsOf skips it until dsh's turn tail comes). The Mac's chat rows show
+/// it until the turn ends (Furkan, 2026-11-27; tether/FEATURES.md, "Assistant chat: gaps").
 func botLines(_ t: [Line]) -> [Line] {
     var drop = Set<Int>(), start = 0
     let talks = { (i: Int, end: Int) in t[i].kind == .assistant && i + 1 < end && t[i + 1].kind == .tool && !asksYou(t[i].text) }

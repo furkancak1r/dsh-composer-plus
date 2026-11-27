@@ -2983,12 +2983,14 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
     const hasText = (n) => n.data.blocks.some((b) => b?.kind === 'text' && String(b.text ?? '').trim() !== '');
     /** The quiet turns of the drawn window (their numbers as text): each step with text is quiet (quietStep), and there is
      * at least one. The Host's quietRun has the same rule (also for a text sent with a tool call; test/quiet-replies.test.mjs
-     * runs both on one table). No trace of such a turn stays: its rows, its news note, its place in the 8-turn cap. */
-    const quietTurnSet = (chat) => {
+     * runs both on one table). No trace of such a turn stays: its rows, its news note, its place in the 8-turn cap.
+     * `hidden` (node keys; only AssistantChatView's cap and news note): a step with one of these keys counts as quiet too
+     * (hushedRowKeys). The Host's quietRun does not know them (docs/features.json assistantChatView). */
+    const quietTurnSet = (chat, hidden) => {
       const quiet = new Map(); // turn → each of its steps with text is quiet
       for (const n of chat?.nodes?.values?.() ?? []) {
         if (n?.kind !== 'assistant-step' || !Array.isArray(n.data?.blocks) || !hasText(n)) continue;
-        quiet.set(String(n.data.turn), (quiet.get(String(n.data.turn)) ?? true) && quietStep(n));
+        quiet.set(String(n.data.turn), (quiet.get(String(n.data.turn)) ?? true) && (quietStep(n) || hidden?.has(n.key) === true));
       }
       return new Set([...quiet].filter(([, q]) => q).map(([turn]) => turn));
     };
@@ -3016,8 +3018,8 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
      * result ("I gave it to a subagent"), so it stays hidden, as in a hushed turn without a denial. dsh's tool-call node
      * holds the call's result as its `root` (kind `tool-result`, `seq`, the message `content`) and the turn in its location
      * (dsh 0.2.0-0.2.2). */
-    const deniedQuietTurns = (chat) => {
-      const hushed = hushedTurns(chat); const out = new Map();
+    const deniedQuietTurns = (chat, hushed = hushedTurns(chat)) => {
+      const out = new Map();
       if (hushed.size === 0) return out;
       for (const n of chat?.nodes?.values?.() ?? []) {
         const r = n?.kind === 'tool-call' ? n.data?.root : undefined; const turn = n?.location?.turn?.turn;
@@ -3028,6 +3030,17 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
     };
     /** A step of a hushed turn that comes after its first denied result (deniedQuietTurns). */
     const afterDenial = (denied, n) => n.data.finalNode?.seq > denied.get(n.data.turn);
+    /** The texts sent with a tool call in a hushed turn that are no card (Furkan, 2026-11-27: "sessiz turda Damon sohbetindeki
+     * 'alt ajana verdim' gibi ara satırlar da gizlensin"): dsh's default foldedReplies: all draws each of them. The denial
+     * line (afterDenial) and a text that asks you (asksYou) stay, as their cards do; after the turn's end Tether's botLines
+     * shows the same lines (one table: test/fixtures/quiet-replies.json `hushed`). A running turn is not hushed: its rows
+     * show until it ends (Furkan, 2026-11-27). Tether hides them already while the turn runs (tether/FEATURES.md, gaps). */
+    const hushedRowKeys = (chat, hushed = hushedTurns(chat)) => {
+      if (hushed.size === 0) return [];
+      const denied = deniedQuietTurns(chat, hushed);
+      return [...(chat?.nodes?.values?.() ?? [])].filter((n) => n?.kind === 'assistant-step' && Array.isArray(n.data?.blocks) && hushed.has(n.data.turn)
+        && n.data.blocks.some((b) => b?.kind === 'tool-call') && hasText(n) && !quietStep(n) && !afterDenial(denied, n) && !asksYou(answerText(n.data.blocks))).map((n) => n.key);
+    };
     /** Also a text sent with a tool call after a denial in a hushed turn (afterDenial). */
     const answerRowKeys = (chat) => {
       const steps = [...(chat?.nodes?.values?.() ?? [])].filter((n) => n?.kind === 'assistant-step' && Array.isArray(n.data?.blocks));
@@ -3049,7 +3062,8 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
      * loads nothing while the cap is on. ponytail: found by dsh's `_older` class; upgrade when dsh can pause history loading. */
     const ASSISTANT_TURNS = 8;
     const ASSISTANT_EARLIER_ATTR = 'data-composer-plus-assistant-earlier';
-    /** The turns that count for the cap: a quiet turn (quietTurnSet) shows nothing, so it does not take a place of the 8. */
+    /** The turns that count for the cap: a quiet turn (quietTurnSet, also a hushed turn whose every text is hidden) shows
+     * nothing, so it does not take a place of the 8. */
     const cappedTurns = (turns, quiet) => turns.filter((turn) => !quiet.has(String(turn)));
     function assistantCapCss(id, turns, quiet = new Set(), keep = ASSISTANT_TURNS) {
       const counted = cappedTurns(turns, quiet);
@@ -3101,7 +3115,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       const [quiet, setQuiet] = React.useState([]); // node keys of the subagent rows and the `[quiet]` replies (quietRowKeys)
       const [answers, setAnswers] = React.useState([]); // node keys of the folded answers (answerRowKeys)
       const [quietTails, setQuietTails] = React.useState([]); // ended turns whose closing reply is quiet: no Copy/time row (hushedTurns)
-      const [quietTurns, setQuietTurns] = React.useState([]); // turns whose every text is quiet (quietTurnSet)
+      const [quietTurns, setQuietTurns] = React.useState([]); // turns whose every text is quiet or hidden (quietTurnSet, hushedRowKeys)
       const [rail, setRail] = React.useState(null); // dsh's turn rail of the chat (TURN_RAIL)
 
       React.useEffect(() => {
@@ -3142,9 +3156,10 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
         const same = (keys) => (prev) => (prev.length === keys.length && prev.every((k, i) => k === keys[i]) ? prev : keys);
         if (source === undefined) { setQuiet(same([])); setAnswers(same([])); setQuietTails(same([])); setQuietTurns(same([])); return undefined; }
         const read = () => {
-          const chat = source.getSnapshot(); const turnsQuiet = quietTurnSet(chat);
-          setQuiet(same([...subagentRowKeys(chat), ...quietRowKeys(chat), ...newsRowKeys(chat, turnsQuiet)])); setAnswers(same(answerRowKeys(chat)));
-          setQuietTails(same([...hushedTurns(chat)])); setQuietTurns(same([...turnsQuiet].sort()));
+          const chat = source.getSnapshot(); const hushed = hushedTurns(chat); const hushedRows = hushedRowKeys(chat, hushed);
+          const turnsQuiet = quietTurnSet(chat, new Set(hushedRows)); // also a hushed turn whose every text is hidden
+          setQuiet(same([...subagentRowKeys(chat), ...quietRowKeys(chat), ...newsRowKeys(chat, turnsQuiet), ...hushedRows])); setAnswers(same(answerRowKeys(chat)));
+          setQuietTails(same([...hushed])); setQuietTurns(same([...turnsQuiet].sort()));
         };
         read();
         return source.subscribe(read);

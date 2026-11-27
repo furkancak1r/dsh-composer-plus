@@ -1,3 +1,83 @@
+# Quiet turns: hide the in-between chat rows too (branch fix/hide-quiet-turn-chat-rows, 2026-11-27)
+
+Source: Furkan, Assistant chat, 2026-11-27: "sessiz turda Damon sohbetindeki 'alt ajana verdim' gibi ara satırlar da
+gizlensin mi? → Gizlensin, dalda yapılıp main'e alınsın, Tether'e de eşi eklensin". Base: main ee06f990. Standing
+approval: merge into main after a clean review. Not in scope: live copy, release, npm publish, DSH restart.
+
+## Done (5e3a269e)
+- Requirements 1-3, 5: client.js `hushedRowKeys`: in an ended Damon turn whose closing answer is only `[quiet]`
+  (hushedTurns), each text step with a tool call that is no card (not afterDenial, not asksYou) gets the 0-height box of
+  the quiet rows. The denial line, a line that asks you, user rows, approval and question cards, and every row of a
+  running turn stay. Only the assistant chat (AssistantChatView). Tether had the rule already (botLines, before shot).
+- Tests: test/assistant-subagent-rows.test.mjs (store test + the shared `hushed` table, ended and running; red on
+  ee06f990), test/browser-assistant-answers.mjs (LOOK and STARTED lines hidden also with FOLDED_REPLIES=all; red on
+  ee06f990), iOS testHushedTurnsMatchTheMac (one chatRows assertion on the same table, open: []).
+- Docs: docs/features.json assistantChatView (llms + 13 how), build:readme, tether/FEATURES.md assistantChatView.
+- Screenshots: /Users/furkancakir/Damon/Belgeler/Composer Plus/sessiz-tur-satir-20261127/
+  damon-sohbet-, damon-kartlar-, tether-damon- with -once-ee06f990 and -sonra-5e3a269e.
+
+## Last passing (5e3a269e)
+- `npm test` exit 0; iOS `cd tether/ios && xcodebuild -project DSHMobile.xcodeproj -scheme DSHMobile -destination 'platform=iOS Simulator,id=787CAECE-7075-4681-B0CE-7FBE5A5DFD49' -derivedDataPath ../build/DerivedData test CODE_SIGNING_ALLOWED=NO`
+  130 tests, 2 skipped, 0 failures; `TMPDIR=~/Library/Caches/cp-quiet-rows-tests PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-assistant-answers.mjs <0.2.0-rc.2> <0.2.1-rc.2> <0.2.2-rc.5>`
+  PASS x3 and FOLDED_REPLIES=all PASS on 0.2.2-rc.5.
+
+## Requirement 4: decided 2026-11-27 (option B, no code change)
+- Furkan, Assistant chat, 2026-11-27: "Karar ver: sessiz turda ara satır, tur sürerken nasıl görünsün? → Tur sürerken
+  görünsün, sessiz bitince gizlensin". This is option B below: 5e3a269e stays as it is.
+- origin/main was ee06f990 at 10:4x; it moved to 189fc00c (fix/error-review-20261126 merge) at 12:03, which the plan
+  missed (review 3). Merged in bcc75978 (conflict only in this file, both sections kept). Review loop until a round has no
+  P1/P2, then fix the P3/P4 of the last round.
+
+## Review (this branch)
+- Round 1 (review-guard-1, head dd49aadd): P1 0, P2 0, P3 1, P4 2. Fixed in 1b546b1d: tether/FEATURES.md said that Tether
+  hides the line only after the turn ends (it hides it while the turn runs too): row text, new "Assistant chat: gaps" row,
+  client.js and Core.swift comments; the iOS test's `open` loop tested nothing (one assertion now); a hushed turn whose every
+  text is hidden took a place of the 8-turn cap (`quietTurnSet(chat, hidden)` only for `setQuietTurns`; assistant-cap turn
+  64, red on dd49aadd's client.js).
+- Last passing (1b546b1d): `npm test` exit 0; iOS 130 tests, 2 skipped, 0 failures (simulator 787CAECE);
+  browser-assistant-answers PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5 and FOLDED_REPLIES=all on 0.2.2-rc.5.
+- Round 2 (review-guard-2, head 1b546b1d): P1 0, P2 0, P3 0, P4 2. Fixed in the next commit: this plan (stale lines) and
+  the `about` text of test/fixtures/quiet-replies.json (names hushedRowKeys and assistant-subagent-rows as readers).
+- Round 3 (review-guard-3, head 9f715ba0): P1 0, P2 0, P3 1, P4 2. Fixed in the next commit:
+  1. P3: the Host's quietRun still counts a hidden "gave it to a subagent" text as news (green dot, desktop notification,
+     Tether badge). Not new in this branch: main's reply cards (replyCardsOf) and Tether's botLines already hid that text.
+     Not changed (a Host rule change is outside Furkan's request); written as an accepted limit: docs/features.json
+     assistantChatView llms, tether/FEATURES.md assistantChatView row, a ponytail note at index.js runTexts.
+  2. P4: a news turn whose every text is hidden kept its news note (dsh's Verbose work details). Now newsRowKeys gets the
+     same quietTurnSet(chat, hidden) as the cap; assistant-subagent-rows turn 27 (red on 9f715ba0's client.js).
+  3. P4: origin/main moved to 189fc00c at 12:03: merged in bcc75978 (conflict only in this file, both sections kept).
+- Last passing (round-3 fixes): `npm test` exit 0; browser-assistant-answers PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5
+  and FOLDED_REPLIES=all on 0.2.2-rc.5. iOS not run again (no Swift change after 1b546b1d: 130 tests, 0 failures).
+- Round 4 (review-guard-4, head d2348f9b, origin/main 189fc00c): P1 0, P2 0, P3 0, P4 1. Merge bcc75978 lost no hunk.
+  Fixed in the next commit: the accepted-limit text said "no push"; an answer to a message typed into the running turn
+  (quiet-replies.json `steered` row 9) still pushes its hidden words. docs/features.json llms and tether/FEATURES.md.
+- Round 5 (review-guard-5, head 5f0aafc5, origin/main 189fc00c): P1 0, P2 0, P3 0, P4 1. Fixed in the next commit: the
+  push exception holds only for a message typed into a turn that you did not start by typing (index.js damonPushWords
+  `typed: kind === 'user' && turn.opened !== 'user'`). docs/features.json llms and tether/FEATURES.md.
+- Round 6 (review-guard-6, head 73b49fb8): P1 0, P2 0, P3 0, P4 0: clean.
+- origin/main moved to 9e4bb6f0 (1.33.0 release merge: package.json, README version notes, release-notes.json, plan).
+  Merged in 98ab0639 (conflict only in this file, both sections kept). The changed lines of `git diff origin/main
+  98ab0639` (without this file) equal those of the reviewed `git diff 189fc00c 73b49fb8`, same files.
+- Last passing (98ab0639): `npm test` exit 0; iOS 130 tests, 2 skipped, 0 failures (simulator 787CAECE);
+  browser-assistant-answers PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5 and FOLDED_REPLIES=all on 0.2.2-rc.5.
+- Open steps: merge --no-ff into main, npm test, push main, CI. Keep the branch and its folder. No live copy, release,
+  npm publish, DSH restart. Screen did not change in the review fixes (cap count and docs only): no new
+  screenshots. No live copy, release, npm publish, DSH restart.
+
+## Requirement 4 options (before the decision)
+- Facts (dsh 0.2.2-rc.5 source): a step streams its text block before its tool-call block (dsh-client-ui-chat
+  conversation-nodes/assistant.ts updateChunk); a turn's closing answer is known only at turn/end (turn-tail.ts). The
+  card hold (replyCardsOf) gives no card to such a text until the turn ends. Tether's botLines holds it the same way
+  in the running turn, but its LiveTail shows the text while it streams.
+- A. Hold as the cards (and Tether): in every running Damon turn, hide each text step with a tool call that asks
+  nothing; after the end, show it only when the turn is not hushed. Cost: no progress line in any running turn, and a
+  short flash while the text streams before its tool call.
+- B. Keep 5e3a269e: the line shows while the turn runs and goes at the turn's end.
+- D. Hide every assistant text of a running Damon turn (also while it streams) until it ends; dsh's running status
+  stays. No flash; no text at all until the turn ends.
+- Next after the choice: implement, tests, review-guard loop (diff > 100 lines and > 3 files: repeat until no P1/P2),
+  fetch/merge origin/main, tests, merge --no-ff into main, push, CI.
+
 # Release 1.33.0 (branch chore/release-1-33-0, 2026-11-27)
 
 Approval (Furkan, Assistant chat, 2026-11-27): "Onaylıyorum: Composer Plus canlı kopyadaki ee06f990 için 1.33.0 sürümü
