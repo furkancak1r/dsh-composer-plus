@@ -1,3 +1,38 @@
+# Release 1.34.0 and live copy (branch chore/release-composer-plus-live-update, 2026-11-28)
+
+Approval (Furkan, Assistant chat, 2026-11-28): "Onaylıyorum: Composer Plus canlı kopyası 38ba7332 ile yedekli
+güncellensin, release, npm ve eklenti listesi yapılsın; …". Content: exactly 38ba7332 plus the version files. Out of
+scope: code changes, Tether builds, a DSH restart (Furkan restarts it), the other parts of the approval (other chats).
+
+## Done (2026-11-28 14:5x)
+- Release commit R = 2928c900c2fdff21114aa8d568c3ee125ffb1297 (ab69f040 version commit + 2928c900 review 1 fixes) on
+  38ba7332: package.json 1.34.0 (minor: Get suggestions is new, 3f9e38d7), 26 README notes, release-notes.json 13
+  languages from `git log 72b57ccd..38ba7332` (189fc00c, cd1ff110, 3f9e38d7, 38ba7332; 9e4bb6f0 adds no code).
+- Review: round 1 (review-guard-r1, ab69f040) P1 0, P2 0, P3 1 (Mobile connect bullet: without an APNs key the change needs
+  a new Tether build), P4 1 (es/ru wording); fixed in 2928c900. Round 2 (review-guard-r2, 38ba7332...2928c900): clean.
+- Checks on R: `npm test` exit 0; `npm pack --dry-run` 1.34.0, 127 files, tether/ only gateway/{server.mjs,admin.html,qr.swift};
+  CI test run 46139968677 success (branch push).
+- Release https://github.com/furkancak1r/dsh-composer-plus/releases/tag/v1.34.0: tag v1.34.0 on R, assets active.txt and
+  installed.txt, releases/latest = v1.34.0. release.yml run 46140186763 success (check notes, npm test, publish);
+  registry.npmjs.org/dsh-composer-plus/1.34.0: gitHead R, shasum 1f918e84… (= workflow log), 127 files, attestations;
+  dist-tags latest 1.34.0; provenance sigstore logIndex 4161269177.
+- main: merge 4ec02493 (--no-ff, parents 38ba7332 and R, tree equal to R), pushed; CI run 46140780715 success.
+- Plugin list PR https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/19593 (fork branch composer-plus-1.34.0,
+  only data/plugins/furkancak1r__dsh-composer-plus.yml +2 -2: Get suggestions in the Decisions dialog in, Advisor model
+  out; en 635, zh 254 characters).
+- Live copy: before the sync, each file of the sync list equaled 72b57ccd; client.js differed only in line 12. Outside
+  the sync list, more files differ from the repository: package.json (local name, private, and no license, keywords,
+  files, scripts, repository, homepage, bugs, engines, publishConfig), 7 old test/*.mjs, and check.mjs,
+  chat-grant.test.mjs, notify.test.mjs (not in the repository). They are the same in the v1.24.0 backup (2026-11-08)
+  and the v1.33.0 backup, except the version; the sync writes none of them, except the package.json version.
+  live-copy-check printed MIXED before (main had moved past 72b57ccd). Backup
+  ~/Documents/testdeepseekharness/dsh-composer-history-backup-before-v1.34.0-20261128-1444 (`diff -rq` equal). Synced
+  whole files of R (client.js, index.js, release-notes.json changed; backup.mjs, tether/gateway/*, locale/*,
+  assets/features/* equal), package.json only version 1.33.0 → 1.34.0. After: client.js differs from R only in line 12;
+  `node --check` ok; live-copy-check `MATCH 4ec02493 … (newest main commit)` exit 0. cordis.patch.yml not opened.
+  DSH not restarted.
+- Last passing test command: `npm test` (exit 0) on R. Open: none in this branch. Branch and worktree stay.
+
 # Kararlar: "third eye" suggestion cards (branch feat/decisions-window-suggestion-cards, 2026-11-27)
 
 Source: Furkan, relayed by Damon (2026-11-27): one clickable row under the last decision card of the Kararlar dialog; a
